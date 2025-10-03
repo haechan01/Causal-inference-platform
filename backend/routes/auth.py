@@ -1,3 +1,7 @@
+"""
+Authentication routes for user registration, login, and JWT token management.
+"""
+
 from flask import Blueprint, request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import (
@@ -7,6 +11,11 @@ from flask_jwt_extended import (
 import re
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+
+# Import db and models after Blueprint creation to avoid circular imports
+# pylint: disable=wrong-import-position
+from app import db
+from models import User
 
 
 def validate_email(email):
@@ -41,10 +50,6 @@ def register():
     }
     """
     try:
-        # Import here to avoid circular imports
-        from app import db
-        from models import User
-
         data = request.get_json()
 
         # Validate required fields
@@ -111,7 +116,11 @@ def register():
         }), 201
 
     except Exception as e:
-        db.session.rollback()
+        # Safely rollback if session exists
+        try:
+            db.session.rollback()
+        except Exception:
+            pass  # Ignore rollback errors
         return jsonify({"error": f"Registration failed: {str(e)}"}), 500
 
 
@@ -125,8 +134,6 @@ def login():
     }
     """
     try:
-        from models import User
-
         data = request.get_json()
 
         if not data:
@@ -179,8 +186,6 @@ def refresh():
     """
     try:
         current_user_id = get_jwt_identity()
-
-        from models import User
         user = User.query.get(current_user_id)
 
         if not user:
@@ -210,8 +215,6 @@ def get_current_user():
     """
     try:
         current_user_id = get_jwt_identity()
-
-        from models import User
         user = User.query.get(current_user_id)
 
         if not user:
