@@ -12,10 +12,10 @@ import re
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
-# Import db and models after Blueprint creation to avoid circular imports
+# Import db at module level
+# User model will be imported when needed to avoid circular import
 # pylint: disable=wrong-import-position
 from app import db
-from models import User
 
 
 def validate_email(email):
@@ -50,6 +50,8 @@ def register():
     }
     """
     try:
+        from models import User
+        
         data = request.get_json()
 
         # Validate required fields
@@ -134,6 +136,8 @@ def login():
     }
     """
     try:
+        from models import User
+        
         data = request.get_json()
 
         if not data:
@@ -185,6 +189,8 @@ def refresh():
     Requires refresh token in Authorization header: Bearer <refresh_token>
     """
     try:
+        from models import User
+        
         current_user_id = get_jwt_identity()
         user = User.query.get(current_user_id)
 
@@ -214,6 +220,8 @@ def get_current_user():
     Requires access token in Authorization header: Bearer <access_token>
     """
     try:
+        from models import User
+        
         current_user_id = get_jwt_identity()
         user = User.query.get(current_user_id)
 

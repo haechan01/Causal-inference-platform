@@ -59,10 +59,8 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # Initialize the database
 db = SQLAlchemy(app)
 
-# Import models after db initialization to avoid circular imports
-from models import User, Project, Dataset, Analysis  # noqa: E402, F401
-
-# Import blueprints
+# Import blueprints after db initialization
+# Models are imported within routes to avoid circular imports
 from routes.analysis import analysis_bp  # noqa: E402
 from routes.auth import auth_bp  # noqa: E402
 
@@ -85,4 +83,4 @@ def health():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=5001)
