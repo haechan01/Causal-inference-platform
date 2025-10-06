@@ -1,5 +1,15 @@
 """
 Authentication routes for user registration, login, and JWT token management.
+
+JWT Identity Strategy:
+---------------------
+- JWT tokens store user ID as a STRING (Flask-JWT-Extended best practice)
+- When creating tokens: use str(user.id)
+- When reading tokens: get_jwt_identity() returns a string
+- For database queries: convert the string to int using int(get_jwt_identity())
+
+This approach ensures type consistency with JWT standards while maintaining
+compatibility with our integer-based database primary keys.
 """
 
 from flask import Blueprint, request, jsonify
