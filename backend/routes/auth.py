@@ -191,7 +191,12 @@ def refresh():
     try:
         from models import User
 
-        current_user_id = int(get_jwt_identity())
+        # Validate JWT identity is a valid integer
+        try:
+            current_user_id = int(get_jwt_identity())
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid token identity"}), 401
+
         user = User.query.get(current_user_id)
 
         if not user:
@@ -222,7 +227,12 @@ def get_current_user():
     try:
         from models import User
 
-        current_user_id = int(get_jwt_identity())
+        # Validate JWT identity is a valid integer
+        try:
+            current_user_id = int(get_jwt_identity())
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid token identity"}), 401
+
         user = User.query.get(current_user_id)
 
         if not user:
