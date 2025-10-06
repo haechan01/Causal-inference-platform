@@ -101,10 +101,10 @@ def register():
 
         # Generate tokens
         access_token = create_access_token(
-            identity=new_user.id,
+            identity=str(new_user.id),
             additional_claims={"username": new_user.username}
         )
-        refresh_token = create_refresh_token(identity=new_user.id)
+        refresh_token = create_refresh_token(identity=str(new_user.id))
 
         return jsonify({
             "message": "User registered successfully",
@@ -161,10 +161,10 @@ def login():
 
         # Generate tokens
         access_token = create_access_token(
-            identity=user.id,
+            identity=str(user.id),
             additional_claims={"username": user.username}
         )
-        refresh_token = create_refresh_token(identity=user.id)
+        refresh_token = create_refresh_token(identity=str(user.id))
 
         return jsonify({
             "message": "Login successful",
@@ -190,8 +190,8 @@ def refresh():
     """
     try:
         from models import User
-        
-        current_user_id = get_jwt_identity()
+
+        current_user_id = int(get_jwt_identity())
         user = User.query.get(current_user_id)
 
         if not user:
@@ -199,7 +199,7 @@ def refresh():
 
         # Generate new access token
         access_token = create_access_token(
-            identity=current_user_id,
+            identity=str(current_user_id),
             additional_claims={"username": user.username}
         )
 
@@ -221,8 +221,8 @@ def get_current_user():
     """
     try:
         from models import User
-        
-        current_user_id = get_jwt_identity()
+
+        current_user_id = int(get_jwt_identity())
         user = User.query.get(current_user_id)
 
         if not user:
