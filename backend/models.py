@@ -2,8 +2,11 @@
 Database models for the causal inference platform.
 """
 from datetime import datetime
-from app import db
+from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash
+
+# Create db instance that will be initialized by app.py
+db = SQLAlchemy()
 
 
 class User(db.Model):

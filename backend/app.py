@@ -2,7 +2,6 @@ import os
 from datetime import timedelta
 from flask import Flask
 from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager
 from dotenv import load_dotenv
 
@@ -13,10 +12,11 @@ load_dotenv()
 app = Flask(__name__)
 
 # Configure CORS
-cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000').split(',')
+cors_origins = [origin.strip() for origin in os.getenv('CORS_ORIGINS', 'http://localhost:3000').split(',')]
 CORS(app, origins=cors_origins)
 
-# Configure database
+# Import and initialize database
+from models import db
 app.config['SQLALCHEMY_DATABASE_URI'] = (
     f"postgresql://{os.getenv('DB_USER', 'postgres')}:"
     f"{os.getenv('DB_PASSWORD', 'password')}@"
@@ -27,7 +27,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = (
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize database
-db = SQLAlchemy(app)
+db.init_app(app)
 
 # Configure JWT
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
