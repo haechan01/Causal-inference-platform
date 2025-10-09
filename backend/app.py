@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from flask import Flask
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
@@ -40,14 +41,16 @@ if not app.config['JWT_SECRET_KEY']:
 
 # Configure JWT token expiration
 try:
-    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', '3600'))  # 1 hour
+    access_expires_seconds = int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', '3600'))
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(seconds=access_expires_seconds)
 except (ValueError, TypeError):
-    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = 3600  # Default to 1 hour
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)  # Default to 1 hour
 
 try:
-    app.config['JWT_REFRESH_TOKEN_EXPIRES'] = int(os.getenv('JWT_REFRESH_TOKEN_EXPIRES', '2592000'))  # 30 days
+    refresh_expires_seconds = int(os.getenv('JWT_REFRESH_TOKEN_EXPIRES', '2592000'))
+    app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(seconds=refresh_expires_seconds)
 except (ValueError, TypeError):
-    app.config['JWT_REFRESH_TOKEN_EXPIRES'] = 2592000  # Default to 30 days
+    app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)  # Default to 30 days
 
 # Initialize JWT
 jwt = JWTManager(app)
