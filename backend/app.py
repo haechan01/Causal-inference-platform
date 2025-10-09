@@ -39,8 +39,15 @@ if not app.config['JWT_SECRET_KEY']:
     raise ValueError("JWT_SECRET_KEY environment variable is required")
 
 # Configure JWT token expiration
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', '3600'))  # 1 hour
-app.config['JWT_REFRESH_TOKEN_EXPIRES'] = int(os.getenv('JWT_REFRESH_TOKEN_EXPIRES', '2592000'))  # 30 days
+try:
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', '3600'))  # 1 hour
+except (ValueError, TypeError):
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = 3600  # Default to 1 hour
+
+try:
+    app.config['JWT_REFRESH_TOKEN_EXPIRES'] = int(os.getenv('JWT_REFRESH_TOKEN_EXPIRES', '2592000'))  # 30 days
+except (ValueError, TypeError):
+    app.config['JWT_REFRESH_TOKEN_EXPIRES'] = 2592000  # Default to 30 days
 
 # Initialize JWT
 jwt = JWTManager(app)

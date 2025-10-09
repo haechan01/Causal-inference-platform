@@ -61,9 +61,8 @@ def admin_required(f):
         if not user:
             return jsonify({"error": "Authentication required"}), 401
         
-        # For now, we don't have admin roles, so this is a placeholder
-        # You can implement admin logic here when needed
-        if not hasattr(user, 'is_admin') or not user.is_admin:
+        # Check if user has admin privileges
+        if not user.is_admin:
             return jsonify({"error": "Admin privileges required"}), 403
         
         return f(*args, **kwargs)
