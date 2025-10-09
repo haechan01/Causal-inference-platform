@@ -1,6 +1,5 @@
 from flask import Flask
 from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager
 from datetime import timedelta
 import os
@@ -16,14 +15,10 @@ allowed_origins = os.environ.get('CORS_ORIGINS', 'http://localhost:3000')
 CORS(app, origins=allowed_origins.split(','))
 
 # --- Flask Configuration ---
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
-if not app.config['SECRET_KEY']:
-    raise ValueError("SECRET_KEY environment variable is not set")
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
 # --- JWT Configuration ---
-app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY')
-if not app.config['JWT_SECRET_KEY']:
-    raise ValueError("JWT_SECRET_KEY environment variable is not set")
+app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'dev-jwt-secret-change-in-production')
 
 # Token expiration settings
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(
@@ -43,21 +38,20 @@ DB_HOST = os.environ.get('DB_HOST', 'localhost')
 DB_PORT = os.environ.get('DB_PORT', '5432')
 DB_NAME = os.environ.get('DB_NAME')
 
-# Validate required database configuration
+# Use SQLite for development if PostgreSQL config is not complete
 if not all([DB_USER, DB_PASSWORD, DB_NAME]):
-    raise ValueError(
-        "Database configuration incomplete. "
-        "Set DB_USER, DB_PASSWORD, and DB_NAME environment variables"
+    print("⚠️  PostgreSQL config incomplete, using SQLite for development")
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
+else:
+    app.config['SQLALCHEMY_DATABASE_URI'] = (
+        f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:"
+        f"{DB_PORT}/{DB_NAME}"
     )
-
-app.config['SQLALCHEMY_DATABASE_URI'] = (
-    f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:"
-    f"{DB_PORT}/{DB_NAME}"
-)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Initialize the database
-db = SQLAlchemy(app)
+# Import db from models and initialize it
+from models import db  # noqa: E402
+db.init_app(app)
 
 # Import blueprints after db initialization
 # Models are imported within routes to avoid circular imports
@@ -83,4 +77,6 @@ def health():
 
 
 if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()  # Create tables
     app.run(debug=True, port=5001)

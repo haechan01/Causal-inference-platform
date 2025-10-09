@@ -1,6 +1,9 @@
-from app import db
+from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash
 from datetime import datetime
+
+# Initialize db here to avoid circular imports
+db = SQLAlchemy()
 
 
 class User(db.Model):
