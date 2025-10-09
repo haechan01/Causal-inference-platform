@@ -26,11 +26,6 @@ logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
-# Import db at module level
-# User model will be imported when needed to avoid circular import
-# pylint: disable=wrong-import-position
-from app import db
-
 
 def validate_email(email):
     """Validate email format"""
@@ -64,6 +59,7 @@ def register():
     }
     """
     try:
+        from app import db
         from models import User
 
         data = request.get_json()
@@ -154,6 +150,7 @@ def login():
     }
     """
     try:
+        from app import db
         from models import User
 
         data = request.get_json()
@@ -209,6 +206,7 @@ def refresh():
     Requires refresh token in Authorization header: Bearer <refresh_token>
     """
     try:
+        from app import db
         from models import User
 
         # Validate JWT identity is a valid integer
@@ -253,6 +251,7 @@ def get_current_user():
     Requires access token in Authorization header: Bearer <access_token>
     """
     try:
+        from app import db
         from models import User
 
         # Validate JWT identity is a valid integer
