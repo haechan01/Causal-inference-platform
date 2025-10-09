@@ -47,7 +47,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string) => {
     try {
-      const response = await fetch('http://localhost:5000/api/auth/login', {
+      const response = await fetch('http://localhost:5001/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include', // Important for cookies
@@ -67,7 +67,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
-      await fetch('http://localhost:5000/api/auth/logout', {
+      await fetch('http://localhost:5001/api/auth/logout', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${accessToken}` },
         credentials: 'include'
@@ -81,7 +81,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshToken = async (): Promise<string | null> => {
     try {
-      const response = await fetch('http://localhost:5000/api/auth/refresh', {
+      const response = await fetch('http://localhost:5001/api/auth/refresh', {
         method: 'POST',
         credentials: 'include' // Sends httpOnly cookie automatically
       });
@@ -177,7 +177,7 @@ const LoginForm = () => {
 // src/utils/axiosInstance.ts
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5000';
+const API_BASE_URL = 'http://localhost:5001';
 
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,

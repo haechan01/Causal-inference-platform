@@ -5,7 +5,7 @@ This API provides authentication and causal analysis functionality using JWT tok
 
 ## Base URL
 ```
-http://localhost:5000
+http://localhost:5001
 ```
 
 ## Authentication
@@ -230,7 +230,7 @@ Content-Type: multipart/form-data
 
 **Register:**
 ```bash
-curl -X POST http://localhost:5000/api/auth/register \
+curl -X POST http://localhost:5001/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "username": "johndoe",
@@ -241,7 +241,7 @@ curl -X POST http://localhost:5000/api/auth/register \
 
 **Login:**
 ```bash
-curl -X POST http://localhost:5000/api/auth/login \
+curl -X POST http://localhost:5001/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "john@example.com",
@@ -251,7 +251,7 @@ curl -X POST http://localhost:5000/api/auth/login \
 
 **Get Current User:**
 ```bash
-curl -X GET http://localhost:5000/api/auth/me \
+curl -X GET http://localhost:5001/api/auth/me \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
 ```
 
@@ -261,7 +261,7 @@ curl -X GET http://localhost:5000/api/auth/me \
 import requests
 
 # Register
-response = requests.post('http://localhost:5000/api/auth/register', json={
+response = requests.post('http://localhost:5001/api/auth/register', json={
     'username': 'johndoe',
     'email': 'john@example.com',
     'password': 'SecurePass123'
@@ -271,7 +271,7 @@ access_token = data['access_token']
 
 # Use the token for authenticated requests
 headers = {'Authorization': f'Bearer {access_token}'}
-response = requests.get('http://localhost:5000/api/auth/me', headers=headers)
+response = requests.get('http://localhost:5001/api/auth/me', headers=headers)
 print(response.json())
 ```
 
@@ -279,7 +279,7 @@ print(response.json())
 
 ```javascript
 // Register
-const response = await fetch('http://localhost:5000/api/auth/register', {
+const response = await fetch('http://localhost:5001/api/auth/register', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -298,7 +298,7 @@ const accessToken = data.access_token;
 localStorage.setItem('access_token', accessToken);
 
 // Use token for authenticated requests
-const userResponse = await fetch('http://localhost:5000/api/auth/me', {
+const userResponse = await fetch('http://localhost:5001/api/auth/me', {
   headers: {
     'Authorization': `Bearer ${accessToken}`
   }

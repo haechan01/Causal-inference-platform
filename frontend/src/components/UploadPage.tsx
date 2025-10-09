@@ -27,7 +27,7 @@ const UploadPage: React.FC = () => {
     formData.append('treatment_time', treatmentTime);
 
     try {
-      const res = await axios.post<Result>('http://localhost:5000/analyze/did', formData);
+      const res = await axios.post<Result>('http://localhost:5001/api/analysis/did', formData);
       setResult(res.data);
     } catch (err) {
       console.error(err);

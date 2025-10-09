@@ -1,5 +1,15 @@
 """
 Authentication routes for user registration, login, and JWT token management.
+
+JWT Identity Strategy:
+---------------------
+- JWT tokens store user ID as a STRING (Flask-JWT-Extended best practice)
+- When creating tokens: use str(user.id)
+- When reading tokens: get_jwt_identity() returns a string
+- For database queries: convert the string to int using int(get_jwt_identity())
+
+This approach ensures type consistency with JWT standards while maintaining
+compatibility with our integer-based database primary keys.
 """
 
 from flask import Blueprint, request, jsonify
@@ -9,6 +19,10 @@ from flask_jwt_extended import (
     jwt_required, get_jwt_identity
 )
 import re
+import logging
+
+# Configure logger for this module
+logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -51,7 +65,7 @@ def register():
     """
     try:
         from models import User
-        
+
         data = request.get_json()
 
         # Validate required fields
@@ -118,12 +132,16 @@ def register():
         }), 201
 
     except Exception as e:
+        # Log the full exception for debugging
+        logger.error("Registration failed: %s", str(e), exc_info=True)
+
         # Safely rollback if session exists
         try:
             db.session.rollback()
-        except Exception:
-            pass  # Ignore rollback errors
-        return jsonify({"error": f"Registration failed: {str(e)}"}), 500
+        except Exception as rollback_error:
+            logger.error("Rollback failed: %s", str(rollback_error))
+
+        return jsonify({"error": "Registration failed"}), 500
 
 
 @auth_bp.route('/login', methods=['POST'])
@@ -137,7 +155,7 @@ def login():
     """
     try:
         from models import User
-        
+
         data = request.get_json()
 
         if not data:
@@ -178,7 +196,9 @@ def login():
         }), 200
 
     except Exception as e:
-        return jsonify({"error": f"Login failed: {str(e)}"}), 500
+        # Log the full exception for debugging
+        logger.error("Login failed: %s", str(e), exc_info=True)
+        return jsonify({"error": "Login failed"}), 500
 
 
 @auth_bp.route('/refresh', methods=['POST'])
@@ -193,13 +213,20 @@ def refresh():
 
         # Validate JWT identity is a valid integer
         try:
-            current_user_id = int(get_jwt_identity())
-        except (ValueError, TypeError):
+            jwt_identity = get_jwt_identity()
+            current_user_id = int(jwt_identity)
+        except (ValueError, TypeError) as e:
+            # Log the actual error for debugging
+            logger.warning(
+                "Invalid JWT identity format: %s (type: %s) - Error: %s",
+                jwt_identity, type(jwt_identity).__name__, str(e)
+            )
             return jsonify({"error": "Invalid token identity"}), 401
 
         user = User.query.get(current_user_id)
 
         if not user:
+            logger.warning("User ID %s from token not found", current_user_id)
             return jsonify({"error": "User not found"}), 404
 
         # Generate new access token
@@ -213,8 +240,9 @@ def refresh():
         }), 200
 
     except Exception as e:
-        msg = f"Token refresh failed: {str(e)}"
-        return jsonify({"error": msg}), 500
+        # Log the full exception for debugging
+        logger.error("Token refresh failed: %s", str(e), exc_info=True)
+        return jsonify({"error": "Token refresh failed"}), 500
 
 
 @auth_bp.route('/me', methods=['GET'])
@@ -229,13 +257,20 @@ def get_current_user():
 
         # Validate JWT identity is a valid integer
         try:
-            current_user_id = int(get_jwt_identity())
-        except (ValueError, TypeError):
+            jwt_identity = get_jwt_identity()
+            current_user_id = int(jwt_identity)
+        except (ValueError, TypeError) as e:
+            # Log the actual error for debugging
+            logger.warning(
+                "Invalid JWT identity format: %s (type: %s) - Error: %s",
+                jwt_identity, type(jwt_identity).__name__, str(e)
+            )
             return jsonify({"error": "Invalid token identity"}), 401
 
         user = User.query.get(current_user_id)
 
         if not user:
+            logger.warning("User ID %s from token not found", current_user_id)
             return jsonify({"error": "User not found"}), 404
 
         return jsonify({
@@ -247,8 +282,9 @@ def get_current_user():
         }), 200
 
     except Exception as e:
-        msg = f"Failed to get user info: {str(e)}"
-        return jsonify({"error": msg}), 500
+        # Log the full exception for debugging
+        logger.error("Failed to get user info: %s", str(e), exc_info=True)
+        return jsonify({"error": "Failed to get user info"}), 500
 
 
 @auth_bp.route('/logout', methods=['POST'])
