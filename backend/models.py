@@ -57,6 +57,16 @@ class Dataset(db.Model):
     file_name = db.Column(db.String(255), nullable=False)
     s3_key = db.Column(db.String(255), unique=True, nullable=False)
     schema_info = db.Column(db.JSON, nullable=True)
+    
+    def to_dict(self):
+        """Convert dataset to dictionary for JSON serialization"""
+        return {
+            'id': self.id,
+            'project_id': self.project_id,
+            'file_name': self.file_name,
+            's3_key': self.s3_key,
+            'schema_info': self.schema_info
+        }
 
 
 class Analysis(db.Model):

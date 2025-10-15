@@ -3,7 +3,7 @@ from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from datetime import timedelta
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv 
 
 # Load environment variables from .env file
 load_dotenv()
@@ -15,18 +15,28 @@ allowed_origins = os.environ.get('CORS_ORIGINS', 'http://localhost:3000')
 CORS(app, origins=allowed_origins.split(','))
 
 # --- Flask Configuration ---
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY environment variable is not set")
+app.config['SECRET_KEY'] = SECRET_KEY
 
 # --- JWT Configuration ---
-app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'dev-jwt-secret-change-in-production')
+JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
+if not JWT_SECRET_KEY:
+    raise ValueError("JWT_SECRET_KEY environment variable is not set")
+app.config['JWT_SECRET_KEY'] = JWT_SECRET_KEY
 
 # Token expiration settings
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(
-    seconds=int(os.environ.get('JWT_ACCESS_TOKEN_EXPIRES', 3600))
-)
-app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(
-    seconds=int(os.environ.get('JWT_REFRESH_TOKEN_EXPIRES', 2592000))
-)
+JWT_ACCESS_TOKEN_EXPIRES = os.environ.get('JWT_ACCESS_TOKEN_EXPIRES')
+JWT_REFRESH_TOKEN_EXPIRES = os.environ.get('JWT_REFRESH_TOKEN_EXPIRES')
+
+if not JWT_ACCESS_TOKEN_EXPIRES:
+    raise ValueError("JWT_ACCESS_TOKEN_EXPIRES environment variable is not set")
+if not JWT_REFRESH_TOKEN_EXPIRES:
+    raise ValueError("JWT_REFRESH_TOKEN_EXPIRES environment variable is not set")
+
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(seconds=int(JWT_ACCESS_TOKEN_EXPIRES))
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(seconds=int(JWT_REFRESH_TOKEN_EXPIRES))
 
 # Initialize JWT
 jwt = JWTManager(app)
@@ -38,15 +48,19 @@ DB_HOST = os.environ.get('DB_HOST', 'localhost')
 DB_PORT = os.environ.get('DB_PORT', '5432')
 DB_NAME = os.environ.get('DB_NAME')
 
-# Use SQLite for development if PostgreSQL config is not complete
-if not all([DB_USER, DB_PASSWORD, DB_NAME]):
-    print("⚠️  PostgreSQL config incomplete, using SQLite for development")
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
-else:
-    app.config['SQLALCHEMY_DATABASE_URI'] = (
-        f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:"
-        f"{DB_PORT}/{DB_NAME}"
-    )
+# Validate required database environment variables
+if not DB_USER:
+    raise ValueError("DB_USER environment variable is not set")
+if not DB_PASSWORD:
+    raise ValueError("DB_PASSWORD environment variable is not set")
+if not DB_NAME:
+    raise ValueError("DB_NAME environment variable is not set")
+
+# Configure PostgreSQL database
+app.config['SQLALCHEMY_DATABASE_URI'] = (
+    f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:"
+    f"{DB_PORT}/{DB_NAME}"
+)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Import db from models and initialize it
@@ -57,10 +71,12 @@ db.init_app(app)
 # Models are imported within routes to avoid circular imports
 from routes.analysis import analysis_bp  # noqa: E402
 from routes.auth import auth_bp  # noqa: E402
+from routes.projects import projects_bp  # noqa: E402
 
 # API Routes (Blueprints)
 app.register_blueprint(auth_bp)
 app.register_blueprint(analysis_bp)
+app.register_blueprint(projects_bp)
 
 
 @app.route('/')
@@ -74,7 +90,6 @@ def health():
         "status": "healthy",
         "message": "Causalytics API is running"
     }
-
 
 if __name__ == "__main__":
     with app.app_context():
