@@ -12,9 +12,14 @@ interface Dataset {
   file_size?: number; // Optional since it might not be in the database
 }
 
-const DataManagement: React.FC = () => {
+interface DataManagementProps {
+  onReadyForNext?: (isReady: boolean) => void;
+}
+
+const DataManagement: React.FC<DataManagementProps> = ({ onReadyForNext }) => {
   const [selectedProject, setSelectedProject] = useState<number | null>(null);
   const [selectedFile, setSelectedFile] = useState<Dataset | null>(null);
+  const [hasUploadedFiles, setHasUploadedFiles] = useState(false);
 
   // Handle project selection from FileUpload
   const handleProjectSelect = (projectId: number) => {
@@ -31,7 +36,21 @@ const DataManagement: React.FC = () => {
   const handleUploadSuccess = (uploadedFile: any) => {
     // File upload was successful, FileList will refresh automatically
     console.log('File uploaded successfully:', uploadedFile);
+    setHasUploadedFiles(true);
   };
+
+  // Handle file list updates (when files are loaded)
+  const handleFileListUpdate = (fileCount: number) => {
+    setHasUploadedFiles(fileCount > 0);
+  };
+
+  // Notify parent when ready for next step
+  React.useEffect(() => {
+    const isReady = selectedProject !== null && hasUploadedFiles;
+    if (onReadyForNext) {
+      onReadyForNext(isReady);
+    }
+  }, [selectedProject, hasUploadedFiles, onReadyForNext]);
 
   return (
     <div style={styles.container}>
@@ -51,6 +70,7 @@ const DataManagement: React.FC = () => {
             <FileList
               projectId={selectedProject}
               onFileSelect={handleFileSelect}
+              onFileListUpdate={handleFileListUpdate}
             />
           </div>
         )}
