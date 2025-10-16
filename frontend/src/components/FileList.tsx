@@ -15,9 +15,10 @@ interface Dataset {
 interface FileListProps {
   projectId: number;
   onFileSelect?: (dataset: Dataset) => void;
+  onFileListUpdate?: (fileCount: number) => void;
 }
 
-const FileList: React.FC<FileListProps> = ({ projectId, onFileSelect }) => {
+const FileList: React.FC<FileListProps> = ({ projectId, onFileSelect, onFileListUpdate }) => {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,12 +37,20 @@ const FileList: React.FC<FileListProps> = ({ projectId, onFileSelect }) => {
       });
       
       setDatasets(response.data.datasets);
+      // Notify parent about file count
+      if (onFileListUpdate) {
+        onFileListUpdate(response.data.datasets.length);
+      }
     } catch (error: any) {
       setError(error.response?.data?.error || 'Failed to load files');
+      // Notify parent about no files on error
+      if (onFileListUpdate) {
+        onFileListUpdate(0);
+      }
     } finally {
       setLoading(false);
     }
-  }, [projectId, accessToken]);
+  }, [projectId, accessToken, onFileListUpdate]);
 
   // Load datasets when project changes
   useEffect(() => {

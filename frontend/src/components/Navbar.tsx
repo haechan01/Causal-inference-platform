@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { LoginButton, SignUpButton, ProfileButton, LogoutButton, WelcomeText, Logo } from './buttons';
+import { LoginButton, SignUpButton, ProfileButton, LogoutButton, Logo } from './buttons';
 
 const Navbar: React.FC = () => {
     const { isAuthenticated } = useAuth();
@@ -14,7 +14,6 @@ const Navbar: React.FC = () => {
           <div style={styles.navButtons}>
             {isAuthenticated ? (
               <>
-                <WelcomeText style={styles.welcomeText} />
                 <ProfileButton style={styles.navButton} />
                 <LogoutButton style={styles.logoutButton} />
               </>

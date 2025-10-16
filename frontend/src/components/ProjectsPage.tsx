@@ -1,12 +1,32 @@
 // src/components/ProjectsPage.tsx
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import DataManagement from './DataManagement';
 import Navbar from './Navbar';
-import { LoginButton, SignUpButton } from './buttons';
+import { LoginButton, SignUpButton, NavigationButton } from './buttons';
+import { NavigationButtonConfig } from '../types/buttons';
 
 const ProjectsPage: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
+  const [isReadyForNext, setIsReadyForNext] = useState(false);
+
+  // Navigation button configurations for this page
+  const prevButtonConfig: NavigationButtonConfig = {
+    to: '/',
+    text: '<',
+    style: styles.prevButton
+  };
+
+  const nextButtonConfig: NavigationButtonConfig = {
+    to: '/method-selection',
+    text: '>',
+    style: styles.nextButton
+  };
+
+  // Handle when DataManagement is ready for next step
+  const handleReadyForNext = (ready: boolean) => {
+    setIsReadyForNext(ready);
+  };
 
   // Show loading spinner while checking authentication
   if (isLoading) {
@@ -39,9 +59,38 @@ const ProjectsPage: React.FC = () => {
   // Show data management interface for authenticated users
   return (
     <div>
+      <style>
+        {`
+          @keyframes slideInFromRight {
+            from {
+              transform: translateX(100%);
+              opacity: 0;
+            }
+            to {
+              transform: translateX(0);
+              opacity: 1;
+            }
+          }
+        `}
+      </style>
       <Navbar />
       <div style={styles.contentContainer}>
-        <DataManagement />
+        <div style={styles.mainContent}>
+          <DataManagement onReadyForNext={handleReadyForNext} />
+        </div>
+        
+        {/* Navigation buttons at the bottom */}
+        <div style={styles.navigationContainer}>
+          <div style={styles.prevButtonContainer}>
+            <NavigationButton config={prevButtonConfig} />
+          </div>
+          
+          {isReadyForNext && (
+            <div style={styles.nextButtonContainer}>
+              <NavigationButton config={nextButtonConfig} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -57,6 +106,36 @@ const styles = {
     paddingTop: '70px', // Account for fixed navbar height
     minHeight: 'calc(100vh - 70px)', // Full height minus navbar
     backgroundColor: '#f5f5f5'
+  },
+  mainContent: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: '20px',
+    flex: 1,
+    maxWidth: '1200px',
+    margin: '0 auto',
+    width: '100%',
+    boxSizing: 'border-box' as const
+  },
+  navigationContainer: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '0 20px 20px 20px',
+    maxWidth: '1200px',
+    margin: '0 auto',
+    width: '100%',
+    boxSizing: 'border-box' as const
+  },
+  prevButtonContainer: {
+    display: 'flex',
+    alignItems: 'center'
+  },
+  nextButtonContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    animation: 'slideInFromRight 0.3s ease-out'
   },
   header: {
     backgroundColor: 'white',
@@ -157,6 +236,48 @@ const styles = {
     fontWeight: '500',
     cursor: 'pointer',
     transition: 'all 0.3s ease'
+  },
+  prevButton: {
+    backgroundColor: '#6c757d',
+    color: 'white',
+    border: 'none',
+    borderRadius: '50%',
+    width: '50px',
+    height: '50px',
+    fontSize: '20px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    boxShadow: '0 4px 15px rgba(108, 117, 125, 0.3)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    '&:hover': {
+      backgroundColor: '#5a6268',
+      transform: 'scale(1.1)',
+      boxShadow: '0 6px 20px rgba(108, 117, 125, 0.4)'
+    }
+  },
+  nextButton: {
+    backgroundColor: '#043873',
+    color: 'white',
+    border: 'none',
+    borderRadius: '50%',
+    width: '50px',
+    height: '50px',
+    fontSize: '20px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    boxShadow: '0 4px 15px rgba(4, 56, 115, 0.3)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    '&:hover': {
+      backgroundColor: '#0a4a8a',
+      transform: 'scale(1.1)',
+      boxShadow: '0 6px 20px rgba(4, 56, 115, 0.4)'
+    }
   }
 };
 
