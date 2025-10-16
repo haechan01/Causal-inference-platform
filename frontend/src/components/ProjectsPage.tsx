@@ -3,6 +3,7 @@ import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import DataManagement from './DataManagement';
 import Navbar from './Navbar';
+import { LoginButton, SignUpButton } from './buttons';
 
 const ProjectsPage: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -27,18 +28,8 @@ const ProjectsPage: React.FC = () => {
             Please log in or sign up to access your projects and start analysis.
           </p>
           <div style={styles.authButtons}>
-            <button 
-              onClick={() => window.location.href = '/login'}
-              style={styles.loginButton}
-            >
-              Go to Login
-            </button>
-            <button 
-              onClick={() => window.location.href = '/signup'}
-              style={styles.signupButton}
-            >
-              Sign Up
-            </button>
+            <LoginButton />
+            <SignUpButton />
           </div>
         </div>
       </div>

@@ -1,67 +1,27 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { LoginButton, SignUpButton, ProfileButton, LogoutButton, WelcomeText, Logo } from './buttons';
 
 const Navbar: React.FC = () => {
-    const navigate = useNavigate();
-    const { isAuthenticated, user, logout } = useAuth();
-    
-    const handleLogin = () => {
-        navigate('/login');
-    };
-    
-    const handleSignUp = () => {
-        navigate('/signup');
-    };
-    
-    const handleLogout = () => {
-        logout();
-        navigate('/');
-    };
-    
-    const handleProfile = () => {
-        navigate('/projects');
-    };
+    const { isAuthenticated } = useAuth();
     
     return (
     <nav style={styles.navbar}>
         <div style={styles.navContent}>
           <div style={styles.logo}>
-            <h1 style={styles.logoText}>CausalFlow</h1>
+            <Logo style={styles.logoText} />
           </div>
           <div style={styles.navButtons}>
             {isAuthenticated ? (
               <>
-                <span style={styles.welcomeText}>
-                  Welcome, {user?.username || 'User'}!
-                </span>
-                <button 
-                  onClick={handleProfile} 
-                  style={styles.navButton}
-                >
-                  Profile
-                </button>
-                <button 
-                  onClick={handleLogout} 
-                  style={styles.logoutButton}
-                >
-                  Logout
-                </button>
+                <WelcomeText style={styles.welcomeText} />
+                <ProfileButton style={styles.navButton} />
+                <LogoutButton style={styles.logoutButton} />
               </>
             ) : (
               <>
-                <button 
-                  onClick={handleLogin} 
-                  style={styles.navButton}
-                >
-                  Login
-                </button>
-                <button 
-                  onClick={handleSignUp} 
-                  style={styles.signUpButton}
-                >
-                  Sign Up
-                </button>
+                <LoginButton style={styles.navButton} />
+                <SignUpButton style={styles.signUpButton} />
               </>
             )}
           </div>
