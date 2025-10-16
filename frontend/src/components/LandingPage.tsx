@@ -1,6 +1,7 @@
 // src/components/LandingPage.tsx
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import Navbar from './Navbar';
 
 const LandingPage: React.FC = () => {
   const navigate = useNavigate();
@@ -9,39 +10,10 @@ const LandingPage: React.FC = () => {
     navigate('/projects');
   };
 
-  const handleLogin = () => {
-    navigate('/login');
-  };
-
-  const handleSignUp = () => {
-    navigate('/signup');
-  };
 
   return (
     <div style={styles.container}>
-      {/* Navigation Bar */}
-      <nav style={styles.navbar}>
-        <div style={styles.navContent}>
-          <div style={styles.logo}>
-            <h1 style={styles.logoText}>CausalFlow</h1>
-          </div>
-          <div style={styles.navButtons}>
-            <button 
-              onClick={handleLogin} 
-              style={styles.navButton}
-            >
-              Login
-            </button>
-            <button 
-              onClick={handleSignUp} 
-              style={styles.signUpButton}
-            >
-              Sign Up
-            </button>
-          </div>
-        </div>
-      </nav>
-
+      <Navbar />
       {/* Hero Section */}
       <main style={styles.hero}>
         <div style={styles.heroContent}>
@@ -95,7 +67,7 @@ const LandingPage: React.FC = () => {
       <footer style={styles.footer}>
         <div style={styles.footerContent}>
           <p style={styles.footerText}>
-            © 2024 CausalFlow. All rights reserved.
+            © 2025 CausalFlow. All rights reserved.
           </p>
         </div>
       </footer>
@@ -111,67 +83,10 @@ const styles = {
     color: 'white',
     fontFamily: 'Arial, sans-serif'
   },
-  navbar: {
-    position: 'fixed' as const,
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(4, 56, 115, 0.95)',
-    backdropFilter: 'blur(10px)',
-    borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-    zIndex: 1000
-  },
-  navContent: {
-    maxWidth: '1200px',
-    margin: '0 auto',
-    padding: '0 20px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    height: '70px'
-  },
-  logo: {
-    display: 'flex',
-    alignItems: 'center'
-  },
-  logoText: {
-    fontSize: '28px',
-    fontWeight: 'bold',
-    color: 'white',
-    margin: 0,
-    letterSpacing: '-0.5px'
-  },
-  navButtons: {
-    display: 'flex',
-    gap: '15px',
-    alignItems: 'center'
-  },
-  navButton: {
-    backgroundColor: 'transparent',
-    color: 'white',
-    border: '1px solid rgba(255, 255, 255, 0.3)',
-    borderRadius: '6px',
-    padding: '10px 20px',
-    fontSize: '16px',
-    fontWeight: '500',
-    cursor: 'pointer',
-    transition: 'all 0.3s ease',
-    textDecoration: 'none'
-  },
-  signUpButton: {
-    backgroundColor: '#4F9CF9',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    padding: '10px 20px',
-    fontSize: '16px',
-    fontWeight: '500',
-    cursor: 'pointer',
-    transition: 'all 0.3s ease'
-  },
+
   hero: {
     paddingTop: '70px',
-    minHeight: '100vh',
+    minHeight: '70vh',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -219,7 +134,7 @@ const styles = {
   },
   features: {
     padding: '100px 0',
-    backgroundColor: '#0a4a8a'
+    backgroundColor: 'white'
   },
   featuresContent: {
     maxWidth: '1200px',
@@ -231,7 +146,7 @@ const styles = {
     fontWeight: 'bold',
     textAlign: 'center' as const,
     margin: '0 0 60px 0',
-    color: 'white'
+    color: '#043873'
   },
   featuresGrid: {
     display: 'grid',
@@ -240,12 +155,13 @@ const styles = {
     marginTop: '60px'
   },
   featureCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: '#f8f9fa',
     borderRadius: '12px',
     padding: '40px 30px',
     textAlign: 'center' as const,
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-    transition: 'all 0.3s ease'
+    border: '1px solid #e9ecef',
+    transition: 'all 0.3s ease',
+    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.1)'
   },
   featureIcon: {
     fontSize: '48px',
@@ -254,12 +170,12 @@ const styles = {
   featureTitle: {
     fontSize: '24px',
     fontWeight: 'bold',
-    color: 'white',
+    color: '#043873',
     margin: '0 0 15px 0'
   },
   featureDescription: {
     fontSize: '16px',
-    color: '#b0b0b0',
+    color: '#666666',
     lineHeight: '1.6',
     margin: 0
   },
