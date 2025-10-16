@@ -6,7 +6,7 @@ Run the Flask app first, then run this script
 import requests
 import json
 
-BASE_URL = "http://localhost:5000"
+BASE_URL = "http://localhost:5001"
 
 
 def test_register():
@@ -85,7 +85,7 @@ def test_logout(access_token):
 
 if __name__ == "__main__":
     print("Starting Authentication Tests...")
-    print("Make sure the Flask app is running on http://localhost:5000")
+    print("Make sure the Flask app is running on http://localhost:5001")
 
     # Test registration (may fail if user already exists)
     access_token = test_register()
