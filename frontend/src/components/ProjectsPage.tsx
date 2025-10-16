@@ -2,6 +2,7 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import DataManagement from './DataManagement';
+import Navbar from './Navbar';
 
 const ProjectsPage: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -46,13 +47,11 @@ const ProjectsPage: React.FC = () => {
 
   // Show data management interface for authenticated users
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <div style={styles.headerContent}>
-          <h1 style={styles.title}>Projects</h1>
-        </div>
+    <div>
+      <Navbar />
+      <div style={styles.contentContainer}>
+        <DataManagement />
       </div>
-      <DataManagement />
     </div>
   );
 };
@@ -61,6 +60,11 @@ const ProjectsPage: React.FC = () => {
 const styles = {
   container: {
     minHeight: '100vh',
+    backgroundColor: '#f5f5f5'
+  },
+  contentContainer: {
+    paddingTop: '70px', // Account for fixed navbar height
+    minHeight: 'calc(100vh - 70px)', // Full height minus navbar
     backgroundColor: '#f5f5f5'
   },
   header: {
