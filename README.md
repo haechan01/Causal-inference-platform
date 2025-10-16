@@ -1,4 +1,4 @@
-# Causalytics Platform
+# Causal Analysis Platform
 
 A full-stack causal analysis platform with JWT authentication.
 
