@@ -7,6 +7,7 @@ import Authentication from './components/Authentication';
 import Dashboard from './components/Dashboard';
 import ProjectsPage from './components/ProjectsPage';
 import MethodSelectionPage from './components/MethodSelectionPage';
+import ResultsPage from './components/ResultsPage';
 
 // Main app content component that uses auth context
 const AppContent: React.FC = () => {
@@ -41,6 +42,14 @@ const AppContent: React.FC = () => {
       <Route 
         path="/method-selection" 
         element={isAuthenticated ? <MethodSelectionPage /> : <Navigate to="/login" />} 
+      />
+      <Route 
+        path="/analysis" 
+        element={isAuthenticated ? <ResultsPage /> : <Navigate to="/login" />} 
+      />
+      <Route 
+        path="/results" 
+        element={isAuthenticated ? <ResultsPage /> : <Navigate to="/login" />} 
       />
       
       {/* Catch all route */}
