@@ -1,22 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Navbar from './Navbar';
-import { NavigationButton } from './buttons';
-import { NavigationButtonConfig } from '../types/buttons';
+import BottomProgressBar from './BottomProgressBar';
+import { useProgressStep } from '../hooks/useProgressStep';
 
 
 const MethodSelectionPage: React.FC = () => {
-    // Navigation button configurations for this page
-    const prevButtonConfig: NavigationButtonConfig = {
-        to: '/projects',
-        text: '<',
-        style: styles.prevButton
-    };
-
-    const nextButtonConfig: NavigationButtonConfig = {
-        to: '/analysis', // This would be your next page
-        text: '>',
-        style: styles.nextButton
-    };
+    const { currentStep, steps, goToPreviousStep, goToNextStep } = useProgressStep();
+    const [selectedMethod, setSelectedMethod] = useState<string>('');
 
     return (
         <div>
@@ -25,7 +15,12 @@ const MethodSelectionPage: React.FC = () => {
                 <div style={styles.mainContent}>
                     <div style={styles.selectionCard}>
                         <h2 style={styles.title}>Select Analysis Method</h2>
-                        <select style={styles.select}>
+                        <select 
+                            style={styles.select}
+                            value={selectedMethod}
+                            onChange={(e) => setSelectedMethod(e.target.value)}
+                        >
+                            <option value="">Choose a method...</option>
                             <option value="did">Difference-in-Differences</option>
                             <option value="rdd">Regression Discontinuity Design</option>
                             <option value="iv">Instrumental Variables</option>
@@ -33,17 +28,16 @@ const MethodSelectionPage: React.FC = () => {
                     </div>
                 </div>
                 
-                {/* Navigation buttons at the bottom */}
-                <div style={styles.navigationContainer}>
-                    <div style={styles.prevButtonContainer}>
-                        <NavigationButton config={prevButtonConfig} />
-                    </div>
-                    
-                    <div style={styles.nextButtonContainer}>
-                        <NavigationButton config={nextButtonConfig} />
-                    </div>
-                </div>
             </div>
+            
+            {/* Bottom Progress Bar */}
+            <BottomProgressBar
+                currentStep={currentStep}
+                steps={steps}
+                onPrev={goToPreviousStep}
+                onNext={goToNextStep}
+                canGoNext={selectedMethod !== ''}
+            />
         </div>
     )
 }
@@ -53,6 +47,7 @@ export default MethodSelectionPage;
 const styles = {
     contentContainer: {
         paddingTop: '70px',
+        paddingBottom: '80px', // Account for fixed bottom progress bar
         minHeight: 'calc(100vh - 70px)',
         backgroundColor: '#f5f5f5'
     },
@@ -90,64 +85,4 @@ const styles = {
         backgroundColor: 'white',
         cursor: 'pointer'
     },
-    navigationContainer: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '0 20px 20px 20px',
-        maxWidth: '1200px',
-        margin: '0 auto',
-        width: '100%',
-        boxSizing: 'border-box' as const
-    },
-    prevButtonContainer: {
-        display: 'flex',
-        alignItems: 'center'
-    },
-    nextButtonContainer: {
-        display: 'flex',
-        alignItems: 'center'
-    },
-    prevButton: {
-        backgroundColor: '#6c757d',
-        color: 'white',
-        border: 'none',
-        borderRadius: '50%',
-        width: '50px',
-        height: '50px',
-        fontSize: '20px',
-        fontWeight: '600',
-        cursor: 'pointer',
-        transition: 'all 0.3s ease',
-        boxShadow: '0 4px 15px rgba(108, 117, 125, 0.3)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        '&:hover': {
-            backgroundColor: '#5a6268',
-            transform: 'scale(1.1)',
-            boxShadow: '0 6px 20px rgba(108, 117, 125, 0.4)'
-        }
-    },
-    nextButton: {
-        backgroundColor: '#043873',
-        color: 'white',
-        border: 'none',
-        borderRadius: '50%',
-        width: '50px',
-        height: '50px',
-        fontSize: '20px',
-        fontWeight: '600',
-        cursor: 'pointer',
-        transition: 'all 0.3s ease',
-        boxShadow: '0 4px 15px rgba(4, 56, 115, 0.3)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        '&:hover': {
-            backgroundColor: '#0a4a8a',
-            transform: 'scale(1.1)',
-            boxShadow: '0 6px 20px rgba(4, 56, 115, 0.4)'
-        }
-    }
 }

@@ -5,8 +5,9 @@ import Navbar from './Navbar';
 import ProjectCard from './ProjectCard';
 import NewProjectModal from './NewProjectModal';
 import UploadDataModal from './UploadDataModal';
-import { LoginButton, SignUpButton, NavigationButton } from './buttons';
-import { NavigationButtonConfig } from '../types/buttons';
+import { LoginButton, SignUpButton } from './buttons';
+import BottomProgressBar from './BottomProgressBar';
+import { useProgressStep } from '../hooks/useProgressStep';
 import axios from 'axios';
 
 interface Project {
@@ -24,6 +25,7 @@ interface Project {
 
 const ProjectsPage: React.FC = () => {
   const { isAuthenticated, isLoading, accessToken } = useAuth();
+  const { currentStep, steps, goToPreviousStep, goToNextStep } = useProgressStep();
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [checkedProject, setCheckedProject] = useState<Project | null>(null);
@@ -32,19 +34,6 @@ const ProjectsPage: React.FC = () => {
   const [uploadProject, setUploadProject] = useState<Project | null>(null);
   const [isReadyForNext, setIsReadyForNext] = useState(false);
   const [loading, setLoading] = useState(true);
-
-  // Navigation button configurations for this page
-  const prevButtonConfig: NavigationButtonConfig = {
-    to: '/',
-    text: '<',
-    style: styles.prevButton
-  };
-
-  const nextButtonConfig: NavigationButtonConfig = {
-    to: '/method-selection',
-    text: '>',
-    style: styles.nextButton
-  };
 
   // Load projects from API
   const loadProjects = async () => {
@@ -253,20 +242,16 @@ const ProjectsPage: React.FC = () => {
           projectId={uploadProject.id}
         />
       )}
-    {/* Navigation buttons at the bottom */}
-    <div style={styles.navigationContainer}>
-            <div style={styles.prevButtonContainer}>
-              <NavigationButton config={prevButtonConfig} />
-            </div>
-            
-            {isReadyForNext && (
-              <div style={styles.nextButtonContainer}>
-                <NavigationButton config={nextButtonConfig} />
-              </div>
-            )}
-        </div>
-    </div>
-  );
+       {/* Bottom Progress Bar */}
+       <BottomProgressBar
+         currentStep={currentStep}
+         steps={steps}
+         onPrev={goToPreviousStep}
+         onNext={goToNextStep}
+         canGoNext={isReadyForNext}
+       />
+     </div>
+   );
 };
 
 // Styles
@@ -277,6 +262,7 @@ const styles = {
   },
   contentContainer: {
     paddingTop: '70px', // Account for fixed navbar height
+    paddingBottom: '80px', // Account for fixed bottom progress bar
     minHeight: 'calc(100vh - 70px)', // Full height minus navbar
     backgroundColor: '#f5f5f5'
   },
@@ -387,25 +373,6 @@ const styles = {
     width: '100%',
     boxSizing: 'border-box' as const
   },
-  navigationContainer: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '0 20px 20px 20px',
-    maxWidth: '1200px',
-    margin: '0 auto',
-    width: '100%',
-    boxSizing: 'border-box' as const
-  },
-  prevButtonContainer: {
-    display: 'flex',
-    alignItems: 'center'
-  },
-  nextButtonContainer: {
-    display: 'flex',
-    alignItems: 'center',
-    animation: 'slideInFromRight 0.3s ease-out'
-  },
   header: {
     backgroundColor: 'white',
     borderBottom: '1px solid #e0e0e0',
@@ -506,48 +473,6 @@ const styles = {
     cursor: 'pointer',
     transition: 'all 0.3s ease'
   },
-  prevButton: {
-    backgroundColor: '#6c757d',
-    color: 'white',
-    border: 'none',
-    borderRadius: '50%',
-    width: '50px',
-    height: '50px',
-    fontSize: '20px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    transition: 'all 0.3s ease',
-    boxShadow: '0 4px 15px rgba(108, 117, 125, 0.3)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    '&:hover': {
-      backgroundColor: '#5a6268',
-      transform: 'scale(1.1)',
-      boxShadow: '0 6px 20px rgba(108, 117, 125, 0.4)'
-    }
-  },
-  nextButton: {
-    backgroundColor: '#043873',
-    color: 'white',
-    border: 'none',
-    borderRadius: '50%',
-    width: '50px',
-    height: '50px',
-    fontSize: '20px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    transition: 'all 0.3s ease',
-    boxShadow: '0 4px 15px rgba(4, 56, 115, 0.3)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    '&:hover': {
-      backgroundColor: '#0a4a8a',
-      transform: 'scale(1.1)',
-      boxShadow: '0 6px 20px rgba(4, 56, 115, 0.4)'
-    }
-  }
 };
 
 export default ProjectsPage;
