@@ -133,6 +133,36 @@ const VariableSelectionPage: React.FC = () => {
 
   const canProceed = isCardComplete(1) && isCardComplete(2) && isCardComplete(3) && isCardComplete(4);
 
+  const handleNext = async () => {
+    if (canProceed && selectedDataset) {
+      try {
+        // Run DiD analysis
+        const analysisResponse = await axios.post(`/datasets/${selectedDataset.id}/analyze/did`, {
+          outcome: selection.outcome,
+          treatment: selection.treatment,
+          treatment_value: selection.treatment_value,
+          time: selection.time,
+          treatment_start: selection.treatment_start,
+          unit: selection.unit,
+          controls: selection.controls
+        }, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        
+        console.log('DiD Analysis Results:', analysisResponse.data);
+        
+        // Store results in localStorage for the results page
+        localStorage.setItem('didAnalysisResults', JSON.stringify(analysisResponse.data));
+        
+        // Navigate to results page
+        goToNextStep();
+      } catch (error: any) {
+        console.error('Error running DiD analysis:', error);
+        setError(error.response?.data?.error || 'Failed to run analysis');
+      }
+    }
+  };
+
   if (loading) {
     return (
       <div>
@@ -365,7 +395,7 @@ const VariableSelectionPage: React.FC = () => {
         currentStep={currentStep}
         steps={steps}
         onPrev={goToPreviousStep}
-        onNext={goToNextStep}
+        onNext={handleNext}
         canGoNext={canProceed}
       />
     </div>
