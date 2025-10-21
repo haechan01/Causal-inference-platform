@@ -8,6 +8,7 @@ export const useProgressStep = () => {
     { id: 'landing', label: 'Welcome', path: '/' },
     { id: 'projects', label: 'Projects', path: '/projects' },
     { id: 'method', label: 'Method', path: '/method-selection' },
+    { id: 'variables', label: 'Variables', path: '/variable-selection' },
     { id: 'analysis', label: 'Analysis', path: '/analysis' },
     { id: 'results', label: 'Results', path: '/results' }
   ];
@@ -20,6 +21,8 @@ export const useProgressStep = () => {
         return 'projects';
       case '/method-selection':
         return 'method';
+      case '/variable-selection':
+        return 'variables';
       case '/analysis':
         return 'analysis';
       case '/results':
