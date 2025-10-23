@@ -1,12 +1,31 @@
 import React, { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Navbar from './Navbar';
 import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
 
 
 const MethodSelectionPage: React.FC = () => {
-    const { currentStep, steps, goToPreviousStep, goToNextStep } = useProgressStep();
+    const { currentStep, steps, goToPreviousStep } = useProgressStep();
+    const location = useLocation();
+    const navigate = useNavigate();
     const [selectedMethod, setSelectedMethod] = useState<string>('');
+
+    const handleNext = () => {
+        const projectId = (location.state as any)?.projectId;
+        
+        if (selectedMethod === 'did') {
+            // Navigate to variable selection with project ID
+            navigate('/variable-selection', { 
+                state: { projectId } 
+            });
+        } else {
+            // For other methods, go to analysis
+            navigate('/analysis', { 
+                state: { projectId } 
+            });
+        }
+    };
 
     return (
         <div>
@@ -35,7 +54,7 @@ const MethodSelectionPage: React.FC = () => {
                 currentStep={currentStep}
                 steps={steps}
                 onPrev={goToPreviousStep}
-                onNext={goToNextStep}
+                onNext={handleNext}
                 canGoNext={selectedMethod !== ''}
             />
         </div>

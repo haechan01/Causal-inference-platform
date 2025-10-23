@@ -8,6 +8,7 @@ import UploadDataModal from './UploadDataModal';
 import { LoginButton, SignUpButton } from './buttons';
 import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
 interface Project {
@@ -25,7 +26,8 @@ interface Project {
 
 const ProjectsPage: React.FC = () => {
   const { isAuthenticated, isLoading, accessToken } = useAuth();
-  const { currentStep, steps, goToPreviousStep, goToNextStep } = useProgressStep();
+  const { currentStep, steps, goToPreviousStep } = useProgressStep();
+  const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [checkedProject, setCheckedProject] = useState<Project | null>(null);
@@ -148,6 +150,15 @@ const ProjectsPage: React.FC = () => {
     }
   };
 
+  // Custom next handler that passes project ID
+  const handleNext = () => {
+    if (checkedProject) {
+      navigate('/method-selection', { 
+        state: { projectId: checkedProject.id } 
+      });
+    }
+  };
+
   // Show loading spinner while checking authentication
   if (isLoading) {
     return (
@@ -247,7 +258,7 @@ const ProjectsPage: React.FC = () => {
          currentStep={currentStep}
          steps={steps}
          onPrev={goToPreviousStep}
-         onNext={goToNextStep}
+         onNext={handleNext}
          canGoNext={isReadyForNext}
        />
      </div>
