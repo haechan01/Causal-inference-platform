@@ -9,6 +9,7 @@ import ProjectsPage from './components/ProjectsPage';
 import MethodSelectionPage from './components/MethodSelectionPage';
 import VariableSelectionPage from './components/VariableSelectionPage';
 import ResultsPage from './components/ResultsPage';
+import ResultsPageTest from './components/ResultsPageTest';
 
 // Main app content component that uses auth context
 const AppContent: React.FC = () => {

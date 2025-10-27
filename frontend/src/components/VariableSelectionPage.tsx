@@ -5,6 +5,7 @@ import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
+import SearchableDropdown from './SearchableDropdown';
 
 interface Variable {
   name: string;
@@ -18,8 +19,12 @@ interface VariableSelection {
   treatment_value: string;
   time: string;
   treatment_start: string;
+  start_period: string;
+  end_period: string;
   unit: string;
   controls: string[];
+  treatment_units: string[];
+  control_units: string[];
 }
 
 const VariableSelectionPage: React.FC = () => {
@@ -36,8 +41,12 @@ const VariableSelectionPage: React.FC = () => {
     treatment_value: '',
     time: '',
     treatment_start: '',
+    start_period: '',
+    end_period: '',
     unit: '',
-    controls: []
+    controls: [],
+    treatment_units: [],
+    control_units: []
   });
 
   // Load datasets and variables from the selected project
@@ -124,18 +133,23 @@ const VariableSelectionPage: React.FC = () => {
     switch (cardNumber) {
       case 1: return !!selection.outcome;
       case 2: return !!selection.treatment && !!selection.treatment_value;
-      case 3: return !!selection.time && !!selection.treatment_start;
+      case 3: return !!selection.time && !!selection.treatment_start && !!selection.start_period && !!selection.end_period;
       case 4: return !!selection.unit;
-      case 5: return true; // Optional card
+      case 5: return !!selection.treatment_units.length && !!selection.control_units.length;
+      case 6: return true; // Optional control variables card
       default: return false;
     }
   };
 
-  const canProceed = isCardComplete(1) && isCardComplete(2) && isCardComplete(3) && isCardComplete(4);
+  const canProceed = isCardComplete(1) && isCardComplete(2) && isCardComplete(3) && isCardComplete(4) && isCardComplete(5);
 
   const handleNext = async () => {
     if (canProceed && selectedDataset) {
       try {
+        // Clear any cached results before making fresh API call
+        localStorage.removeItem('didAnalysisResults');
+        console.log('=== STARTING FRESH DiD ANALYSIS ===');
+        
         // Run DiD analysis
         const analysisResponse = await axios.post(`/datasets/${selectedDataset.id}/analyze/did`, {
           outcome: selection.outcome,
@@ -143,16 +157,41 @@ const VariableSelectionPage: React.FC = () => {
           treatment_value: selection.treatment_value,
           time: selection.time,
           treatment_start: selection.treatment_start,
+          start_period: selection.start_period,
+          end_period: selection.end_period,
           unit: selection.unit,
-          controls: selection.controls
+          controls: selection.controls,
+          treatment_units: selection.treatment_units,
+          control_units: selection.control_units
         }, {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
         
-        console.log('DiD Analysis Results:', analysisResponse.data);
+        console.log('DiD Analysis Response:', analysisResponse);
+        console.log('Response status:', analysisResponse.status);
+        console.log('Response headers:', analysisResponse.headers);
+        console.log('Response data type:', typeof analysisResponse.data);
+        console.log('Response data keys:', Object.keys(analysisResponse.data));
+        console.log('Response data length:', JSON.stringify(analysisResponse.data).length);
+        
+        // Check if response.data is a string that needs parsing
+        let responseData = analysisResponse.data;
+        if (typeof responseData === 'string') {
+          console.log('Response data is a string, parsing as JSON...');
+          try {
+            responseData = JSON.parse(responseData);
+            console.log('Successfully parsed response data');
+            console.log('Parsed data type:', typeof responseData);
+            console.log('Parsed data keys:', Object.keys(responseData));
+          } catch (parseError) {
+            console.error('Failed to parse response data as JSON:', parseError);
+            console.error('Raw response data (first 500 chars):', responseData.substring(0, 500));
+            throw new Error('Failed to parse analysis response');
+          }
+        }
         
         // Store results in localStorage for the results page
-        localStorage.setItem('didAnalysisResults', JSON.stringify(analysisResponse.data));
+        localStorage.setItem('didAnalysisResults', JSON.stringify(responseData));
         
         // Navigate to results page
         goToNextStep();
@@ -215,18 +254,18 @@ const VariableSelectionPage: React.FC = () => {
               <p style={styles.helperText}>
                 What are you trying to measure the effect on? Choose the column that represents your main outcome.
               </p>
-              <select
+              <SearchableDropdown
+                options={variables
+                  .filter(v => v.type === 'numeric' || v.type === 'categorical')
+                  .map(variable => ({
+                    value: variable.name,
+                    label: variable.name
+                  }))}
                 value={selection.outcome}
-                onChange={(e) => handleVariableChange('outcome', e.target.value)}
+                onChange={(value) => handleVariableChange('outcome', value)}
+                placeholder="Search and select outcome column..."
                 style={styles.select}
-              >
-                <option value="">Select outcome column...</option>
-                {variables.filter(v => v.type === 'numeric').map(variable => (
-                  <option key={variable.name} value={variable.name}>
-                    {variable.name}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
             {/* Card 2: Treatment Variable */}
@@ -239,40 +278,37 @@ const VariableSelectionPage: React.FC = () => {
               <p style={styles.helperText}>
                 How do you identify your treated and control groups? Select the column where units are marked as belonging to the treatment group or the control group.
               </p>
-              <select
+              <SearchableDropdown
+                options={variables
+                  .filter(v => v.type === 'boolean' || v.type === 'categorical' || v.type === 'numeric')
+                  .map(variable => ({
+                    value: variable.name,
+                    label: variable.name
+                  }))}
                 value={selection.treatment}
-                onChange={(e) => {
-                  handleVariableChange('treatment', e.target.value);
+                onChange={(value) => {
+                  handleVariableChange('treatment', value);
                   handleVariableChange('treatment_value', ''); // Reset treatment value
                 }}
+                placeholder="Search and select treatment column..."
                 style={styles.select}
-              >
-                <option value="">Select treatment column...</option>
-                {variables.filter(v => v.type === 'boolean' || v.type === 'categorical').map(variable => (
-                  <option key={variable.name} value={variable.name}>
-                    {variable.name}
-                  </option>
-                ))}
-              </select>
+              />
               
-              {selection.treatment && variables.find(v => v.name === selection.treatment)?.unique_values && (
+              {selection.treatment && (
                 <div style={styles.conditionalSection}>
                   <p style={styles.conditionalText}>
-                    We see {variables.find(v => v.name === selection.treatment)?.unique_values?.join(' and ')}. 
-                    Which value means 'Treated'?
+                    Enter the specific value that represents the treated group in the "{selection.treatment}" column.
+                    {variables.find(v => v.name === selection.treatment)?.unique_values && 
+                      ` (Available values: ${variables.find(v => v.name === selection.treatment)?.unique_values?.join(', ')})`
+                    }
                   </p>
-                  <select
+                  <input
+                    type="text"
+                    style={styles.textInput}
+                    placeholder="Enter treatment value..."
                     value={selection.treatment_value}
                     onChange={(e) => handleVariableChange('treatment_value', e.target.value)}
-                    style={styles.select}
-                  >
-                    <option value="">Select treated value...</option>
-                    {variables.find(v => v.name === selection.treatment)?.unique_values?.map(value => (
-                      <option key={value} value={value}>
-                        {value}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
               )}
             </div>
@@ -287,21 +323,21 @@ const VariableSelectionPage: React.FC = () => {
               <p style={styles.helperText}>
                 Which column represents the time? Select the column that shows when each observation was recorded.
               </p>
-              <select
+              <SearchableDropdown
+                options={variables
+                  .filter(v => v.type === 'numeric' || v.type === 'date')
+                  .map(variable => ({
+                    value: variable.name,
+                    label: variable.name
+                  }))}
                 value={selection.time}
-                onChange={(e) => {
-                  handleVariableChange('time', e.target.value);
+                onChange={(value) => {
+                  handleVariableChange('time', value);
                   handleVariableChange('treatment_start', '');
                 }}
+                placeholder="Search and select time column..."
                 style={styles.select}
-              >
-                <option value="">Select time column...</option>
-                {variables.filter(v => v.type === 'numeric' || v.type === 'date').map(variable => (
-                  <option key={variable.name} value={variable.name}>
-                    {variable.name}
-                  </option>
-                ))}
-              </select>
+              />
               
               {selection.time && (
                 <div style={styles.conditionalSection}>
@@ -315,51 +351,215 @@ const VariableSelectionPage: React.FC = () => {
                       style={styles.textInput}
                     />
                   ) : (
-                    <select
+                    <SearchableDropdown
+                      options={variables.find(v => v.name === selection.time)?.unique_values?.map(value => ({
+                        value: value,
+                        label: value
+                      })) || []}
                       value={selection.treatment_start}
-                      onChange={(e) => handleVariableChange('treatment_start', e.target.value)}
+                      onChange={(value) => handleVariableChange('treatment_start', value)}
+                      placeholder="Search and select treatment start date..."
                       style={styles.select}
-                    >
-                      <option value="">Select treatment start date...</option>
-                      {variables.find(v => v.name === selection.time)?.unique_values?.map(value => (
-                        <option key={value} value={value}>
-                          {value}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   )}
+                  
+                  <div style={styles.periodInputs}>
+                    <p style={styles.conditionalText}>Define the analysis period:</p>
+                    <div style={styles.periodInputGroup}>
+                      <label style={styles.periodLabel}>Start Period:</label>
+                      {variables.find(v => v.name === selection.time)?.type === 'numeric' ? (
+                        <input
+                          type="number"
+                          style={styles.periodInput}
+                          placeholder="e.g., 2013"
+                          value={selection.start_period}
+                          onChange={(e) => handleVariableChange('start_period', e.target.value)}
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          style={styles.periodInput}
+                          placeholder="e.g., 2013"
+                          value={selection.start_period}
+                          onChange={(e) => handleVariableChange('start_period', e.target.value)}
+                        />
+                      )}
+                    </div>
+                    
+                    <div style={styles.periodInputGroup}>
+                      <label style={styles.periodLabel}>End Period:</label>
+                      {variables.find(v => v.name === selection.time)?.type === 'numeric' ? (
+                        <input
+                          type="number"
+                          style={styles.periodInput}
+                          placeholder="e.g., 2023"
+                          value={selection.end_period}
+                          onChange={(e) => handleVariableChange('end_period', e.target.value)}
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          style={styles.periodInput}
+                          placeholder="e.g., 2023"
+                          value={selection.end_period}
+                          onChange={(e) => handleVariableChange('end_period', e.target.value)}
+                        />
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Card 4: Unit Identifier */}
+
+            {/* Card 4: Select Treatment and Control Units */}
             <div style={styles.card}>
               <div style={styles.cardHeader}>
                 <div style={styles.cardNumber}>4</div>
-                <div style={styles.cardTitle}>Define Your Unit Identifier</div>
+                <div style={styles.cardTitle}>Select Treatment and Control Groups</div>
                 <div style={styles.requiredBadge}>Required</div>
               </div>
               <p style={styles.helperText}>
                 Which column identifies your individuals or groups? Select the column that uniquely identifies each unit being tracked over time.
               </p>
-              <select
+              <SearchableDropdown
+                options={variables
+                  .filter(v => v.type === 'string' || v.type === 'numeric' || v.type === 'categorical')
+                  .map(variable => ({
+                    value: variable.name,
+                    label: variable.name
+                  }))}
                 value={selection.unit}
-                onChange={(e) => handleVariableChange('unit', e.target.value)}
+                onChange={(value) => handleVariableChange('unit', value)}
+                placeholder="Search and select unit column..."
                 style={styles.select}
-              >
-                <option value="">Select unit column...</option>
-                {variables.filter(v => v.type === 'string' || v.type === 'numeric').map(variable => (
-                  <option key={variable.name} value={variable.name}>
-                    {variable.name}
-                  </option>
-                ))}
-              </select>
+              />
+              <p style={styles.helperText}>
+                Choose which specific {selection.unit} values should be in your treatment group and which should be in your control group.
+              </p>
+              
+              {/* Get unique values for the unit variable */}
+              {(() => {
+                const unitVariable = variables.find(v => v.name === selection.unit);
+                const unitValues = unitVariable?.unique_values || [];
+                return (
+                  <div style={styles.unitSelectionContainer}>
+                    {/* Treatment Units */}
+                    <div style={styles.unitGroup}>
+                      <h4 style={styles.unitGroupTitle}>Treatment Group Units</h4>
+                      <p style={styles.unitGroupDescription}>
+                        Select which {selection.unit} values should receive the treatment:
+                      </p>
+                      <div style={styles.searchableDropdownContainer}>
+                        <SearchableDropdown
+                          options={unitValues.map(value => ({
+                            value: value,
+                            label: value
+                          }))}
+                          value=""
+                          onChange={(value) => {
+                            // Add the selected value to the treatment units if it's not already there
+                            if (value && !selection.treatment_units.includes(value)) {
+                              setSelection(prev => ({
+                                ...prev,
+                                treatment_units: [...prev.treatment_units, value],
+                                control_units: prev.control_units.filter(u => u !== value)
+                              }));
+                            }
+                          }}
+                          placeholder="Search and select treatment units..."
+                          style={styles.select}
+                        />
+                        {/* Show selected treatment units */}
+                        {selection.treatment_units.length > 0 && (
+                          <div style={styles.selectedUnits}>
+                            <p style={styles.selectedUnitsLabel}>Selected Treatment Units:</p>
+                            <div style={styles.selectedUnitsList}>
+                              {selection.treatment_units.map(unit => (
+                                <span key={unit} style={styles.selectedUnitTag}>
+                                  {unit}
+                                  <button
+                                    type="button"
+                                    style={styles.removeUnitButton}
+                                    onClick={() => {
+                                      setSelection(prev => ({
+                                        ...prev,
+                                        treatment_units: prev.treatment_units.filter(u => u !== unit)
+                                      }));
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Control Units */}
+                    <div style={styles.unitGroup}>
+                      <h4 style={styles.unitGroupTitle}>Control Group Units</h4>
+                      <p style={styles.unitGroupDescription}>
+                        Select which {selection.unit} values should be in the control group:
+                      </p>
+                      <div style={styles.searchableDropdownContainer}>
+                        <SearchableDropdown
+                          options={unitValues.map(value => ({
+                            value: value,
+                            label: value
+                          }))}
+                          value=""
+                          onChange={(value) => {
+                            // Add the selected value to the control units if it's not already there
+                            if (value && !selection.control_units.includes(value)) {
+                              setSelection(prev => ({
+                                ...prev,
+                                control_units: [...prev.control_units, value],
+                                treatment_units: prev.treatment_units.filter(u => u !== value)
+                              }));
+                            }
+                          }}
+                          placeholder="Search and select control units..."
+                          style={styles.select}
+                        />
+                        {/* Show selected control units */}
+                        {selection.control_units.length > 0 && (
+                          <div style={styles.selectedUnits}>
+                            <p style={styles.selectedUnitsLabel}>Selected Control Units:</p>
+                            <div style={styles.selectedUnitsList}>
+                              {selection.control_units.map(unit => (
+                                <span key={unit} style={styles.selectedUnitTag}>
+                                  {unit}
+                                  <button
+                                    type="button"
+                                    style={styles.removeUnitButton}
+                                    onClick={() => {
+                                      setSelection(prev => ({
+                                        ...prev,
+                                        control_units: prev.control_units.filter(u => u !== unit)
+                                      }));
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
-            {/* Card 5: Control Variables */}
+            {/* Card 6: Control Variables */}
             <div style={styles.card}>
               <div style={styles.cardHeader}>
-                <div style={styles.cardNumber}>5</div>
+                <div style={styles.cardNumber}>6</div>
                 <div style={styles.cardTitle}>Select Control Variables</div>
                 <div style={styles.optionalBadge}>Optional</div>
               </div>
@@ -367,7 +567,10 @@ const VariableSelectionPage: React.FC = () => {
                 Are there other variables you need to control for? Select any columns that might also influence your outcome.
               </p>
               <div style={styles.multiSelectContainer}>
-                {variables.filter(v => v.name !== selection.outcome && v.name !== selection.treatment && v.name !== selection.time && v.name !== selection.unit).map(variable => (
+                {variables.filter(v => v.name !== selection.outcome && 
+                                       v.name !== selection.treatment && 
+                                       v.name !== selection.time &&
+                                       v.name !== selection.unit).map(variable => (
                   <label key={variable.name} style={styles.checkboxLabel}>
                     <input
                       type="checkbox"
@@ -386,6 +589,7 @@ const VariableSelectionPage: React.FC = () => {
                 ))}
               </div>
             </div>
+
           </div>
         </div>
       </div>
@@ -583,6 +787,80 @@ const styles = {
       boxShadow: '0 0 0 3px rgba(4, 56, 115, 0.1)'
     }
   },
+  periodInputs: {
+    marginTop: '20px',
+    padding: '15px',
+    backgroundColor: '#f8f9fa',
+    borderRadius: '8px',
+    border: '1px solid #e9ecef'
+  },
+  periodInputGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    marginBottom: '12px',
+    gap: '12px'
+  },
+  periodLabel: {
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#495057',
+    minWidth: '120px'
+  },
+  periodInput: {
+    flex: 1,
+    padding: '8px 12px',
+    border: '1px solid #ddd',
+    borderRadius: '6px',
+    fontSize: '14px'
+  },
+  filterRow: {
+    marginBottom: '15px',
+    padding: '10px',
+    border: '1px solid #e0e0e0',
+    borderRadius: '8px',
+    backgroundColor: '#f9f9f9'
+  },
+  filterLabel: {
+    display: 'block',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    color: '#043873',
+    marginBottom: '8px'
+  },
+  numericFilters: {
+    display: 'flex',
+    gap: '10px',
+    alignItems: 'center'
+  },
+  filterInput: {
+    flex: 1,
+    padding: '8px',
+    fontSize: '14px',
+    border: '2px solid #e0e0e0',
+    borderRadius: '6px',
+    backgroundColor: 'white',
+    transition: 'border-color 0.2s',
+    boxSizing: 'border-box' as const,
+    '&:focus': {
+      borderColor: '#043873',
+      outline: 'none'
+    }
+  },
+  multiSelect: {
+    width: '100%',
+    padding: '8px',
+    fontSize: '14px',
+    border: '2px solid #e0e0e0',
+    borderRadius: '6px',
+    backgroundColor: 'white',
+    cursor: 'pointer',
+    transition: 'border-color 0.2s',
+    minHeight: '80px',
+    '&:focus': {
+      borderColor: '#043873',
+      outline: 'none'
+    }
+  },
   conditionalSection: {
     marginTop: '20px',
     padding: '15px',
@@ -629,5 +907,93 @@ const styles = {
   checkboxText: {
     fontSize: '14px',
     color: '#333'
+  },
+  unitSelectionContainer: {
+    display: 'flex',
+    gap: '30px',
+    marginTop: '20px'
+  },
+  unitGroup: {
+    flex: 1,
+    padding: '20px',
+    backgroundColor: '#f8f9fa',
+    borderRadius: '8px',
+    border: '1px solid #e9ecef'
+  },
+  unitGroupTitle: {
+    fontSize: '16px',
+    fontWeight: 'bold',
+    color: '#043873',
+    margin: '0 0 10px 0'
+  },
+  unitGroupDescription: {
+    fontSize: '14px',
+    color: '#495057',
+    margin: '0 0 15px 0',
+    lineHeight: '1.4'
+  },
+  unitCheckboxes: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '8px',
+    maxHeight: '200px',
+    overflowY: 'auto' as const
+  },
+  unitCheckboxLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+    '&:hover': {
+      backgroundColor: '#e9ecef'
+    }
+  },
+  searchableDropdownContainer: {
+    marginBottom: '15px'
+  },
+  selectedUnits: {
+    marginTop: '15px',
+    padding: '10px',
+    backgroundColor: '#f8f9fa',
+    borderRadius: '6px',
+    border: '1px solid #e9ecef'
+  },
+  selectedUnitsLabel: {
+    fontSize: '12px',
+    fontWeight: 'bold',
+    color: '#495057',
+    margin: '0 0 8px 0'
+  },
+  selectedUnitsList: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    gap: '6px'
+  },
+  selectedUnitTag: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '4px 8px',
+    backgroundColor: '#043873',
+    color: 'white',
+    borderRadius: '12px',
+    fontSize: '12px',
+    fontWeight: '500'
+  },
+  removeUnitButton: {
+    background: 'none',
+    border: 'none',
+    color: 'white',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    padding: '0',
+    marginLeft: '4px',
+    '&:hover': {
+      color: '#ff6b6b'
+    }
   }
 };

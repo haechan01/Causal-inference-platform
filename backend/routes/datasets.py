@@ -15,25 +15,37 @@ import matplotlib.pyplot as plt
 import base64
 from io import BytesIO
 from scipy.stats import t
+import math
 from models import Dataset
 
 # Create blueprint
 datasets_bp = Blueprint('datasets', __name__, url_prefix='/api/datasets')
 
 
-def create_did_chart(df, outcome_var, time_var, treatment_var, treatment_value, 
-                     treatment_start, start_period, end_period, unit_var):
-    """Create a matplotlib chart for DiD analysis."""
+def sanitize_for_json(obj):
+    """
+    Recursively convert NaN and infinity values to None for JSON serialization.
+    """
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_for_json(item) for item in obj]
+    elif isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    elif isinstance(obj, (np.integer, np.floating)):
+        if np.isnan(obj) or np.isinf(obj):
+            return None
+        return float(obj) if isinstance(obj, np.floating) else int(obj)
+    else:
+        return obj
+
+
+def create_did_chart(df, outcome_var, time_var, treatment_start, start_period, end_period, unit_var, treatment_units, control_units):
+    """Create a matplotlib chart for DiD analysis using unit-based assignment."""
     try:
         # Convert parameters to appropriate types
-        if pd.api.types.is_numeric_dtype(df[treatment_var]):
-            try:
-                treatment_value = float(treatment_value)
-            except (ValueError, TypeError):
-                treatment_value = str(treatment_value)
-        else:
-            treatment_value = str(treatment_value)
-        
         if pd.api.types.is_numeric_dtype(df[time_var]):
             treatment_start = float(treatment_start)
             start_period = float(start_period)
@@ -45,20 +57,33 @@ def create_did_chart(df, outcome_var, time_var, treatment_var, treatment_value,
         
         # Filter data to analysis period
         df_filtered = df[(df[time_var] >= start_period) & (df[time_var] <= end_period)].copy()
+        print(f"Chart: Filtered data from {start_period} to {end_period}, rows: {len(df_filtered)}")
+        print(f"Chart: Unique time periods: {sorted(df_filtered[time_var].unique())}")
         
-        # Create treatment indicator
-        df_filtered['is_treated'] = (df_filtered[treatment_var] == treatment_value).astype(int)
+        # Use unit-based treatment assignment (same as main analysis)
+        if treatment_units and control_units:
+            # Filter to only include selected units
+            df_filtered = df_filtered[df_filtered[unit_var].isin(treatment_units + control_units)]
+            # Create treatment indicator based on selected units
+            df_filtered['is_treated'] = df_filtered[unit_var].isin(treatment_units).astype(int)
+            print(f"Chart: After unit filtering, rows: {len(df_filtered)}")
+        else:
+            # Fallback to original logic if units not specified
+            df_filtered['is_treated'] = 0  # Default to control
+        
         df_filtered['post_treatment'] = (df_filtered[time_var] >= treatment_start).astype(int)
         
         # Calculate means by group and time period
         time_series_data = df_filtered.groupby([time_var, 'is_treated'])[outcome_var].mean().reset_index()
+        print(f"Chart: Time series data shape: {time_series_data.shape}")
+        print(f"Chart: Time series unique periods: {sorted(time_series_data[time_var].unique())}")
         
         # Separate treated and control groups
         treated_data = time_series_data[time_series_data['is_treated'] == 1].sort_values(time_var)
         control_data = time_series_data[time_series_data['is_treated'] == 0].sort_values(time_var)
         
-        # Create the chart
-        plt.figure(figsize=(12, 8))
+        # Create the chart with good size and quality
+        plt.figure(figsize=(12, 7))
         
         # Plot time series lines
         if len(treated_data) > 0:
@@ -95,13 +120,14 @@ def create_did_chart(df, outcome_var, time_var, treatment_var, treatment_value,
         if len(time_series_data[time_var].unique()) > 6:
             plt.xticks(rotation=45)
         
-        # Save to base64 string
+        # Save to base64 string with high quality
         buffer = BytesIO()
-        plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight')
+        plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
         buffer.seek(0)
         chart_base64 = base64.b64encode(buffer.getvalue()).decode()
         plt.close()
         
+        print(f"Chart created successfully, size: {len(chart_base64)} characters")
         return chart_base64
         
     except Exception as e:
@@ -110,7 +136,7 @@ def create_did_chart(df, outcome_var, time_var, treatment_var, treatment_value,
 
 
 def create_pretreatment_trends_chart(df, outcome_var, time_var, treatment_var, 
-                                     treatment_value, start_period, treatment_start, unit_var):
+                                     treatment_value, start_period, treatment_start, unit_var, treatment_units, control_units):
     """Create chart showing pre-treatment trends for parallel trends assessment."""
     try:
         # Convert parameters to appropriate types
@@ -135,8 +161,15 @@ def create_pretreatment_trends_chart(df, outcome_var, time_var, treatment_var,
         if len(df_pre) == 0:
             return None
         
-        # Create treatment indicator
-        df_pre['is_treated'] = (df_pre[treatment_var] == treatment_value).astype(int)
+        # Use unit-based treatment assignment (same as main analysis)
+        if treatment_units and control_units:
+            # Filter to only include selected units
+            df_pre = df_pre[df_pre[unit_var].isin(treatment_units + control_units)]
+            # Create treatment indicator based on selected units
+            df_pre['is_treated'] = df_pre[unit_var].isin(treatment_units).astype(int)
+        else:
+            # Fallback to treatment variable if units not specified
+            df_pre['is_treated'] = (df_pre[treatment_var] == treatment_value).astype(int)
         
         # Calculate means by group and time period
         time_series_data = df_pre.groupby([time_var, 'is_treated'])[outcome_var].mean().reset_index()
@@ -145,8 +178,8 @@ def create_pretreatment_trends_chart(df, outcome_var, time_var, treatment_var,
         treated_data = time_series_data[time_series_data['is_treated'] == 1].sort_values(time_var)
         control_data = time_series_data[time_series_data['is_treated'] == 0].sort_values(time_var)
         
-        # Create the chart
-        plt.figure(figsize=(10, 6))
+        # Create the chart with good size
+        plt.figure(figsize=(12, 7))
         
         # Plot time series lines
         if len(treated_data) > 0:
@@ -188,13 +221,14 @@ def create_pretreatment_trends_chart(df, outcome_var, time_var, treatment_var,
         if len(time_series_data[time_var].unique()) > 6:
             plt.xticks(rotation=45)
         
-        # Save to base64 string
+        # Save to base64 string with high quality
         buffer = BytesIO()
-        plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight')
+        plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
         buffer.seek(0)
         chart_base64 = base64.b64encode(buffer.getvalue()).decode()
         plt.close()
         
+        print(f"Pre-treatment trends chart created, size: {len(chart_base64)} characters")
         return chart_base64
         
     except Exception as e:
@@ -281,12 +315,19 @@ def get_dataset_schema(dataset_id):
                     col_type = 'categorical'
 
                 # Get unique values for categorical columns and binary numeric columns
-                # (limit to 20 for performance)
+                # For treatment/control unit selection, we need unique values even if there are many
                 unique_values = None
                 if col_type in ['categorical', 'boolean']:
                     unique_vals = col_data.dropna().unique()
-                    if len(unique_vals) <= 20:
+                    print(f"Column '{column}' ({col_type}): {len(unique_vals)} unique values")
+                    # Increase limit to 100 for categorical columns to support state/country selection
+                    if len(unique_vals) <= 100:
                         unique_values = [str(val) for val in unique_vals]
+                        print(f"  -> Providing {len(unique_values)} unique values")
+                    else:
+                        print(f"  -> Too many unique values ({len(unique_vals)}), providing first 100")
+                        # For very large categorical columns, provide first 100 values
+                        unique_values = [str(val) for val in unique_vals[:100]]
                 elif col_type == 'numeric':
                     # For numeric columns, check if it's binary (only 2 unique values)
                     unique_vals = col_data.dropna().unique()
@@ -333,6 +374,7 @@ def get_dataset_schema(dataset_id):
 @jwt_required()
 def run_did_analysis(dataset_id):
     """Run Difference-in-Differences analysis on a dataset."""
+    print("=== DiD ANALYSIS STARTED ===")
     try:
         current_user_id = get_jwt_identity()
         if not isinstance(current_user_id, str):
@@ -362,12 +404,21 @@ def run_did_analysis(dataset_id):
         end_period = data.get('end_period')
         unit_var = data.get('unit')
         control_vars = data.get('controls', [])
-        control_filters = data.get('control_filters', {})
+        treatment_units = data.get('treatment_units', [])
+        control_units = data.get('control_units', [])
+        
+        print("Received parameters:")
+        print(f"  treatment_units: {treatment_units}")
+        print(f"  control_units: {control_units}")
+        print(f"  unit_var: {unit_var}")
+        print(f"  treatment_var: {treatment_var}")
+        print(f"  treatment_value: {treatment_value}")
         
         # Validate required parameters
         required_params = [
             outcome_var, treatment_var, treatment_value, 
-            time_var, treatment_start, start_period, end_period, unit_var
+            time_var, treatment_start, start_period, end_period, unit_var,
+            treatment_units, control_units
         ]
         if not all(required_params):
             return jsonify({
@@ -391,16 +442,23 @@ def run_did_analysis(dataset_id):
             # Read CSV and perform DiD analysis
             df = pd.read_csv(temp_file_path)
             
-            # Apply control group filters if specified
-            if control_filters:
-                for var, criteria in control_filters.items():
-                    if var in df.columns:
-                        if 'min' in criteria and criteria['min'] is not None:
-                            df = df[df[var] >= criteria['min']]
-                        if 'max' in criteria and criteria['max'] is not None:
-                            df = df[df[var] <= criteria['max']]
-                        if 'include' in criteria and criteria['include']:
-                            df = df[df[var].isin(criteria['include'])]
+            # Apply treatment and control unit filtering
+            print(f"Treatment units: {treatment_units}")
+            print(f"Control units: {control_units}")
+            print(f"Unit variable: {unit_var}")
+            if treatment_units and control_units:
+                print("Using unit-based treatment assignment")
+                # Filter data to only include selected treatment and control units
+                df = df[df[unit_var].isin(treatment_units + control_units)]
+                print(f"Data shape after unit filtering: {df.shape}")
+                
+                # Create treatment indicator based on selected units
+                df['is_treated'] = df[unit_var].isin(treatment_units).astype(int)
+                print(f"Treatment assignment - treated units: {df['is_treated'].sum()}")
+            else:
+                print("Using fallback treatment variable logic")
+                # Fallback to original treatment variable logic if units not specified
+                df['is_treated'] = (df[treatment_var] == treatment_value).astype(int)
             
             # Convert treatment start to appropriate type
             if pd.api.types.is_numeric_dtype(df[time_var]):
@@ -408,36 +466,21 @@ def run_did_analysis(dataset_id):
             else:
                 treatment_start = str(treatment_start)
             
-            # Convert treatment value to appropriate type
-            print(f"Treatment variable type: {df[treatment_var].dtype}")
-            print(f"Treatment value before conversion: {treatment_value}")
-            print(f"Unique values in treatment variable: {df[treatment_var].unique()[:10]}")
+            # Note: treatment_value conversion removed since we're using unit-based assignment
             
-            if pd.api.types.is_numeric_dtype(df[treatment_var]):
-                try:
-                    treatment_value = float(treatment_value)
-                except (ValueError, TypeError):
-                    # If conversion fails, try to match as string
-                    treatment_value = str(treatment_value)
-            else:
-                treatment_value = str(treatment_value)
-            
-            print(f"Treatment value after conversion: {treatment_value}")
-            
-            # Create treatment indicator
-            df['is_treated'] = (df[treatment_var] == treatment_value).astype(int)
+            # Create post-treatment indicator
             df['post_treatment'] = (df[time_var] >= treatment_start).astype(int)
             df['did_interaction'] = df['is_treated'] * df['post_treatment']
             
             # Debug information
             print(f"Dataset shape: {df.shape}")
-            print(f"Treatment variable: {treatment_var}, Treatment value: {treatment_value}")
+            print(f"Unit-based assignment - Treatment units: {treatment_units}, Control units: {control_units}")
             print(f"Treated units: {df['is_treated'].sum()}")
             print(f"Post-treatment observations: {df['post_treatment'].sum()}")
             
             # Check if we have enough data
             if df['is_treated'].sum() == 0:
-                return jsonify({"error": "No treated units found with the specified treatment value"}), 400
+                return jsonify({"error": "No treated units found in the selected treatment group"}), 400
             
             if df['post_treatment'].sum() == 0:
                 return jsonify({"error": "No post-treatment observations found"}), 400
@@ -515,6 +558,7 @@ def run_did_analysis(dataset_id):
             treated_diff = basic_stats['outcome_mean_treated_post'] - basic_stats['outcome_mean_treated_pre']
             control_diff = basic_stats['outcome_mean_control_post'] - basic_stats['outcome_mean_control_pre']
             did_estimate = treated_diff - control_diff
+            print(f"DiD calculation: treated_diff={treated_diff}, control_diff={control_diff}, did_estimate={did_estimate}")
             
             # Calculate standard errors (simplified)
             # Add safety checks for variance calculations
@@ -550,13 +594,20 @@ def run_did_analysis(dataset_id):
             
             # Generate chart
             chart_base64 = None
+            print("Starting chart generation...")
             try:
                 chart_base64 = create_did_chart(
-                    df, outcome_var, time_var, treatment_var, 
-                    treatment_value, treatment_start, start_period, end_period, unit_var
+                    df, outcome_var, time_var, treatment_start, start_period, end_period, unit_var, treatment_units, control_units
                 )
+                print(f"Chart generation result: {type(chart_base64)}, length: {len(chart_base64) if chart_base64 else 'None'}")
+                # Allow charts up to 200KB (base64 encoded) for high quality
+                if chart_base64 and len(chart_base64) > 200000:
+                    print(f"Chart too large ({len(chart_base64)} chars), skipping chart")
+                    chart_base64 = None
             except Exception as e:
                 print(f"Error creating main chart: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 # Continue without chart if it fails
             
             # Generate pre-treatment trends chart for parallel trends test
@@ -565,7 +616,7 @@ def run_did_analysis(dataset_id):
                 try:
                     pretreatment_chart_base64 = create_pretreatment_trends_chart(
                         df, outcome_var, time_var, treatment_var, 
-                        treatment_value, start_period, treatment_start, unit_var
+                        treatment_value, start_period, treatment_start, unit_var, treatment_units, control_units
                     )
                     parallel_trends_test['visual_chart'] = pretreatment_chart_base64
                 except Exception as e:
@@ -573,6 +624,7 @@ def run_did_analysis(dataset_id):
                     # Continue without chart if it fails
             
             # Results
+            print(f"Creating results object with did_estimate: {did_estimate}, se_did: {se_did}")
             results = {
                 'did_estimate': float(did_estimate),
                 'standard_error': float(se_did),
@@ -598,9 +650,10 @@ def run_did_analysis(dataset_id):
                         else 'not significant'
                     )
                 },
-                'chart': chart_base64,
+                'chart': chart_base64 or '',
                 'parallel_trends_test': parallel_trends_test
             }
+            print(f"Results object created successfully with keys: {list(results.keys())}")
             
             # Debug: Try to serialize the results to catch any remaining issues
             try:
@@ -618,7 +671,7 @@ def run_did_analysis(dataset_id):
                         print(f"Value type: {type(value)}")
                         print(f"Value: {value}")
             
-            return jsonify({
+            response_data = {
                 "analysis_type": "Difference-in-Differences",
                 "dataset_id": dataset_id,
                 "parameters": {
@@ -630,10 +683,26 @@ def run_did_analysis(dataset_id):
                     "start_period": start_period,
                     "end_period": end_period,
                     "unit": unit_var,
-                    "controls": control_vars
+                    "controls": control_vars,
+                    "treatment_units": treatment_units,
+                    "control_units": control_units
                 },
                 "results": results
-            }), 200
+            }
+            
+            print("Response structure check:")
+            print(f"  - Has analysis_type: {'analysis_type' in response_data}")
+            print(f"  - Has dataset_id: {'dataset_id' in response_data}")
+            print(f"  - Has parameters: {'parameters' in response_data}")
+            print(f"  - Has results: {'results' in response_data}")
+            print(f"  - Parameters keys: {list(response_data['parameters'].keys()) if 'parameters' in response_data else 'None'}")
+            print(f"  - Results keys: {list(response_data['results'].keys()) if 'results' in response_data else 'None'}")
+            
+            # Sanitize response data to convert NaN/Inf to None
+            response_data = sanitize_for_json(response_data)
+            print("Response data sanitized for JSON")
+            
+            return jsonify(response_data), 200
             
         finally:
             # Clean up temporary file
@@ -643,6 +712,9 @@ def run_did_analysis(dataset_id):
     except ValueError:
         return jsonify({"error": "Invalid token identity"}), 401
     except Exception as e:
+        print(f"ERROR in run_did_analysis: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "error": f"Failed to run DiD analysis: {str(e)}"
         }), 500
