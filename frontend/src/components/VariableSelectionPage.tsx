@@ -149,6 +149,10 @@ const VariableSelectionPage: React.FC = () => {
         // Clear any cached results before making fresh API call
         localStorage.removeItem('didAnalysisResults');
         console.log('=== STARTING FRESH DiD ANALYSIS ===');
+        console.log('Sending parameters to backend:');
+        console.log('  start_period:', selection.start_period);
+        console.log('  end_period:', selection.end_period);
+        console.log('  treatment_start:', selection.treatment_start);
         
         // Run DiD analysis
         const analysisResponse = await axios.post(`/datasets/${selectedDataset.id}/analyze/did`, {

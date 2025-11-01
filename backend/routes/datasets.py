@@ -14,7 +14,7 @@ matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import base64
 from io import BytesIO
-from scipy.stats import t
+from scipy.stats import t, norm
 import math
 from models import Dataset
 
@@ -93,15 +93,6 @@ def create_did_chart(df, outcome_var, time_var, treatment_start, start_period, e
         if len(control_data) > 0:
             plt.plot(control_data[time_var], control_data[outcome_var], 'o-', 
                     color='#FF6B6B', linewidth=2, label='Control Group', markersize=6)
-        
-        # Add counterfactual line (what would have happened to treatment group without treatment)
-        if len(treated_data) > 0 and len(control_data) > 0:
-            # Calculate counterfactual: control group trend applied to treatment group
-            control_trend = np.polyfit(control_data[time_var], control_data[outcome_var], 1)
-            counterfactual_values = np.polyval(control_trend, treated_data[time_var])
-            plt.plot(treated_data[time_var], counterfactual_values, '--', 
-                    color='#4F9CF9', linewidth=2, alpha=0.7, 
-                    label='Counterfactual (No Treatment)')
         
         # Add vertical line for treatment start
         plt.axvline(x=treatment_start, color='red', linestyle='--', alpha=0.7, linewidth=2)
@@ -413,6 +404,9 @@ def run_did_analysis(dataset_id):
         print(f"  unit_var: {unit_var}")
         print(f"  treatment_var: {treatment_var}")
         print(f"  treatment_value: {treatment_value}")
+        print(f"  start_period: {start_period}")
+        print(f"  end_period: {end_period}")
+        print(f"  treatment_start: {treatment_start}")
         
         # Validate required parameters
         required_params = [
@@ -485,44 +479,96 @@ def run_did_analysis(dataset_id):
             if df['post_treatment'].sum() == 0:
                 return jsonify({"error": "No post-treatment observations found"}), 400
             
-            # Test parallel trends in pre-treatment period
+            # Test parallel trends in pre-treatment period using regression
+            # Tests if group × time interaction is significant in pre-period
             parallel_trends_test = None
             try:
                 pre_treatment_data = df[df['post_treatment'] == 0].copy()
                 
-                if len(pre_treatment_data) > 0:
-                    treated_pre = pre_treatment_data[pre_treatment_data['is_treated'] == 1]
-                    control_pre = pre_treatment_data[pre_treatment_data['is_treated'] == 0]
+                if len(pre_treatment_data) > 4:  # Need at least 5 observations for regression
+                    # Regression approach: outcome ~ time + treated + time*treated
+                    # If time*treated coefficient is significant, parallel trends violated
                     
-                    if len(treated_pre) > 2 and len(control_pre) > 2:
-                        # Calculate trend slopes for each group
-                        treated_trend = np.polyfit(treated_pre[time_var], treated_pre[outcome_var], 1)[0]
-                        control_trend = np.polyfit(control_pre[time_var], control_pre[outcome_var], 1)[0]
+                    # Create time-treatment interaction
+                    pre_treatment_data['time_treated_interaction'] = (
+                        pre_treatment_data[time_var] * pre_treatment_data['is_treated']
+                    )
+                    
+                    # Prepare data for regression
+                    X = pre_treatment_data[[time_var, 'is_treated', 'time_treated_interaction']].values
+                    y = pre_treatment_data[outcome_var].values
+                    
+                    # Add constant term
+                    X_with_const = np.column_stack([np.ones(len(X)), X])
+                    
+                    # OLS estimation: beta = (X'X)^-1 X'y
+                    try:
+                        XtX = X_with_const.T @ X_with_const
+                        Xty = X_with_const.T @ y
+                        beta = np.linalg.solve(XtX, Xty)
                         
-                        # Calculate standard errors and test difference
-                        # Simple t-test for slope difference
-                        treated_slope_se = np.std(treated_pre[outcome_var]) / np.sqrt(len(treated_pre))
-                        control_slope_se = np.std(control_pre[outcome_var]) / np.sqrt(len(control_pre))
+                        # Calculate residuals and standard errors
+                        y_pred = X_with_const @ beta
+                        residuals = y - y_pred
+                        n = len(y)
+                        k = X_with_const.shape[1]
                         
-                        # Pooled standard error
-                        pooled_se = np.sqrt(treated_slope_se**2 + control_slope_se**2)
+                        # Residual standard error
+                        rse = np.sqrt(np.sum(residuals**2) / (n - k))
                         
-                        # t-statistic and p-value
-                        if pooled_se > 0:
-                            t_stat = (treated_trend - control_trend) / pooled_se
-                            p_value = 2 * (1 - t.cdf(abs(t_stat), len(treated_pre) + len(control_pre) - 2))
+                        # Variance-covariance matrix
+                        var_covar = rse**2 * np.linalg.inv(XtX)
+                        
+                        # Standard errors
+                        se = np.sqrt(np.diag(var_covar))
+                        
+                        # Test the interaction coefficient (last coefficient)
+                        interaction_coef = beta[-1]
+                        interaction_se = se[-1]
+                        
+                        # t-statistic and p-value for interaction
+                        if interaction_se > 0:
+                            t_stat = interaction_coef / interaction_se
+                            p_value = 2 * (1 - t.cdf(abs(t_stat), n - k))
                         else:
-                            p_value = 1.0  # If no variation, assume no difference
+                            p_value = 1.0
+                        
+                        # Also calculate simple slopes for interpretation
+                        treated_pre = pre_treatment_data[pre_treatment_data['is_treated'] == 1]
+                        control_pre = pre_treatment_data[pre_treatment_data['is_treated'] == 0]
+                        
+                        treated_slope = np.polyfit(treated_pre[time_var], treated_pre[outcome_var], 1)[0] if len(treated_pre) > 1 else 0
+                        control_slope = np.polyfit(control_pre[time_var], control_pre[outcome_var], 1)[0] if len(control_pre) > 1 else 0
                         
                         parallel_trends_test = {
-                            'treated_slope': float(treated_trend),
-                            'control_slope': float(control_trend),
+                            'treated_slope': float(treated_slope),
+                            'control_slope': float(control_slope),
+                            'interaction_coefficient': float(interaction_coef),
                             'p_value': float(p_value),
                             'passed': bool(p_value > 0.05),  # non-significant = parallel trends likely hold
                             'visual_chart': None  # Will be set later
                         }
+                    except np.linalg.LinAlgError:
+                        # If matrix is singular, fall back to simple comparison
+                        print("Warning: Singular matrix in parallel trends test, using simple slope comparison")
+                        treated_pre = pre_treatment_data[pre_treatment_data['is_treated'] == 1]
+                        control_pre = pre_treatment_data[pre_treatment_data['is_treated'] == 0]
+                        
+                        if len(treated_pre) > 2 and len(control_pre) > 2:
+                            treated_slope = np.polyfit(treated_pre[time_var], treated_pre[outcome_var], 1)[0]
+                            control_slope = np.polyfit(control_pre[time_var], control_pre[outcome_var], 1)[0]
+                            
+                            parallel_trends_test = {
+                                'treated_slope': float(treated_slope),
+                                'control_slope': float(control_slope),
+                                'p_value': None,
+                                'passed': None,
+                                'visual_chart': None
+                            }
             except Exception as e:
                 print(f"Error in parallel trends test: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 # Continue without parallel trends test if it fails
             
             # Prepare data for analysis
@@ -560,28 +606,53 @@ def run_did_analysis(dataset_id):
             did_estimate = treated_diff - control_diff
             print(f"DiD calculation: treated_diff={treated_diff}, control_diff={control_diff}, did_estimate={did_estimate}")
             
-            # Calculate standard errors (simplified)
-            # Add safety checks for variance calculations
-            treated_pre_data = analysis_data[(analysis_data['is_treated'] == 1) & (analysis_data['post_treatment'] == 0)][outcome_var]
-            treated_post_data = analysis_data[(analysis_data['is_treated'] == 1) & (analysis_data['post_treatment'] == 1)][outcome_var]
-            control_pre_data = analysis_data[(analysis_data['is_treated'] == 0) & (analysis_data['post_treatment'] == 0)][outcome_var]
-            control_post_data = analysis_data[(analysis_data['is_treated'] == 0) & (analysis_data['post_treatment'] == 1)][outcome_var]
-            
-            treated_pre_var = float(treated_pre_data.var()) if len(treated_pre_data) > 1 else 0.0
-            treated_post_var = float(treated_post_data.var()) if len(treated_post_data) > 1 else 0.0
-            control_pre_var = float(control_pre_data.var()) if len(control_pre_data) > 1 else 0.0
-            control_post_var = float(control_post_data.var()) if len(control_post_data) > 1 else 0.0
-            
-            n_treated = int(analysis_data['is_treated'].sum())
-            n_control = int(len(analysis_data) - n_treated)
-            
-            # Simplified standard error calculation
-            # Add small epsilon to avoid division by zero
+            # Calculate clustered standard errors at the unit level
+            # This accounts for correlation within units over time
             epsilon = 1e-10
-            se_did = (
-                (treated_pre_var + treated_post_var) / max(n_treated, 1) + 
-                (control_pre_var + control_post_var) / max(n_control, 1)
-            ) ** 0.5
+            
+            # Calculate unit-level means for each group-period combination
+            unit_means = analysis_data.groupby([unit_var, 'is_treated', 'post_treatment'])[outcome_var].mean().reset_index()
+            
+            # Calculate DiD at unit level
+            treated_units_list = analysis_data[analysis_data['is_treated'] == 1][unit_var].unique()
+            control_units_list = analysis_data[analysis_data['is_treated'] == 0][unit_var].unique()
+            
+            # Calculate unit-level differences
+            unit_diffs_treated = []
+            for unit in treated_units_list:
+                unit_data = unit_means[unit_means[unit_var] == unit]
+                pre = unit_data[unit_data['post_treatment'] == 0][outcome_var].values
+                post = unit_data[unit_data['post_treatment'] == 1][outcome_var].values
+                if len(pre) > 0 and len(post) > 0:
+                    unit_diffs_treated.append(post[0] - pre[0])
+            
+            unit_diffs_control = []
+            for unit in control_units_list:
+                unit_data = unit_means[unit_means[unit_var] == unit]
+                pre = unit_data[unit_data['post_treatment'] == 0][outcome_var].values
+                post = unit_data[unit_data['post_treatment'] == 1][outcome_var].values
+                if len(pre) > 0 and len(post) > 0:
+                    unit_diffs_control.append(post[0] - pre[0])
+            
+            # Calculate standard errors using unit-level variance
+            if len(unit_diffs_treated) > 1 and len(unit_diffs_control) > 1:
+                var_treated = np.var(unit_diffs_treated, ddof=1)
+                var_control = np.var(unit_diffs_control, ddof=1)
+                se_did = np.sqrt(var_treated / len(unit_diffs_treated) + var_control / len(unit_diffs_control))
+            else:
+                # Fallback to simple calculation if not enough units
+                treated_pre_data = analysis_data[(analysis_data['is_treated'] == 1) & (analysis_data['post_treatment'] == 0)][outcome_var]
+                treated_post_data = analysis_data[(analysis_data['is_treated'] == 1) & (analysis_data['post_treatment'] == 1)][outcome_var]
+                control_pre_data = analysis_data[(analysis_data['is_treated'] == 0) & (analysis_data['post_treatment'] == 0)][outcome_var]
+                control_post_data = analysis_data[(analysis_data['is_treated'] == 0) & (analysis_data['post_treatment'] == 1)][outcome_var]
+                
+                treated_var = (treated_pre_data.var() + treated_post_data.var()) if len(treated_pre_data) > 1 else 0.0
+                control_var = (control_pre_data.var() + control_post_data.var()) if len(control_pre_data) > 1 else 0.0
+                
+                n_treated = max(len(treated_pre_data), 1)
+                n_control = max(len(control_pre_data), 1)
+                
+                se_did = np.sqrt(treated_var / n_treated + control_var / n_control)
             
             # Ensure standard error is not zero
             se_did = max(se_did, epsilon)
@@ -623,8 +694,12 @@ def run_did_analysis(dataset_id):
                     print(f"Error creating pre-treatment chart: {str(e)}")
                     # Continue without chart if it fails
             
+            # Calculate z-statistic and p-value using proper normal distribution
+            z_stat = abs(did_estimate / se_did) if se_did > epsilon else 0
+            p_value = 2 * (1 - norm.cdf(z_stat)) if se_did > epsilon else 1.0
+            
             # Results
-            print(f"Creating results object with did_estimate: {did_estimate}, se_did: {se_did}")
+            print(f"Creating results object with did_estimate: {did_estimate}, se_did: {se_did}, z_stat: {z_stat}, p_value: {p_value}")
             results = {
                 'did_estimate': float(did_estimate),
                 'standard_error': float(se_did),
@@ -632,23 +707,13 @@ def run_did_analysis(dataset_id):
                     'lower': float(confidence_interval['lower']),
                     'upper': float(confidence_interval['upper'])
                 },
-                'p_value': float(
-                    2 * (1 - abs(did_estimate / se_did)) 
-                    if se_did > epsilon else 1
-                ),
-                'is_significant': bool(
-                    abs(did_estimate / se_did) > 1.96 
-                    if se_did > epsilon else False
-                ),
+                'p_value': float(p_value),
+                'is_significant': bool(p_value < 0.05),
                 'statistics': basic_stats,
                 'interpretation': {
                     'effect_size': float(abs(did_estimate)),
                     'effect_direction': 'positive' if did_estimate > 0 else 'negative',
-                    'significance': (
-                        'significant' 
-                        if abs(did_estimate / se_did) > 1.96 and se_did > epsilon
-                        else 'not significant'
-                    )
+                    'significance': 'significant' if p_value < 0.05 else 'not significant'
                 },
                 'chart': chart_base64 or '',
                 'parallel_trends_test': parallel_trends_test
