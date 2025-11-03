@@ -50,6 +50,23 @@ interface DiDResults {
       p_value: number;
       visual_chart: string;
     };
+    event_study?: {
+      period_effects: Array<{
+        period: number;
+        actual_period: number | string;
+        coefficient: number;
+        std_error: number;
+        p_value: number | null;
+        ci_lower: number;
+        ci_upper: number;
+        is_reference: boolean;
+      }>;
+      pre_trends_joint_test: {
+        p_value: number | null;
+        passed: boolean | null;
+      };
+      chart: string;
+    };
   };
 }
 
@@ -279,6 +296,99 @@ const ResultsPage: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Event Study: Dynamic Treatment Effects */}
+        {(() => {
+          console.log('Event study check:', {
+            hasEventStudy: !!results.results.event_study,
+            hasPeriodEffects: !!(results.results.event_study?.period_effects),
+            periodEffectsLength: results.results.event_study?.period_effects?.length
+          });
+          return null;
+        })()}
+        {results.results.event_study && results.results.event_study.period_effects && (
+          <div style={styles.eventStudySection}>
+            <h2 style={styles.sectionTitle}>Dynamic Treatment Effects (Event Study)</h2>
+            <p style={styles.explanation}>
+              Instead of a single average effect, here&apos;s how the treatment effect evolved over time. 
+              This helps us see if the effect is immediate, delayed, growing, or fading.
+            </p>
+
+            {/* Pre-trends Joint Test */}
+            {results.results.event_study.pre_trends_joint_test.p_value !== null && (
+              <div style={styles.testResult}>
+                {results.results.event_study.pre_trends_joint_test.passed ? (
+                  <div style={styles.parallelPassedBadge}>
+                    ✓ Pre-treatment effects are jointly zero (p = {formatNumber(results.results.event_study.pre_trends_joint_test.p_value, 3)})
+                  </div>
+                ) : (
+                  <div style={styles.parallelFailedBadge}>
+                    ⚠ Pre-treatment effects detected (p = {formatNumber(results.results.event_study.pre_trends_joint_test.p_value, 3)})
+                    <p>This suggests potential violations of the parallel trends assumption.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Event Study Chart */}
+            {results.results.event_study.chart && (
+              <div style={styles.chartContainer}>
+                <img 
+                  src={`data:image/png;base64,${results.results.event_study.chart}`} 
+                  alt="Event study plot" 
+                  style={styles.chart} 
+                />
+                <p style={styles.chartNote}>
+                  Each point shows the treatment effect at that time period relative to treatment start (period 0). 
+                  Pre-treatment effects (negative periods) should be near zero.
+                </p>
+              </div>
+            )}
+
+            {/* Period-by-Period Effects Table */}
+            <div style={styles.tableContainer}>
+              <h3 style={styles.subsectionTitle}>Period-by-Period Treatment Effects</h3>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.tableHeader}>Relative Period</th>
+                    <th style={styles.tableHeader}>Actual Period</th>
+                    <th style={styles.tableHeader}>Effect</th>
+                    <th style={styles.tableHeader}>Std. Error</th>
+                    <th style={styles.tableHeader}>P-value</th>
+                    <th style={styles.tableHeader}>95% CI</th>
+                    <th style={styles.tableHeader}>Significant?</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.results.event_study.period_effects.map((effect, idx) => (
+                    <tr key={idx} style={effect.is_reference ? styles.referenceRow : styles.tableRow}>
+                      <td style={styles.tableCell}>
+                        {effect.period === 0 ? 'Treatment' : effect.period > 0 ? `+${effect.period}` : effect.period}
+                      </td>
+                      <td style={styles.tableCell}>{effect.actual_period}</td>
+                      <td style={styles.tableCell}>
+                        {effect.is_reference ? '0.00 (ref)' : formatNumber(effect.coefficient, 2)}
+                      </td>
+                      <td style={styles.tableCell}>
+                        {effect.is_reference ? '—' : formatNumber(effect.std_error, 2)}
+                      </td>
+                      <td style={styles.tableCell}>
+                        {effect.is_reference ? '—' : effect.p_value !== null ? formatNumber(effect.p_value, 3) : 'N/A'}
+                      </td>
+                      <td style={styles.tableCell}>
+                        {effect.is_reference ? '—' : `[${formatNumber(effect.ci_lower, 2)}, ${formatNumber(effect.ci_upper, 2)}]`}
+                      </td>
+                      <td style={styles.tableCell}>
+                        {effect.is_reference ? '—' : effect.p_value !== null && effect.p_value < 0.05 ? '✓ Yes' : 'No'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* 2. THE DiD VISUALIZATION */}
         <div style={styles.visualizationSection}>
@@ -904,5 +1014,47 @@ const styles = {
     fontWeight: 'bold',
     color: '#043873',
     margin: '0 0 15px 0'
+  },
+  eventStudySection: {
+    backgroundColor: '#ffffff',
+    borderRadius: '12px',
+    padding: '25px',
+    marginBottom: '25px',
+    border: '1px solid #e9ecef'
+  },
+  tableContainer: {
+    marginTop: '20px',
+    overflowX: 'auto' as const
+  },
+  subsectionTitle: {
+    fontSize: '18px',
+    fontWeight: 'bold',
+    color: '#495057',
+    marginBottom: '15px'
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse' as const,
+    fontSize: '14px'
+  },
+  tableHeader: {
+    backgroundColor: '#f8f9fa',
+    padding: '12px',
+    textAlign: 'left' as const,
+    fontWeight: 'bold',
+    color: '#495057',
+    borderBottom: '2px solid #dee2e6'
+  },
+  tableRow: {
+    borderBottom: '1px solid #dee2e6'
+  },
+  referenceRow: {
+    borderBottom: '1px solid #dee2e6',
+    backgroundColor: '#f8f9fa',
+    fontStyle: 'italic' as const
+  },
+  tableCell: {
+    padding: '12px',
+    color: '#495057'
   }
 };
