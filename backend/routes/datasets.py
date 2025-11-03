@@ -14,7 +14,7 @@ matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import base64
 from io import BytesIO
-from scipy.stats import t, norm, chi2
+from scipy.stats import t, norm
 import math
 from models import Dataset
 
@@ -224,58 +224,6 @@ def create_pretreatment_trends_chart(df, outcome_var, time_var, treatment_var,
         
     except Exception as e:
         print(f"Error creating pre-treatment trends chart: {str(e)}")
-        return None
-
-
-def create_event_study_chart(period_effects):
-    """Create event study plot showing treatment effects over time with confidence intervals."""
-    try:
-        # Extract data from period_effects
-        periods = [p['period'] for p in period_effects]
-        coefficients = [p['coefficient'] for p in period_effects]
-        ci_lower = [p['ci_lower'] for p in period_effects]
-        ci_upper = [p['ci_upper'] for p in period_effects]
-        
-        # Create the chart
-        plt.figure(figsize=(12, 7))
-        
-        # Plot coefficients
-        plt.plot(periods, coefficients, 'o-', color='#4F9CF9', linewidth=2, markersize=8, label='Treatment Effect')
-        
-        # Add confidence intervals as shaded area
-        plt.fill_between(periods, ci_lower, ci_upper, alpha=0.2, color='#4F9CF9', label='95% CI')
-        
-        # Add horizontal line at zero
-        plt.axhline(y=0, color='gray', linestyle='--', alpha=0.5, linewidth=1)
-        
-        # Add vertical line at treatment start (period 0)
-        plt.axvline(x=0, color='red', linestyle='--', alpha=0.7, linewidth=2)
-        plt.text(0, plt.ylim()[1] * 0.9, 'Treatment Starts', 
-                rotation=90, verticalalignment='top', 
-                horizontalalignment='right', fontsize=10, color='red')
-        
-        # Customize the chart
-        plt.xlabel('Time Relative to Treatment', fontsize=12)
-        plt.ylabel('Treatment Effect', fontsize=12)
-        plt.title('Event Study: Dynamic Treatment Effects', fontsize=14, fontweight='bold')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        
-        # Ensure x-axis shows all periods
-        plt.xticks(periods)
-        
-        # Save to base64 string
-        buffer = BytesIO()
-        plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
-        buffer.seek(0)
-        chart_base64 = base64.b64encode(buffer.getvalue()).decode()
-        plt.close()
-        
-        print(f"Event study chart created, size: {len(chart_base64)} characters")
-        return chart_base64
-        
-    except Exception as e:
-        print(f"Error creating event study chart: {str(e)}")
         return None
 
 
@@ -623,194 +571,6 @@ def run_did_analysis(dataset_id):
                 traceback.print_exc()
                 # Continue without parallel trends test if it fails
             
-            # Event Study Analysis: Calculate period-by-period treatment effects
-            print("DEBUG: About to start event study analysis")
-            event_study_results = None
-            try:
-                print("=== Starting Event Study Analysis ===")
-                print(f"DEBUG: df shape = {df.shape}, time_var = {time_var}")
-                
-                # Get all unique time periods and sort them
-                all_periods = sorted(df[time_var].unique())
-                treatment_start_value = float(treatment_start) if pd.api.types.is_numeric_dtype(df[time_var]) else treatment_start
-                
-                # Find treatment period index
-                treatment_period_idx = all_periods.index(treatment_start_value)
-                
-                # Create relative time periods (e.g., -2, -1, 0, 1, 2)
-                df['relative_time'] = df[time_var].apply(
-                    lambda x: all_periods.index(x) - treatment_period_idx
-                )
-                
-                # Get range of relative periods
-                min_rel_time = int(df['relative_time'].min())
-                max_rel_time = int(df['relative_time'].max())
-                
-                print(f"Relative time range: {min_rel_time} to {max_rel_time}")
-                print(f"Treatment period: {treatment_start_value} (relative time = 0)")
-                
-                # Create dummy variables for each relative time period (excluding -1 as reference)
-                period_effects = []
-                
-                for rel_time in range(min_rel_time, max_rel_time + 1):
-                    if rel_time == -1:
-                        # Omit -1 as reference period
-                        continue
-                    
-                    # Create interaction: 1{relative_time == rel_time} × Treated
-                    df[f'treat_x_period_{rel_time}'] = (
-                        (df['relative_time'] == rel_time) & (df['is_treated'] == 1)
-                    ).astype(int)
-                
-                # Prepare regression data
-                # Model: outcome ~ unit_FE + time_FE + Σ(treat × period_k)
-                
-                # For simplicity, we'll use a regression with time and unit dummies
-                # Create dummy variables for units and time periods
-                unit_dummies = pd.get_dummies(df[unit_var], prefix='unit', drop_first=True)
-                time_dummies = pd.get_dummies(df[time_var], prefix='time', drop_first=True)
-                
-                # Collect treatment interaction terms
-                treatment_cols = [col for col in df.columns if col.startswith('treat_x_period_')]
-                
-                # Build design matrix
-                X_list = [unit_dummies, time_dummies]
-                for col in treatment_cols:
-                    X_list.append(df[[col]])
-                
-                X = pd.concat(X_list, axis=1)
-                y = df[outcome_var]
-                
-                # Remove rows with missing values
-                valid_idx = ~(X.isna().any(axis=1) | y.isna())
-                X = X[valid_idx]
-                y = y[valid_idx]
-                
-                print(f"Event study regression: {len(y)} observations, {X.shape[1]} covariates")
-                
-                # Check if we have enough observations
-                if len(y) < X.shape[1] + 1:
-                    print(f"WARNING: Not enough observations ({len(y)}) for {X.shape[1]} covariates. Event study requires more data.")
-                    raise ValueError("Insufficient observations for event study regression")
-                
-                # OLS estimation - ensure all data is float
-                X_array = X.astype(float).values
-                y_array = y.astype(float).values
-                
-                # Add constant
-                X_with_const = np.column_stack([np.ones(len(X_array)), X_array])
-                
-                # Solve: beta = (X'X)^-1 X'y
-                XtX = X_with_const.T @ X_with_const
-                Xty = X_with_const.T @ y_array
-                beta = np.linalg.solve(XtX, Xty)
-                
-                # Calculate standard errors
-                y_pred = X_with_const @ beta
-                residuals = y_array - y_pred
-                n = len(y_array)
-                k = X_with_const.shape[1]
-                
-                # Residual standard error
-                rse = np.sqrt(np.sum(residuals**2) / (n - k))
-                
-                # Variance-covariance matrix
-                var_covar = rse**2 * np.linalg.inv(XtX)
-                se = np.sqrt(np.diag(var_covar))
-                
-                # Extract coefficients for treatment interactions
-                # They are at the end of the coefficient vector
-                n_treatment_coefs = len(treatment_cols)
-                treatment_coefs = beta[-n_treatment_coefs:]
-                treatment_ses = se[-n_treatment_coefs:]
-                
-                # Build results for each period
-                period_results = []
-                coef_idx = 0
-                
-                for rel_time in range(min_rel_time, max_rel_time + 1):
-                    # Convert actual_period to native Python type for JSON serialization
-                    actual_period_value = all_periods[treatment_period_idx + rel_time]
-                    if isinstance(actual_period_value, (np.integer, np.floating)):
-                        actual_period_value = float(actual_period_value) if isinstance(actual_period_value, np.floating) else int(actual_period_value)
-                    
-                    if rel_time == -1:
-                        # Reference period
-                        period_results.append({
-                            'period': int(rel_time),
-                            'actual_period': actual_period_value,
-                            'coefficient': 0.0,
-                            'std_error': 0.0,
-                            'p_value': None,
-                            'ci_lower': 0.0,
-                            'ci_upper': 0.0,
-                            'is_reference': True
-                        })
-                    else:
-                        coef = treatment_coefs[coef_idx]
-                        se_coef = treatment_ses[coef_idx]
-                        
-                        print(f"DEBUG Period {rel_time}: coef={coef}, se={se_coef}, coef_idx={coef_idx}")
-                        
-                        # Calculate p-value
-                        t_stat = coef / se_coef if se_coef > 0 and not np.isinf(se_coef) else 0
-                        p_val = 2 * (1 - t.cdf(abs(t_stat), n - k)) if not np.isinf(se_coef) else None
-                        
-                        print(f"  t_stat={t_stat}, p_val={p_val}, n={n}, k={k}")
-                        
-                        # 95% confidence interval
-                        ci_lower = coef - 1.96 * se_coef
-                        ci_upper = coef + 1.96 * se_coef
-                        
-                        period_results.append({
-                            'period': int(rel_time),
-                            'actual_period': actual_period_value,
-                            'coefficient': float(coef),
-                            'std_error': float(se_coef) if not np.isinf(se_coef) else None,
-                            'p_value': float(p_val) if p_val is not None and not np.isnan(p_val) else None,
-                            'ci_lower': float(ci_lower) if not np.isinf(ci_lower) else None,
-                            'ci_upper': float(ci_upper) if not np.isinf(ci_upper) else None,
-                            'is_reference': False
-                        })
-                        
-                        coef_idx += 1
-                
-                # Test joint significance of pre-treatment coefficients
-                pre_treatment_coefs = [r for r in period_results if r['period'] < 0 and not r['is_reference']]
-                
-                if len(pre_treatment_coefs) > 0:
-                    # Simple F-test: all pre-treatment coefs = 0
-                    pre_coefs = np.array([r['coefficient'] for r in pre_treatment_coefs])
-                    pre_ses = np.array([r['std_error'] for r in pre_treatment_coefs])
-                    
-                    # Chi-square test statistic
-                    chi_sq = np.sum((pre_coefs / pre_ses) ** 2)
-                    from scipy.stats import chi2
-                    pre_trends_p_value = 1 - chi2.cdf(chi_sq, len(pre_coefs))
-                else:
-                    pre_trends_p_value = None
-                
-                # Generate event study chart
-                event_study_chart = create_event_study_chart(period_results)
-                
-                event_study_results = {
-                    'period_effects': period_results,
-                    'pre_trends_joint_test': {
-                        'p_value': float(pre_trends_p_value) if pre_trends_p_value is not None else None,
-                        'passed': bool(pre_trends_p_value > 0.05) if pre_trends_p_value is not None else None
-                    },
-                    'chart': event_study_chart
-                }
-                
-                print(f"Event study completed: {len(period_results)} periods analyzed")
-                print(f"Pre-trends joint test p-value: {pre_trends_p_value}")
-                
-            except Exception as e:
-                print(f"Error in event study analysis: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                # Continue without event study if it fails
-            
             # Prepare data for analysis
             analysis_cols = [
                 outcome_var, 'is_treated', 'post_treatment', 
@@ -957,8 +717,7 @@ def run_did_analysis(dataset_id):
                     'significance': 'significant' if p_value < 0.05 else 'not significant'
                 },
                 'chart': chart_base64 or '',
-                'parallel_trends_test': parallel_trends_test,
-                'event_study': event_study_results
+                'parallel_trends_test': parallel_trends_test
             }
             print(f"Results object created successfully with keys: {list(results.keys())}")
             
