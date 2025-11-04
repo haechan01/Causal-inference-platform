@@ -73,12 +73,14 @@ from routes.analysis import analysis_bp  # noqa: E402
 from routes.auth import auth_bp  # noqa: E402
 from routes.projects import projects_bp  # noqa: E402
 from routes.datasets import datasets_bp  # noqa: E402
+from routes.ai import ai_bp  # noqa: E402
 
 # API Routes (Blueprints)
 app.register_blueprint(auth_bp)
 app.register_blueprint(analysis_bp)
 app.register_blueprint(projects_bp)
 app.register_blueprint(datasets_bp)
+app.register_blueprint(ai_bp)
 
 
 @app.route('/')
