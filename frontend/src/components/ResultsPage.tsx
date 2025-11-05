@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Navbar from './Navbar';
 import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
+import { aiService, ResultsInterpretation } from '../services/aiService';
 
 interface DiDResults {
   analysis_type: string;
@@ -59,6 +60,9 @@ const ResultsPage: React.FC = () => {
     const [results, setResults] = useState<DiDResults | null>(null);
     const [loading, setLoading] = useState(true);
     const [showDetails, setShowDetails] = useState(false);
+    const [aiInterpretation, setAiInterpretation] = useState<ResultsInterpretation | null>(null);
+    const [loadingAI, setLoadingAI] = useState(false);
+    const [aiError, setAiError] = useState<string | null>(null);
 
     // Helper function to safely format numbers, handling null/undefined
     const formatNumber = (value: number | null | undefined, decimals: number = 2): string => {
@@ -93,6 +97,77 @@ const ResultsPage: React.FC = () => {
         }
         setLoading(false);
     }, []);
+
+    // Load AI interpretation when results are available
+    useEffect(() => {
+        console.log('AI useEffect triggered:', { 
+            hasResults: !!results, 
+            loading, 
+            hasAiInterpretation: !!aiInterpretation, 
+            loadingAI,
+            hasResultsResults: !!results?.results,
+            hasParameters: !!results?.parameters
+        });
+
+        const loadAIInterpretation = async () => {
+            if (!results?.results || !results?.parameters) {
+                console.log('AI: Skipping - missing results or parameters');
+                console.log('AI: results?.results =', results?.results);
+                console.log('AI: results?.parameters =', results?.parameters);
+                return;
+            }
+            
+            // Don't reload if we already have interpretation
+            if (aiInterpretation) {
+                console.log('AI: Skipping - already have interpretation');
+                return;
+            }
+            
+            console.log('AI: Starting interpretation...');
+            console.log('AI: Results data:', {
+                did_estimate: results.results.did_estimate,
+                p_value: results.results.p_value,
+                outcome: results.parameters.outcome,
+                treatment: results.parameters.treatment
+            });
+            
+            setLoadingAI(true);
+            setAiError(null);
+            
+            try {
+                const interpretation = await aiService.interpretResults(
+                    results.results,
+                    results.parameters,
+                    undefined, // causal_question (can be added later)
+                    'Difference-in-Differences'
+                );
+                console.log('AI: Interpretation received', interpretation);
+                setAiInterpretation(interpretation);
+            } catch (error: any) {
+                console.error('AI: Failed to load interpretation:', error);
+                console.error('AI: Error response:', error.response);
+                console.error('AI: Error status:', error.response?.status);
+                const errorMessage = error.response?.data?.error || error.message || 'Failed to load AI interpretation';
+                console.error('AI: Error details:', errorMessage);
+                setAiError(errorMessage);
+            } finally {
+                setLoadingAI(false);
+            }
+        };
+
+        // Fetch when results are loaded and we're not already loading
+        if (results && !loading && !aiInterpretation && !loadingAI) {
+            console.log('AI: Conditions met, calling loadAIInterpretation');
+            loadAIInterpretation();
+        } else {
+            console.log('AI: Conditions not met, skipping:', {
+                hasResults: !!results,
+                notLoading: !loading,
+                noAiInterpretation: !aiInterpretation,
+                notLoadingAI: !loadingAI
+            });
+        }
+    }, [results, loading]); // Note: Intentionally not including aiInterpretation and loadingAI to avoid loops
 
     if (loading) {
         return (
@@ -211,7 +286,7 @@ const ResultsPage: React.FC = () => {
                         {/* AI-Powered Summary */}
                         <div style={styles.aiSummary}>
                             <div style={styles.aiIcon}>🤖</div>
-                            <p style={styles.aiText}>{generateAISummary()}</p>
+                            <p style={styles.aiSummaryText}>{generateAISummary()}</p>
                         </div>
 
                         {/* Big Number Card */}
@@ -305,6 +380,156 @@ const ResultsPage: React.FC = () => {
                 )}
             </div>
         </div>
+
+                    {/* AI INTERPRETATION SECTION - ALWAYS VISIBLE */}
+                    <div style={styles.aiSection}>
+                        <h2 style={styles.sectionTitle}>🤖 AI Interpretation</h2>
+                        <p style={{fontSize: '14px', color: '#666', marginBottom: '20px'}}>
+                            Debug: loadingAI={loadingAI ? 'true' : 'false'}, 
+                            hasInterpretation={aiInterpretation ? 'true' : 'false'}, 
+                            hasError={aiError ? 'true' : 'false'}
+                        </p>
+                        
+                        {/* Loading State */}
+                        {loadingAI && (
+                            <div style={styles.aiLoading}>
+                                <div style={styles.spinner}></div>
+                                <p>AI is analyzing your results...</p>
+                            </div>
+                        )}
+
+                        {/* Error State */}
+                        {aiError && !loadingAI && (
+                            <div style={styles.aiError}>
+                                <p>⚠️ {aiError}</p>
+                                <p style={styles.aiErrorNote}>Your results are still valid. AI interpretation is temporarily unavailable.</p>
+                                <button 
+                                    onClick={() => {
+                                        setAiError(null);
+                                        setLoadingAI(false);
+                                        setAiInterpretation(null);
+                                    }}
+                                    style={{...styles.aiButton, marginTop: '10px', backgroundColor: '#6c757d'}}
+                                >
+                                    Try Again
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Show button if not loading and no result yet */}
+                        {!loadingAI && !aiInterpretation && !aiError && (
+                            <div style={styles.aiPrompt}>
+                                <p>Get AI-powered insights about your analysis results.</p>
+                                <button 
+                                    onClick={() => {
+                                        console.log('AI: Manual trigger clicked');
+                                        console.log('AI: Results available?', !!results?.results);
+                                        console.log('AI: Parameters available?', !!results?.parameters);
+                                        if (results?.results && results?.parameters) {
+                                            setLoadingAI(true);
+                                            setAiError(null);
+                                            console.log('AI: Calling interpretResults...');
+                                            aiService.interpretResults(
+                                                results.results,
+                                                results.parameters,
+                                                undefined,
+                                                'Difference-in-Differences'
+                                            ).then(interpretation => {
+                                                console.log('AI: Manual interpretation received', interpretation);
+                                                setAiInterpretation(interpretation);
+                                                setLoadingAI(false);
+                                            }).catch(error => {
+                                                console.error('AI: Manual interpretation failed', error);
+                                                console.error('AI: Full error object:', error);
+                                                const errorMessage = error.response?.data?.error || error.message || 'Failed to load AI interpretation';
+                                                setAiError(errorMessage);
+                                                setLoadingAI(false);
+                                            });
+                                        } else {
+                                            console.error('AI: Cannot call - missing results or parameters');
+                                            setAiError('Results or parameters not available');
+                                        }
+                                    }}
+                                    style={styles.aiButton}
+                                >
+                                    Load AI Interpretation
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Success State - Show Interpretation */}
+                        {aiInterpretation && !loadingAI && (
+                            <>
+                            
+                            {/* Executive Summary */}
+                            <div style={styles.aiCard}>
+                                <h3 style={styles.aiCardTitle}>Executive Summary</h3>
+                                <p style={styles.aiText}>{aiInterpretation.executive_summary}</p>
+                            </div>
+
+                            {/* Parallel Trends */}
+                            {aiInterpretation.parallel_trends_interpretation && (
+                                <div style={styles.aiCard}>
+                                    <h3 style={styles.aiCardTitle}>Parallel Trends Assessment</h3>
+                                    <p style={styles.aiText}>{aiInterpretation.parallel_trends_interpretation}</p>
+                                </div>
+                            )}
+
+                            {/* Effect Size */}
+                            {aiInterpretation.effect_size_interpretation && (
+                                <div style={styles.aiCard}>
+                                    <h3 style={styles.aiCardTitle}>Effect Size</h3>
+                                    <p style={styles.aiText}>{aiInterpretation.effect_size_interpretation}</p>
+                                </div>
+                            )}
+
+                            {/* Statistical Interpretation */}
+                            {aiInterpretation.statistical_interpretation && (
+                                <div style={styles.aiCard}>
+                                    <h3 style={styles.aiCardTitle}>Statistical Significance</h3>
+                                    <p style={styles.aiText}>{aiInterpretation.statistical_interpretation}</p>
+                                </div>
+                            )}
+
+                            {/* Limitations */}
+                            {aiInterpretation.limitations && aiInterpretation.limitations.length > 0 && (
+                                <div style={{...styles.aiCard, backgroundColor: '#fff3cd', borderColor: '#ffc107'}}>
+                                    <h3 style={styles.aiCardTitle}>⚠️ Limitations & Caveats</h3>
+                                    <ul style={styles.aiList}>
+                                        {aiInterpretation.limitations.map((limit, index) => (
+                                            <li key={index} style={styles.aiListItem}>{limit}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* Implications */}
+                            {aiInterpretation.implications && aiInterpretation.implications.length > 0 && (
+                                <div style={{...styles.aiCard, backgroundColor: '#d4edda', borderColor: '#28a745'}}>
+                                    <h3 style={styles.aiCardTitle}>💡 Practical Implications</h3>
+                                    <ul style={styles.aiList}>
+                                        {aiInterpretation.implications.map((implication, index) => (
+                                            <li key={index} style={styles.aiListItem}>{implication}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* Recommendation */}
+                            {aiInterpretation.recommendation && (
+                                <div style={{...styles.aiCard, backgroundColor: '#e3f2fd', borderColor: '#2196f3', borderLeft: '4px solid #2196f3'}}>
+                                    <h3 style={styles.aiCardTitle}>📋 Recommendation</h3>
+                                    <p style={styles.aiText}>{aiInterpretation.recommendation}</p>
+                                    {aiInterpretation.confidence_level && (
+                                        <p style={styles.confidenceLevel}>
+                                            Confidence: <strong>{aiInterpretation.confidence_level.toUpperCase()}</strong>
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+                            </>
+                        )}
+                    </div>
 
                     {/* 3. THE TRUST & DETAILS SECTION */}
                     <div style={styles.trustSection}>
@@ -422,7 +647,7 @@ const styles = {
     fontSize: '24px',
     marginRight: '15px'
   },
-  aiText: {
+  aiSummaryText: {
     fontSize: '18px',
     color: '#333',
     margin: 0,
@@ -904,5 +1129,92 @@ const styles = {
     fontWeight: 'bold',
     color: '#043873',
     margin: '0 0 15px 0'
+  },
+
+  // AI INTERPRETATION SECTION
+  aiSection: {
+    backgroundColor: 'white',
+    borderRadius: '16px',
+    padding: '40px',
+    marginBottom: '30px',
+    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)',
+    border: '2px solid #4F9CF9'
+  },
+  aiCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: '12px',
+    padding: '25px',
+    marginBottom: '20px',
+    border: '1px solid #e9ecef',
+    borderLeft: '4px solid #4F9CF9'
+  },
+  aiCardTitle: {
+    fontSize: '20px',
+    fontWeight: 'bold',
+    color: '#043873',
+    margin: '0 0 15px 0'
+  },
+  aiText: {
+    fontSize: '16px',
+    lineHeight: '1.6',
+    color: '#333',
+    margin: 0
+  },
+  aiList: {
+    margin: '10px 0',
+    paddingLeft: '20px'
+  },
+  aiListItem: {
+    fontSize: '16px',
+    lineHeight: '1.6',
+    color: '#333',
+    marginBottom: '8px'
+  },
+  aiLoading: {
+    textAlign: 'center' as const,
+    padding: '40px'
+  },
+  spinner: {
+    width: '40px',
+    height: '40px',
+    border: '4px solid #f3f3f3',
+    borderTop: '4px solid #4F9CF9',
+    borderRadius: '50%',
+    animation: 'spin 1s linear infinite',
+    margin: '0 auto 20px'
+  },
+  aiError: {
+    backgroundColor: '#f8d7da',
+    color: '#721c24',
+    padding: '20px',
+    borderRadius: '8px',
+    border: '1px solid #f5c6cb'
+  },
+  aiErrorNote: {
+    fontSize: '14px',
+    marginTop: '10px',
+    opacity: 0.8
+  },
+  confidenceLevel: {
+    marginTop: '15px',
+    fontSize: '14px',
+    color: '#666',
+    fontStyle: 'italic'
+  },
+  aiPrompt: {
+    textAlign: 'center' as const,
+    padding: '40px'
+  },
+  aiButton: {
+    backgroundColor: '#4F9CF9',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    padding: '12px 24px',
+    fontSize: '16px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    marginTop: '20px',
+    transition: 'background-color 0.2s'
   }
 };
