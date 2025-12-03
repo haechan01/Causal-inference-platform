@@ -256,18 +256,17 @@ def get_dataset_schema(dataset_id):
         if not dataset:
             return jsonify({"error": f"Dataset {dataset_id} not found"}), 404
         
-        # Check if user has access to this dataset's project
-        # Convert both to strings for comparison to handle type mismatches
-        if str(dataset.project.user_id) != str(current_user_id):
+        # Check if user has access to this dataset
+        # Either directly owns it or owns the project it belongs to
+        has_access = False
+        if str(dataset.user_id) == str(current_user_id):
+            has_access = True
+        elif dataset.project and str(dataset.project.user_id) == str(current_user_id):
+            has_access = True
+        
+        if not has_access:
             return jsonify({
-                "error": "Access denied", 
-                "details": (
-                    f"Dataset {dataset_id} belongs to project {dataset.project_id} "
-                    f"owned by user {dataset.project.user_id} "
-                    f"(type: {type(dataset.project.user_id)}), "
-                    f"but current user is {current_user_id} "
-                    f"(type: {type(current_user_id)})"
-                )
+                "error": "Access denied"
             }), 403
 
         # Download file from S3 to analyze schema
@@ -336,6 +335,7 @@ def get_dataset_schema(dataset_id):
                     'name': column,
                     'type': col_type,
                     'unique_values': unique_values,
+                    'unique_count': int(col_data.nunique()),
                     'null_count': int(col_data.isnull().sum()),
                     'total_count': len(col_data)
                 })
@@ -361,6 +361,119 @@ def get_dataset_schema(dataset_id):
         }), 500
 
 
+@datasets_bp.route('/<int:dataset_id>/preview', methods=['GET'])
+@jwt_required()
+def get_dataset_preview(dataset_id):
+    """Get data preview with summary statistics for a dataset."""
+    try:
+        current_user_id = get_jwt_identity()
+        
+        dataset = Dataset.query.get(dataset_id)
+        if not dataset:
+            return jsonify({"error": f"Dataset {dataset_id} not found"}), 404
+        
+        # Check if user has access to this dataset
+        has_access = False
+        if str(dataset.user_id) == str(current_user_id):
+            has_access = True
+        elif dataset.project and str(dataset.project.user_id) == str(current_user_id):
+            has_access = True
+        
+        if not has_access:
+            return jsonify({"error": "Access denied"}), 403
+
+        # Create S3 client
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            region_name=AWS_REGION
+        )
+
+        temp_file_path = f"/tmp/preview_{dataset_id}.csv"
+        
+        try:
+            s3_client.download_file(S3_BUCKET_NAME, dataset.s3_key, temp_file_path)
+            df = pd.read_csv(temp_file_path)
+            
+            # Validate that the DataFrame has data
+            if df.empty or len(df.columns) == 0:
+                return jsonify({
+                    "error": "Dataset is empty. CSV file must contain at least one data row and one column."
+                }), 400
+            
+            # Build column information with statistics
+            columns_info = []
+            for column in df.columns:
+                col_data = df[column]
+                col_info = {
+                    'name': column,
+                    'null_count': int(col_data.isnull().sum()),
+                    'unique_count': int(col_data.nunique())
+                }
+                
+                if pd.api.types.is_numeric_dtype(col_data):
+                    col_info['type'] = 'numeric'
+                    col_info['min'] = float(col_data.min()) if not pd.isna(col_data.min()) else None
+                    col_info['max'] = float(col_data.max()) if not pd.isna(col_data.max()) else None
+                    col_info['mean'] = float(col_data.mean()) if not pd.isna(col_data.mean()) else None
+                    col_info['std'] = float(col_data.std()) if not pd.isna(col_data.std()) else None
+                elif pd.api.types.is_datetime64_any_dtype(col_data):
+                    col_info['type'] = 'date'
+                else:
+                    col_info['type'] = 'categorical'
+                    unique_vals = col_data.dropna().unique()
+                    if len(unique_vals) <= 20:
+                        col_info['unique_values'] = [str(v) for v in unique_vals]
+                
+                columns_info.append(col_info)
+            
+            # Summary statistics - safe calculation to prevent ZeroDivisionError
+            num_rows = len(df)
+            num_cols = len(df.columns)
+            
+            # Calculate total cells safely
+            if num_rows > 0 and num_cols > 0:
+                total_cells = num_rows * num_cols
+            else:
+                # This should not happen due to validation above, but defensive programming
+                total_cells = 1
+            
+            missing_cells = int(df.isnull().sum().sum())
+            # Safe division - total_cells should never be 0 at this point, but check anyway
+            missing_percentage = float((missing_cells / total_cells) * 100) if total_cells > 0 else 0.0
+            
+            summary = {
+                'total_rows': len(df),
+                'total_columns': len(df.columns),
+                'numeric_columns': sum(1 for c in columns_info if c['type'] == 'numeric'),
+                'categorical_columns': sum(1 for c in columns_info if c['type'] == 'categorical'),
+                'missing_cells': missing_cells,
+                'missing_percentage': missing_percentage
+            }
+            
+            # Preview rows (first 100)
+            preview_rows = df.head(100).fillna('').to_dict('records')
+            
+            # Use sanitize_for_json to handle any remaining NaNs or Infs
+            response = {
+                "dataset_id": dataset_id,
+                "columns": columns_info,
+                "summary": summary,
+                "rows": preview_rows
+            }
+            return jsonify(sanitize_for_json(response)), 200
+            
+        finally:
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+                
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to get preview: {str(e)}"}), 500
+
+
 @datasets_bp.route('/<int:dataset_id>/analyze/did', methods=['POST'])
 @jwt_required()
 def run_did_analysis(dataset_id):
@@ -376,8 +489,14 @@ def run_did_analysis(dataset_id):
         if not dataset:
             return jsonify({"error": f"Dataset {dataset_id} not found"}), 404
         
-        # Check if user has access to this dataset's project
-        if str(dataset.project.user_id) != str(current_user_id):
+        # Check if user has access to this dataset
+        has_access = False
+        if str(dataset.user_id) == str(current_user_id):
+            has_access = True
+        elif dataset.project and str(dataset.project.user_id) == str(current_user_id):
+            has_access = True
+        
+        if not has_access:
             return jsonify({"error": "Access denied"}), 403
         
         # Get analysis parameters from request

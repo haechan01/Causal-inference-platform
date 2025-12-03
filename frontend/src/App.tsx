@@ -5,9 +5,11 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LandingPage from './components/LandingPage';
 import Authentication from './components/Authentication';
 import Dashboard from './components/Dashboard';
+import DataUploadPage from './components/DataUploadPage';
 import ProjectsPage from './components/ProjectsPage';
 import MethodSelectionPage from './components/MethodSelectionPage';
 import VariableSelectionPage from './components/VariableSelectionPage';
+import DataPreviewPage from './components/DataPreviewPage';
 import ResultsPage from './components/ResultsPage';
 import ResultsPageTest from './components/ResultsPageTest';
 
@@ -38,8 +40,16 @@ const AppContent: React.FC = () => {
         element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" />} 
       />
       <Route 
+        path="/upload-data" 
+        element={isAuthenticated ? <DataUploadPage /> : <Navigate to="/login" />} 
+      />
+      <Route 
         path="/projects" 
         element={isAuthenticated ? <ProjectsPage /> : <Navigate to="/login" />} 
+      />
+      <Route 
+        path="/data-preview" 
+        element={isAuthenticated ? <DataPreviewPage /> : <Navigate to="/login" />} 
       />
       <Route 
         path="/method-selection" 

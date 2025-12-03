@@ -11,6 +11,47 @@ export interface ResultsInterpretation {
   recommendation: string;
 }
 
+export interface MethodRecommendation {
+  recommended_method: string;
+  method_code: string;
+  explanation: string;
+  alternatives: Array<{
+    method: string;
+    code: string;
+    when_appropriate: string;
+  }>;
+  key_assumptions: string[];
+}
+
+export interface DataQualityAssessment {
+  overall_score: number;
+  quality_level: 'good' | 'fair' | 'poor' | 'unknown';
+  summary: string;
+  issues: Array<{
+    severity: 'high' | 'medium' | 'low';
+    issue: string;
+    column: string | null;
+    recommendation: string;
+  }>;
+  strengths: string[];
+  recommendations: string[];
+  causal_analysis_readiness: 'ready' | 'needs_work' | 'not_suitable' | 'unknown';
+  potential_variables: {
+    outcome_candidates?: string[];
+    treatment_candidates?: string[];
+    time_candidates?: string[];
+    group_candidates?: string[];
+  };
+}
+
+interface RecommendMethodRequest {
+  treatment_variable: string;
+  outcome_variable: string;
+  is_time_series: boolean;
+  has_control_treatment_groups: boolean;
+  causal_question?: string;
+}
+
 interface InterpretResultsRequest {
   analysis_results: {
     results: {
@@ -62,6 +103,54 @@ class AIService {
     const response = await axios.post<ResultsInterpretation>(
       '/ai/interpret-results',
       requestData
+    );
+    return response.data;
+  }
+
+  async recommendMethod(
+    treatmentVariable: string,
+    outcomeVariable: string,
+    isTimeSeries: boolean,
+    hasControlTreatmentGroups: boolean,
+    causalQuestion?: string
+  ): Promise<MethodRecommendation> {
+    const requestData: RecommendMethodRequest = {
+      treatment_variable: treatmentVariable,
+      outcome_variable: outcomeVariable,
+      is_time_series: isTimeSeries,
+      has_control_treatment_groups: hasControlTreatmentGroups,
+      causal_question: causalQuestion,
+    };
+
+    const response = await axios.post<MethodRecommendation>(
+      '/ai/recommend-method',
+      requestData
+    );
+    return response.data;
+  }
+
+  async assessDataQuality(
+    columns: Array<{
+      name: string;
+      type: string;
+      null_count: number;
+      unique_count: number;
+      min?: number;
+      max?: number;
+      mean?: number;
+    }>,
+    summary: {
+      total_rows: number;
+      total_columns: number;
+      numeric_columns: number;
+      categorical_columns: number;
+      missing_cells: number;
+      missing_percentage: number;
+    }
+  ): Promise<DataQualityAssessment> {
+    const response = await axios.post<DataQualityAssessment>(
+      '/ai/data-quality-check',
+      { columns, summary }
     );
     return response.data;
   }

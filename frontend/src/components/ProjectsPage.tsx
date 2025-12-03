@@ -8,7 +8,7 @@ import UploadDataModal from './UploadDataModal';
 import { LoginButton, SignUpButton } from './buttons';
 import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 
 interface Project {
@@ -28,6 +28,7 @@ const ProjectsPage: React.FC = () => {
   const { isAuthenticated, isLoading, accessToken } = useAuth();
   const { currentStep, steps, goToPreviousStep } = useProgressStep();
   const navigate = useNavigate();
+  const location = useLocation();
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [checkedProject, setCheckedProject] = useState<Project | null>(null);
@@ -36,6 +37,16 @@ const ProjectsPage: React.FC = () => {
   const [uploadProject, setUploadProject] = useState<Project | null>(null);
   const [isReadyForNext, setIsReadyForNext] = useState(false);
   const [loading, setLoading] = useState(true);
+  
+  // Pre-selected dataset from DataUploadPage
+  const preSelectedDatasetId = (location.state as any)?.selectedDatasetId || null;
+  
+  // Auto-open new project modal if coming with a pre-selected dataset
+  useEffect(() => {
+    if (preSelectedDatasetId && !isLoading && isAuthenticated) {
+      setIsNewProjectModalOpen(true);
+    }
+  }, [preSelectedDatasetId, isLoading, isAuthenticated]);
 
   // Load projects from API
   const loadProjects = async () => {
@@ -97,8 +108,9 @@ const ProjectsPage: React.FC = () => {
   };
 
   // Handle creating new project
-  const handleCreateProject = async (title: string, description: string) => {
+  const handleCreateProject = async (title: string, description: string, datasetId?: number) => {
     try {
+      // Create the project
       const response = await axios.post('/projects', {
         name: title,  // Backend expects 'name' field
         description
@@ -107,17 +119,36 @@ const ProjectsPage: React.FC = () => {
       });
       
       const newProject = response.data.project;
+      
+      // If a dataset was selected, link it to the project
+      if (datasetId) {
+        try {
+          await axios.post(`/projects/${newProject.id}/link-dataset`, {
+            dataset_id: datasetId
+          }, {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          });
+        } catch (linkError) {
+          console.error('Error linking dataset to project:', linkError);
+        }
+      }
+      
       // Map backend response to frontend format
       const mappedProject = {
         id: newProject.id,
         title: newProject.name,  // Map 'name' to 'title' for frontend
         description: newProject.description,
         created_at: new Date().toISOString(),  // Add timestamp
-        dataset_count: 0
+        dataset_count: datasetId ? 1 : 0
       };
       
       setProjects([...projects, mappedProject]);
       setSelectedProject(mappedProject);
+      setCheckedProject(mappedProject);
+      setIsReadyForNext(datasetId ? true : false);
+      
+      // Reload projects to get accurate data
+      loadProjects();
     } catch (error) {
       console.error('Error creating project:', error);
       throw error;
@@ -150,11 +181,14 @@ const ProjectsPage: React.FC = () => {
     }
   };
 
-  // Custom next handler that passes project ID
+  // Custom next handler that passes project ID - go directly to method selection
   const handleNext = () => {
-    if (checkedProject) {
+    if (checkedProject && checkedProject.datasets && checkedProject.datasets.length > 0) {
       navigate('/method-selection', { 
-        state: { projectId: checkedProject.id } 
+        state: { 
+          projectId: checkedProject.id,
+          datasetId: checkedProject.datasets[0].id
+        } 
       });
     }
   };
@@ -194,8 +228,17 @@ const ProjectsPage: React.FC = () => {
       <Navbar />
       <div style={styles.contentContainer}>
         <div style={styles.projectsHeader}>
-          <h1 style={styles.pageTitle}>Your Projects</h1>
-          <p style={styles.pageSubtitle}>Select a project to manage data or create a new one</p>
+          <h1 style={styles.pageTitle}>Step 2: Select or Create a Project</h1>
+          <p style={styles.pageSubtitle}>Create a new project and link your uploaded dataset to start the analysis</p>
+          <div style={styles.stepIndicator}>
+            <span style={styles.stepCompleted}>✓ Upload Data</span>
+            <span style={styles.stepArrow}>→</span>
+            <span style={styles.stepActive}>② Create Project</span>
+            <span style={styles.stepArrow}>→</span>
+            <span style={styles.stepInactive}>③ Select Method</span>
+            <span style={styles.stepArrow}>→</span>
+            <span style={styles.stepInactive}>④ Results</span>
+          </div>
         </div>
 
         <div style={styles.projectsGrid}>
@@ -208,7 +251,12 @@ const ProjectsPage: React.FC = () => {
             <div style={styles.emptyState}>
               <div style={styles.emptyIcon}>📁</div>
               <h3 style={styles.emptyTitle}>No projects yet</h3>
-              <p style={styles.emptyDescription}>Create your first project to get started with data analysis</p>
+              <p style={styles.emptyDescription}>
+                {preSelectedDatasetId 
+                  ? "Great! Now create a project and link your uploaded dataset."
+                  : "Create your first project to organize and analyze your data."
+                }
+              </p>
             </div>
           ) : (
             projects.map((project) => (
@@ -239,6 +287,7 @@ const ProjectsPage: React.FC = () => {
         isOpen={isNewProjectModalOpen}
         onClose={() => setIsNewProjectModalOpen(false)}
         onCreateProject={handleCreateProject}
+        preSelectedDatasetId={preSelectedDatasetId}
       />
 
       {/* Upload Data Modal */}
@@ -292,7 +341,39 @@ const styles = {
   pageSubtitle: {
     fontSize: '18px',
     color: '#666',
-    margin: 0
+    margin: '0 0 20px 0'
+  },
+  stepIndicator: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '12px',
+    marginTop: '8px'
+  },
+  stepCompleted: {
+    backgroundColor: '#22c55e',
+    color: 'white',
+    padding: '8px 16px',
+    borderRadius: '20px',
+    fontSize: '14px',
+    fontWeight: '600'
+  },
+  stepActive: {
+    backgroundColor: '#3b82f6',
+    color: 'white',
+    padding: '8px 16px',
+    borderRadius: '20px',
+    fontSize: '14px',
+    fontWeight: '600'
+  },
+  stepInactive: {
+    color: '#94a3b8',
+    fontSize: '14px',
+    fontWeight: '500'
+  },
+  stepArrow: {
+    color: '#cbd5e1',
+    fontSize: '16px'
   },
   projectsGrid: {
     display: 'grid',

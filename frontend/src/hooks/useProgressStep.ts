@@ -4,19 +4,21 @@ export const useProgressStep = () => {
   const location = useLocation();
   const navigate = useNavigate();
   
+  // Flow: Upload Data → Create Project → Method → Variables → Results
   const steps = [
-    { id: 'landing', label: 'Welcome', path: '/' },
-    { id: 'projects', label: 'Projects', path: '/projects' },
+    { id: 'upload', label: 'Upload Data', path: '/upload-data' },
+    { id: 'projects', label: 'Project', path: '/projects' },
     { id: 'method', label: 'Method', path: '/method-selection' },
     { id: 'variables', label: 'Variables', path: '/variable-selection' },
-    { id: 'analysis', label: 'Analysis', path: '/analysis' },
     { id: 'results', label: 'Results', path: '/results' }
   ];
   
   const getCurrentStep = (): string => {
     switch (location.pathname) {
       case '/':
-        return 'landing';
+        return 'upload'; // Landing redirects to upload
+      case '/upload-data':
+        return 'upload';
       case '/projects':
         return 'projects';
       case '/method-selection':
@@ -24,11 +26,10 @@ export const useProgressStep = () => {
       case '/variable-selection':
         return 'variables';
       case '/analysis':
-        return 'analysis';
       case '/results':
         return 'results';
       default:
-        return 'landing';
+        return 'upload';
     }
   };
   
