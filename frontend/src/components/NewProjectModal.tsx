@@ -1,17 +1,64 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import axios from 'axios';
+
+interface Dataset {
+  id: number;
+  name: string;
+  file_name: string;
+  created_at: string;
+}
 
 interface NewProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreateProject: (title: string, description: string) => void;
+  onCreateProject: (title: string, description: string, datasetId?: number) => void;
+  preSelectedDatasetId?: number | null;
 }
 
-const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose, onCreateProject }) => {
+const NewProjectModal: React.FC<NewProjectModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  onCreateProject,
+  preSelectedDatasetId 
+}) => {
+  const { accessToken } = useAuth();
   const [formData, setFormData] = useState({
     title: '',
     description: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [loadingDatasets, setLoadingDatasets] = useState(false);
+  const [selectedDatasetId, setSelectedDatasetId] = useState<number | null>(null);
+
+  // Load user's datasets when modal opens
+  useEffect(() => {
+    if (isOpen && accessToken) {
+      loadDatasets();
+    }
+  }, [isOpen, accessToken]);
+
+  // Set pre-selected dataset when provided
+  useEffect(() => {
+    if (preSelectedDatasetId) {
+      setSelectedDatasetId(preSelectedDatasetId);
+    }
+  }, [preSelectedDatasetId]);
+
+  const loadDatasets = async () => {
+    setLoadingDatasets(true);
+    try {
+      const response = await axios.get('/projects/user/datasets', {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      setDatasets(response.data.datasets || []);
+    } catch (error) {
+      console.error('Failed to load datasets:', error);
+    } finally {
+      setLoadingDatasets(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,8 +66,13 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose, onCr
 
     setIsSubmitting(true);
     try {
-      await onCreateProject(formData.title.trim(), formData.description.trim());
+      await onCreateProject(
+        formData.title.trim(), 
+        formData.description.trim(),
+        selectedDatasetId || undefined
+      );
       setFormData({ title: '', description: '' });
+      setSelectedDatasetId(null);
       onClose();
     } catch (error) {
       console.error('Error creating project:', error);
@@ -31,6 +83,7 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose, onCr
 
   const handleClose = () => {
     setFormData({ title: '', description: '' });
+    setSelectedDatasetId(null);
     onClose();
   };
 
@@ -66,9 +119,65 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose, onCr
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               placeholder="Describe your project and what you want to analyze"
               style={styles.textarea}
-              rows={4}
+              rows={3}
               required
             />
+          </div>
+
+          {/* Dataset Selection */}
+          <div style={styles.formGroup}>
+            <label style={styles.label}>
+              Select Dataset {preSelectedDatasetId ? <span style={styles.required}>*</span> : <span style={styles.optional}>(optional)</span>}
+            </label>
+            <p style={styles.helperText}>
+              {preSelectedDatasetId 
+                ? "Your uploaded dataset is selected. You can choose a different one if needed."
+                : "Link a dataset to this project for analysis"
+              }
+            </p>
+            
+            {loadingDatasets ? (
+              <div style={styles.loadingContainer}>
+                <span style={styles.loadingText}>Loading datasets...</span>
+              </div>
+            ) : datasets.length === 0 ? (
+              <div style={styles.noDatasets}>
+                <span style={styles.noDataIcon}>📊</span>
+                <p>No datasets available. Upload data first!</p>
+              </div>
+            ) : (
+              <div style={styles.datasetsList}>
+                {datasets.map(dataset => (
+                  <div
+                    key={dataset.id}
+                    style={{
+                      ...styles.datasetItem,
+                      ...(selectedDatasetId === dataset.id ? styles.datasetItemSelected : {})
+                    }}
+                    onClick={() => setSelectedDatasetId(
+                      selectedDatasetId === dataset.id ? null : dataset.id
+                    )}
+                  >
+                    <div style={styles.datasetRadio}>
+                      <div style={{
+                        ...styles.radioOuter,
+                        ...(selectedDatasetId === dataset.id ? styles.radioOuterSelected : {})
+                      }}>
+                        {selectedDatasetId === dataset.id && (
+                          <div style={styles.radioInner}></div>
+                        )}
+                      </div>
+                    </div>
+                    <div style={styles.datasetInfo}>
+                      <div style={styles.datasetName}>{dataset.name}</div>
+                      <div style={styles.datasetMeta}>
+                        {dataset.file_name} • {new Date(dataset.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div style={styles.modalFooter}>
@@ -89,7 +198,7 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose, onCr
                   : {})
               }}
             >
-              {isSubmitting ? 'Creating...' : 'Create Project & Upload Data'}
+              {isSubmitting ? 'Creating...' : 'Create Project'}
             </button>
           </div>
         </form>
@@ -98,9 +207,9 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose, onCr
   );
 };
 
-const styles = {
+const styles: Record<string, React.CSSProperties> = {
   overlay: {
-    position: 'fixed' as const,
+    position: 'fixed',
     top: 0,
     left: 0,
     right: 0,
@@ -113,107 +222,210 @@ const styles = {
   },
   modal: {
     backgroundColor: 'white',
-    borderRadius: '12px',
+    borderRadius: '16px',
     width: '90%',
-    maxWidth: '500px',
+    maxWidth: '550px',
     maxHeight: '90vh',
-    overflow: 'auto'
+    overflow: 'auto',
+    boxShadow: '0 20px 60px rgba(0, 0, 0, 0.2)'
   },
   modalHeader: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '20px',
-    borderBottom: '1px solid #e0e0e0'
+    padding: '24px',
+    borderBottom: '1px solid #e2e8f0'
   },
   modalTitle: {
-    fontSize: '20px',
+    fontSize: '22px',
     fontWeight: 'bold',
-    color: '#333',
+    color: '#1e293b',
     margin: 0
   },
   closeButton: {
     backgroundColor: 'transparent',
     border: 'none',
-    fontSize: '24px',
+    fontSize: '28px',
     cursor: 'pointer',
-    color: '#666',
+    color: '#94a3b8',
     padding: '0',
-    width: '30px',
-    height: '30px',
+    width: '36px',
+    height: '36px',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    borderRadius: '8px',
+    transition: 'all 0.2s'
   },
   form: {
-    padding: '20px'
+    padding: '24px'
   },
   formGroup: {
-    marginBottom: '20px'
+    marginBottom: '24px'
   },
   label: {
     display: 'block',
     fontSize: '14px',
-    fontWeight: '500',
-    color: '#333',
+    fontWeight: '600',
+    color: '#334155',
     marginBottom: '8px'
+  },
+  optional: {
+    fontWeight: '400',
+    color: '#94a3b8'
+  },
+  required: {
+    color: '#ef4444',
+    fontWeight: '400'
+  },
+  helperText: {
+    fontSize: '13px',
+    color: '#64748b',
+    margin: '0 0 12px 0'
   },
   input: {
     width: '100%',
-    padding: '12px',
-    border: '2px solid #e0e0e0',
-    borderRadius: '8px',
-    fontSize: '16px',
-    boxSizing: 'border-box' as const,
-    '&:focus': {
-      outline: 'none',
-      borderColor: '#043873'
-    }
+    padding: '12px 16px',
+    border: '2px solid #e2e8f0',
+    borderRadius: '10px',
+    fontSize: '15px',
+    boxSizing: 'border-box',
+    transition: 'border-color 0.2s',
+    outline: 'none'
   },
   textarea: {
     width: '100%',
+    padding: '12px 16px',
+    border: '2px solid #e2e8f0',
+    borderRadius: '10px',
+    fontSize: '15px',
+    boxSizing: 'border-box',
+    resize: 'vertical',
+    minHeight: '80px',
+    transition: 'border-color 0.2s',
+    outline: 'none',
+    fontFamily: 'inherit'
+  },
+  loadingContainer: {
+    padding: '20px',
+    textAlign: 'center'
+  },
+  loadingText: {
+    color: '#64748b',
+    fontSize: '14px'
+  },
+  noDatasets: {
+    padding: '24px',
+    textAlign: 'center',
+    backgroundColor: '#f8fafc',
+    borderRadius: '10px',
+    border: '2px dashed #e2e8f0'
+  },
+  noDataIcon: {
+    fontSize: '32px',
+    display: 'block',
+    marginBottom: '8px'
+  },
+  datasetsList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    maxHeight: '200px',
+    overflowY: 'auto',
+    padding: '4px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '10px'
+  },
+  datasetItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
     padding: '12px',
-    border: '2px solid #e0e0e0',
+    backgroundColor: '#f8fafc',
     borderRadius: '8px',
-    fontSize: '16px',
-    boxSizing: 'border-box' as const,
-    resize: 'vertical' as const,
-    minHeight: '100px',
-    '&:focus': {
-      outline: 'none',
-      borderColor: '#043873'
-    }
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    borderWidth: '2px',
+    borderStyle: 'solid',
+    borderColor: 'transparent'
+  },
+  datasetItemSelected: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#3b82f6'
+  },
+  datasetRadio: {
+    flexShrink: 0
+  },
+  radioOuter: {
+    width: '20px',
+    height: '20px',
+    borderRadius: '50%',
+    borderWidth: '2px',
+    borderStyle: 'solid',
+    borderColor: '#cbd5e1',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s'
+  },
+  radioOuterSelected: {
+    borderColor: '#3b82f6'
+  },
+  radioInner: {
+    width: '10px',
+    height: '10px',
+    borderRadius: '50%',
+    backgroundColor: '#3b82f6'
+  },
+  datasetInfo: {
+    flex: 1,
+    minWidth: 0
+  },
+  datasetName: {
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#1e293b',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
+  },
+  datasetMeta: {
+    fontSize: '12px',
+    color: '#64748b',
+    marginTop: '2px'
   },
   modalFooter: {
     display: 'flex',
     justifyContent: 'flex-end',
     gap: '12px',
     paddingTop: '20px',
-    borderTop: '1px solid #e0e0e0'
+    borderTop: '1px solid #e2e8f0',
+    marginTop: '8px'
   },
   cancelButton: {
     backgroundColor: 'transparent',
-    color: '#666',
-    border: '1px solid #ddd',
-    borderRadius: '8px',
+    color: '#64748b',
+    border: '2px solid #e2e8f0',
+    borderRadius: '10px',
     padding: '12px 24px',
-    fontSize: '16px',
+    fontSize: '15px',
+    fontWeight: '500',
     cursor: 'pointer',
-    transition: 'all 0.3s ease'
+    transition: 'all 0.2s'
   },
   createButton: {
-    backgroundColor: '#043873',
+    backgroundColor: '#3b82f6',
     color: 'white',
     border: 'none',
-    borderRadius: '8px',
+    borderRadius: '10px',
     padding: '12px 24px',
-    fontSize: '16px',
+    fontSize: '15px',
     fontWeight: '600',
     cursor: 'pointer',
-    transition: 'all 0.3s ease'
+    transition: 'all 0.2s'
   },
   createButtonDisabled: {
-    backgroundColor: '#ccc',
+    backgroundColor: '#94a3b8',
     cursor: 'not-allowed'
   }
 };

@@ -6,11 +6,15 @@ import { useProgressStep } from '../hooks/useProgressStep';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import SearchableDropdown from './SearchableDropdown';
+import AIVariableSuggestions from './AIVariableSuggestions';
+import HelpTooltip from './HelpTooltip';
+import AnalysisValidationModal from './AnalysisValidationModal';
 
 interface Variable {
   name: string;
   type: string;
   unique_values?: string[];
+  unique_count?: number;
 }
 
 interface VariableSelection {
@@ -35,6 +39,13 @@ const VariableSelectionPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDataset, setSelectedDataset] = useState<any>(null);
+  
+  // AI & Validation State
+  const [schemaInfo, setSchemaInfo] = useState<any>(null);
+  const [dataSummary, setDataSummary] = useState<any>(null);
+  const [showValidationModal, setShowValidationModal] = useState(false);
+  const [validationParameters, setValidationParameters] = useState<any>(null);
+
   const [selection, setSelection] = useState<VariableSelection>({
     outcome: '',
     treatment: '',
@@ -56,9 +67,10 @@ const VariableSelectionPage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        // Get project ID from URL params or state
+        // Get project ID and dataset ID from URL params or state
         const projectId = new URLSearchParams(location.search).get('projectId') || 
                          (location.state as any)?.projectId;
+        const datasetId = (location.state as any)?.datasetId;
         
         if (!projectId) {
           setError('No project selected. Please go back and select a project.');
@@ -73,44 +85,50 @@ const VariableSelectionPage: React.FC = () => {
 
         const datasets = datasetsResponse.data.datasets;
         
-        console.log('Datasets response:', datasetsResponse.data);
-        console.log('Datasets:', datasets);
-        
         if (datasets.length === 0) {
           setError('No datasets found for this project. Please upload a dataset first.');
           setLoading(false);
           return;
         }
 
-        // For now, use the first dataset. In the future, we could let users choose
-        const dataset = datasets[0];
+        // Find selected dataset or use first one
+        const dataset = datasetId 
+            ? datasets.find((d: any) => d.id === datasetId) || datasets[0] 
+            : datasets[0];
+            
         console.log('Selected dataset:', dataset);
         setSelectedDataset(dataset);
 
         // Load dataset schema/variables
-        // This would be a new API endpoint to get column information
         const schemaResponse = await axios.get(`/datasets/${dataset.id}/schema`, {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
 
         const schemaData = schemaResponse.data;
-        
-        console.log('Schema response:', schemaData);
-        console.log('Columns:', schemaData.columns);
+        setSchemaInfo(schemaData);
         
         // Transform schema data to our variable format
         const variablesFromSchema = schemaData.columns.map((col: any) => ({
           name: col.name,
           type: col.type,
-          unique_values: col.unique_values || []
+          unique_values: col.unique_values || [],
+          unique_count: col.unique_count
         }));
 
-        console.log('Transformed variables:', variablesFromSchema);
         setVariables(variablesFromSchema);
+        
+        // Also fetch preview to get data summary for validation
+        try {
+            const previewResponse = await axios.get(`/datasets/${dataset.id}/preview`, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            setDataSummary(previewResponse.data.summary);
+        } catch (err) {
+            console.warn("Failed to fetch data summary:", err);
+        }
         
       } catch (error: any) {
         console.error('Error loading dataset variables:', error);
-        console.error('Error response:', error.response?.data);
         setError(error.response?.data?.error || 'Failed to load dataset variables');
       } finally {
         setLoading(false);
@@ -129,6 +147,13 @@ const VariableSelectionPage: React.FC = () => {
     }));
   };
 
+  const handleApplySuggestions = (suggestions: any) => {
+    setSelection(prev => ({
+        ...prev,
+        ...suggestions
+    }));
+  };
+
   const isCardComplete = (cardNumber: number): boolean => {
     switch (cardNumber) {
       case 1: return !!selection.outcome;
@@ -143,16 +168,55 @@ const VariableSelectionPage: React.FC = () => {
 
   const canProceed = isCardComplete(1) && isCardComplete(2) && isCardComplete(3) && isCardComplete(4) && isCardComplete(5);
 
-  const handleNext = async () => {
+  const handleNextClick = () => {
     if (canProceed && selectedDataset) {
+        // Calculate structure info for validation
+        const unitVar = variables.find(v => v.name === selection.unit);
+        const timeVar = variables.find(v => v.name === selection.time);
+        
+        const structureInfo = {
+            unit_column: selection.unit,
+            time_column: selection.time,
+            unit_count: unitVar?.unique_count,
+            time_count: timeVar?.unique_count,
+            expected_rows: (unitVar?.unique_count && timeVar?.unique_count) 
+                ? unitVar.unique_count * timeVar.unique_count 
+                : null
+        };
+
+        // Prepare parameters for validation
+        const params = {
+            outcome: selection.outcome,
+            treatment: selection.treatment,
+            treatment_value: selection.treatment_value,
+            time: selection.time,
+            treatment_start: selection.treatment_start,
+            start_period: selection.start_period,
+            end_period: selection.end_period,
+            unit: selection.unit,
+            controls: selection.controls,
+            treatment_units: selection.treatment_units,
+            control_units: selection.control_units
+        };
+        
+        setValidationParameters(params);
+        
+        // Enrich data summary with structure info
+        setDataSummary((prev: any) => ({
+            ...prev,
+            structure_info: structureInfo
+        }));
+        
+        setShowValidationModal(true);
+    }
+  };
+
+  const handleRunAnalysis = async () => {
+    setShowValidationModal(false);
+    if (selectedDataset) {
       try {
         // Clear any cached results before making fresh API call
         localStorage.removeItem('didAnalysisResults');
-        console.log('=== STARTING FRESH DiD ANALYSIS ===');
-        console.log('Sending parameters to backend:');
-        console.log('  start_period:', selection.start_period);
-        console.log('  end_period:', selection.end_period);
-        console.log('  treatment_start:', selection.treatment_start);
         
         // Run DiD analysis
         const analysisResponse = await axios.post(`/datasets/${selectedDataset.id}/analyze/did`, {
@@ -171,25 +235,12 @@ const VariableSelectionPage: React.FC = () => {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
         
-        console.log('DiD Analysis Response:', analysisResponse);
-        console.log('Response status:', analysisResponse.status);
-        console.log('Response headers:', analysisResponse.headers);
-        console.log('Response data type:', typeof analysisResponse.data);
-        console.log('Response data keys:', Object.keys(analysisResponse.data));
-        console.log('Response data length:', JSON.stringify(analysisResponse.data).length);
-        
-        // Check if response.data is a string that needs parsing
+        // Check if response.data is a string that needs parsing (handled in existing code, keeping logic)
         let responseData = analysisResponse.data;
         if (typeof responseData === 'string') {
-          console.log('Response data is a string, parsing as JSON...');
           try {
             responseData = JSON.parse(responseData);
-            console.log('Successfully parsed response data');
-            console.log('Parsed data type:', typeof responseData);
-            console.log('Parsed data keys:', Object.keys(responseData));
           } catch (parseError) {
-            console.error('Failed to parse response data as JSON:', parseError);
-            console.error('Raw response data (first 500 chars):', responseData.substring(0, 500));
             throw new Error('Failed to parse analysis response');
           }
         }
@@ -247,12 +298,25 @@ const VariableSelectionPage: React.FC = () => {
         </div>
 
         <div style={styles.mainContent}>
+            
+          {/* AI Suggestions */}
+          {schemaInfo && (
+            <AIVariableSuggestions 
+                schemaInfo={schemaInfo}
+                onApplySuggestions={handleApplySuggestions}
+            />
+          )}
+
           <div style={styles.cardsContainer}>
             {/* Card 1: Outcome Variable */}
             <div style={styles.card}>
               <div style={styles.cardHeader}>
                 <div style={styles.cardNumber}>1</div>
-                <div style={styles.cardTitle}>Select Your Outcome Variable</div>
+                <div style={styles.cardTitle}>
+                    <HelpTooltip concept="outcome variable in causal inference">
+                        Select Your Outcome Variable
+                    </HelpTooltip>
+                </div>
                 <div style={styles.requiredBadge}>Required</div>
               </div>
               <p style={styles.helperText}>
@@ -276,7 +340,11 @@ const VariableSelectionPage: React.FC = () => {
             <div style={styles.card}>
               <div style={styles.cardHeader}>
                 <div style={styles.cardNumber}>2</div>
-                <div style={styles.cardTitle}>Define Your Treatment</div>
+                <div style={styles.cardTitle}>
+                    <HelpTooltip concept="treatment variable and control group">
+                        Define Your Treatment
+                    </HelpTooltip>
+                </div>
                 <div style={styles.requiredBadge}>Required</div>
               </div>
               <p style={styles.helperText}>
@@ -321,7 +389,11 @@ const VariableSelectionPage: React.FC = () => {
             <div style={styles.card}>
               <div style={styles.cardHeader}>
                 <div style={styles.cardNumber}>3</div>
-                <div style={styles.cardTitle}>Define Your Time Variable</div>
+                <div style={styles.cardTitle}>
+                    <HelpTooltip concept="time variable in panel data">
+                        Define Your Time Variable
+                    </HelpTooltip>
+                </div>
                 <div style={styles.requiredBadge}>Required</div>
               </div>
               <p style={styles.helperText}>
@@ -420,7 +492,11 @@ const VariableSelectionPage: React.FC = () => {
             <div style={styles.card}>
               <div style={styles.cardHeader}>
                 <div style={styles.cardNumber}>4</div>
-                <div style={styles.cardTitle}>Select Treatment and Control Groups</div>
+                <div style={styles.cardTitle}>
+                    <HelpTooltip concept="unit of analysis">
+                        Select Treatment and Control Groups
+                    </HelpTooltip>
+                </div>
                 <div style={styles.requiredBadge}>Required</div>
               </div>
               <p style={styles.helperText}>
@@ -564,7 +640,11 @@ const VariableSelectionPage: React.FC = () => {
             <div style={styles.card}>
               <div style={styles.cardHeader}>
                 <div style={styles.cardNumber}>6</div>
-                <div style={styles.cardTitle}>Select Control Variables</div>
+                <div style={styles.cardTitle}>
+                    <HelpTooltip concept="control variables">
+                        Select Control Variables
+                    </HelpTooltip>
+                </div>
                 <div style={styles.optionalBadge}>Optional</div>
               </div>
               <p style={styles.helperText}>
@@ -598,12 +678,21 @@ const VariableSelectionPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Validation Modal */}
+      <AnalysisValidationModal 
+        isOpen={showValidationModal}
+        parameters={validationParameters}
+        dataSummary={dataSummary}
+        onProceed={handleRunAnalysis}
+        onCancel={() => setShowValidationModal(false)}
+      />
+
       {/* Bottom Progress Bar */}
       <BottomProgressBar
         currentStep={currentStep}
         steps={steps}
         onPrev={goToPreviousStep}
-        onNext={handleNext}
+        onNext={handleNextClick}
         canGoNext={canProceed}
       />
     </div>
@@ -817,54 +906,6 @@ const styles = {
     borderRadius: '6px',
     fontSize: '14px'
   },
-  filterRow: {
-    marginBottom: '15px',
-    padding: '10px',
-    border: '1px solid #e0e0e0',
-    borderRadius: '8px',
-    backgroundColor: '#f9f9f9'
-  },
-  filterLabel: {
-    display: 'block',
-    fontSize: '14px',
-    fontWeight: 'bold',
-    color: '#043873',
-    marginBottom: '8px'
-  },
-  numericFilters: {
-    display: 'flex',
-    gap: '10px',
-    alignItems: 'center'
-  },
-  filterInput: {
-    flex: 1,
-    padding: '8px',
-    fontSize: '14px',
-    border: '2px solid #e0e0e0',
-    borderRadius: '6px',
-    backgroundColor: 'white',
-    transition: 'border-color 0.2s',
-    boxSizing: 'border-box' as const,
-    '&:focus': {
-      borderColor: '#043873',
-      outline: 'none'
-    }
-  },
-  multiSelect: {
-    width: '100%',
-    padding: '8px',
-    fontSize: '14px',
-    border: '2px solid #e0e0e0',
-    borderRadius: '6px',
-    backgroundColor: 'white',
-    cursor: 'pointer',
-    transition: 'border-color 0.2s',
-    minHeight: '80px',
-    '&:focus': {
-      borderColor: '#043873',
-      outline: 'none'
-    }
-  },
   conditionalSection: {
     marginTop: '20px',
     padding: '15px',
@@ -877,13 +918,6 @@ const styles = {
     color: '#495057',
     margin: '0 0 10px 0',
     fontWeight: '500'
-  },
-  label: {
-    display: 'block',
-    fontSize: '14px',
-    fontWeight: '500',
-    color: '#333',
-    marginBottom: '5px'
   },
   multiSelectContainer: {
     display: 'grid',
@@ -935,25 +969,6 @@ const styles = {
     color: '#495057',
     margin: '0 0 15px 0',
     lineHeight: '1.4'
-  },
-  unitCheckboxes: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '8px',
-    maxHeight: '200px',
-    overflowY: 'auto' as const
-  },
-  unitCheckboxLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '8px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    transition: 'background-color 0.2s',
-    '&:hover': {
-      backgroundColor: '#e9ecef'
-    }
   },
   searchableDropdownContainer: {
     marginBottom: '15px'

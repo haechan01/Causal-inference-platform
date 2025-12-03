@@ -3,6 +3,7 @@ import Navbar from './Navbar';
 import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
 import { aiService, ResultsInterpretation } from '../services/aiService';
+import NextStepsCard from './NextStepsCard';
 
 interface DiDResults {
   analysis_type: string;
@@ -530,6 +531,14 @@ const ResultsPage: React.FC = () => {
                             </>
                         )}
                     </div>
+
+                    {/* 4. NEXT STEPS */}
+                    {aiInterpretation && (
+                        <NextStepsCard 
+                            analysisResults={results.results} 
+                            interpretation={aiInterpretation} 
+                        />
+                    )}
 
                     {/* 3. THE TRUST & DETAILS SECTION */}
                     <div style={styles.trustSection}>

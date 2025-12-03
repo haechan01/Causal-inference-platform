@@ -7,7 +7,7 @@ const LandingPage: React.FC = () => {
   const navigate = useNavigate();
 
   const handleStartAnalysis = () => {
-    navigate('/projects');
+    navigate('/upload-data');
   };
 
 

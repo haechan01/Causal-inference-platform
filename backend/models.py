@@ -51,21 +51,34 @@ class Project(db.Model):
 class Dataset(db.Model):
     __tablename__ = 'datasets'
     id = db.Column(db.Integer, primary_key=True)
-    project_id = db.Column(
-        db.Integer, db.ForeignKey('projects.id'), nullable=False
+    user_id = db.Column(
+        db.Integer, db.ForeignKey('users.id'), nullable=False
     )
+    project_id = db.Column(
+        db.Integer, db.ForeignKey('projects.id'), nullable=True  # Now nullable
+    )
+    name = db.Column(db.String(255), nullable=False)  # User-friendly name
     file_name = db.Column(db.String(255), nullable=False)
     s3_key = db.Column(db.String(255), unique=True, nullable=False)
     schema_info = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.utcnow
+    )
+    
+    # Relationship to user
+    user = db.relationship('User', backref='datasets', lazy=True)
     
     def to_dict(self):
         """Convert dataset to dictionary for JSON serialization"""
         return {
             'id': self.id,
+            'user_id': self.user_id,
             'project_id': self.project_id,
+            'name': self.name,
             'file_name': self.file_name,
             's3_key': self.s3_key,
-            'schema_info': self.schema_info
+            'schema_info': self.schema_info,
+            'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
 

@@ -157,19 +157,21 @@ PARALLEL TRENDS ASSUMPTION:
             Response text from Gemini
         """
         try:
-            # Generate with a higher token limit if not already set
-            # Use 16384 as default to handle longer responses
-            max_tokens = int(os.getenv('AI_MAX_TOKENS', '16384'))
+            # Generate with a higher token limit - force a minimum of 8192 for JSON responses
+            max_tokens_str = os.getenv('AI_MAX_TOKENS', '16384')
+            max_tokens = int(max_tokens_str)  # Convert string to int
             
             print(f"AI: Generating content with max_output_tokens={max_tokens}")
             print(f"AI: Prompt preview (first 200 chars): {prompt[:200]}...")
             
             try:
+                # Override generation config to use higher token limit
                 response = self.model.generate_content(
                     prompt,
-                    generation_config={
-                        'max_output_tokens': max_tokens,
-                    }
+                    generation_config=genai.types.GenerationConfig(
+                        max_output_tokens=max_tokens,
+                        temperature=float(os.getenv('AI_TEMPERATURE', '0.7')),
+                    )
                 )
                 print(f"AI: Got response, candidates: {len(response.candidates) if response.candidates else 0}")
             except Exception as e:
@@ -402,7 +404,7 @@ Return JSON only:
             response = response[:-3]
         response = response.strip()
         
-        # Try to parse JSON
+        # Try to parse JSON - handle partial/incomplete JSON gracefully
         try:
             interpretation = json.loads(response)
             # Ensure all required fields exist
@@ -417,16 +419,188 @@ Return JSON only:
                 'recommendation': interpretation.get('recommendation', '')
             }
         except json.JSONDecodeError as e:
-            # Fallback if JSON parsing fails - return raw response in executive_summary
+            # Try to extract partial JSON fields if response was truncated
+            print(f"WARNING: JSON parsing failed: {e}")
+            print(f"Response length: {len(response)} chars")
+            print(f"Response preview: {response[:500]}...")
+            
+            # Try to extract what we can from partial JSON
+            partial_data = {}
+            try:
+                # Try to find JSON object in the response
+                import re
+                json_match = re.search(r'\{.*\}', response, re.DOTALL)
+                if json_match:
+                    partial_json = json_match.group(0)
+                    # Try to fix common truncation issues
+                    # Add closing braces if needed
+                    open_braces = partial_json.count('{')
+                    close_braces = partial_json.count('}')
+                    if open_braces > close_braces:
+                        partial_json += '}' * (open_braces - close_braces)
+                    # Try parsing the fixed JSON
+                    partial_data = json.loads(partial_json)
+                    print(f"Successfully parsed partial JSON with {len(partial_data)} fields")
+            except Exception as parse_error:
+                print(f"Could not parse partial JSON: {parse_error}")
+            
+            # Return what we have, with fallbacks
             return {
-                'executive_summary': response[:500] if len(response) > 500 else response,
-                'parallel_trends_interpretation': 'Unable to parse full response',
-                'effect_size_interpretation': '',
-                'statistical_interpretation': '',
-                'limitations': ['Unable to parse AI response'],
-                'implications': [],
-                'confidence_level': 'unknown',
-                'recommendation': ''
+                'executive_summary': partial_data.get('executive_summary', response[:500] if len(response) > 500 else response),
+                'parallel_trends_interpretation': partial_data.get('parallel_trends_interpretation', 'Response was truncated - unable to parse full content. Try increasing AI_MAX_TOKENS in .env'),
+                'effect_size_interpretation': partial_data.get('effect_size_interpretation', ''),
+                'statistical_interpretation': partial_data.get('statistical_interpretation', ''),
+                'limitations': partial_data.get('limitations', ['Response was truncated - incomplete data available']),
+                'implications': partial_data.get('implications', []),
+                'confidence_level': partial_data.get('confidence_level', 'unknown'),
+                'recommendation': partial_data.get('recommendation', '')
+            }
+    
+    def recommend_method(
+        self,
+        treatment_variable: str,
+        outcome_variable: str,
+        is_time_series: bool,
+        has_control_treatment_groups: bool,
+        causal_question: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Recommend the most appropriate causal inference method based on study characteristics.
+        
+        Args:
+            treatment_variable: Name of the treatment/intervention variable
+            outcome_variable: Name of the outcome variable
+            is_time_series: Whether the data is time series (longitudinal)
+            has_control_treatment_groups: Whether there are distinct control and treatment groups
+            causal_question: Optional research question
+        
+        Returns:
+            Dictionary with recommended method, explanation, and alternatives
+        """
+        # Build concise prompt
+        q = f"Research question: {causal_question}\n" if causal_question else ""
+        prompt = f"""Recommend causal inference method. {q}Treatment: {treatment_variable}, Outcome: {outcome_variable}, Time series: {is_time_series}, Control/treatment groups: {has_control_treatment_groups}
+
+Available methods: Difference-in-Differences (DiD), Regression Discontinuity Design (RDD), Instrumental Variables (IV), Synthetic Control, Matching, Panel Fixed Effects.
+
+Return JSON only:
+{{"recommended_method":"method name","method_code":"did/rdd/iv/etc","explanation":"2-3 sentences why","alternatives":[{{"method":"name","code":"code","when_appropriate":"1 sentence"}}],"key_assumptions":["assumption1","assumption2"]}}"""
+        
+        print(f"AI: Recommending method for treatment={treatment_variable}, outcome={outcome_variable}, time_series={is_time_series}, groups={has_control_treatment_groups}")
+        
+        response = self._call_gemini(prompt)
+        
+        # Clean response (remove markdown code blocks if present)
+        response = response.strip()
+        if response.startswith('```json'):
+            response = response[7:]
+        elif response.startswith('```'):
+            response = response[3:]
+        if response.endswith('```'):
+            response = response[:-3]
+        response = response.strip()
+        
+        # Parse JSON response
+        try:
+            recommendation = json.loads(response)
+            return {
+                'recommended_method': recommendation.get('recommended_method', 'Unknown'),
+                'method_code': recommendation.get('method_code', ''),
+                'explanation': recommendation.get('explanation', ''),
+                'alternatives': recommendation.get('alternatives', []),
+                'key_assumptions': recommendation.get('key_assumptions', [])
+            }
+        except json.JSONDecodeError as e:
+            print(f"WARNING: JSON parsing failed: {e}")
+            print(f"Response: {response[:500]}...")
+            # Return fallback
+            return {
+                'recommended_method': 'Difference-in-Differences',
+                'method_code': 'did',
+                'explanation': 'Unable to parse AI response. Based on your inputs, Difference-in-Differences may be appropriate if you have time series data with control and treatment groups.',
+                'alternatives': [],
+                'key_assumptions': []
+            }
+
+    def assess_data_quality(
+        self,
+        columns: list,
+        summary: dict
+    ) -> Dict[str, Any]:
+        """
+        Assess data quality for causal analysis.
+        
+        Args:
+            columns: List of column info dicts with name, type, null_count, unique_count, etc.
+            summary: Summary stats (total_rows, total_columns, missing_percentage, etc.)
+        
+        Returns:
+            Dictionary with quality assessment, issues, and recommendations
+        """
+        # Build concise data summary for the prompt
+        total_rows = summary.get('total_rows', 0)
+        total_cols = summary.get('total_columns', 0)
+        missing_pct = summary.get('missing_percentage', 0)
+        numeric_cols = summary.get('numeric_columns', 0)
+        categorical_cols = summary.get('categorical_columns', 0)
+        
+        # Summarize columns (abbreviated for token efficiency)
+        col_summary = []
+        for col in columns[:20]:  # Limit to 20 columns to avoid huge prompts
+            null_pct = (col.get('null_count', 0) / total_rows * 100) if total_rows > 0 else 0
+            col_info = f"{col['name']}({col['type'][:3]},nulls:{null_pct:.0f}%,uniq:{col.get('unique_count', 0)})"
+            col_summary.append(col_info)
+        
+        cols_str = "; ".join(col_summary)
+        
+        prompt = f"""Assess data quality for causal inference analysis.
+
+Data: {total_rows} rows, {total_cols} cols ({numeric_cols} numeric, {categorical_cols} categorical), {missing_pct:.1f}% missing overall.
+Columns: {cols_str}
+
+Evaluate for causal analysis (DiD, RDD, IV). Return JSON only:
+{{"overall_score":85,"quality_level":"good/fair/poor","summary":"2-3 sentence summary","issues":[{{"severity":"high/medium/low","issue":"description","column":"column_name or null","recommendation":"how to fix"}}],"strengths":["strength1","strength2"],"recommendations":["rec1","rec2"],"causal_analysis_readiness":"ready/needs_work/not_suitable","potential_variables":{{"outcome_candidates":["col1","col2"],"treatment_candidates":["col1"],"time_candidates":["col1"],"group_candidates":["col1"]}}}}"""
+        
+        print(f"AI: Assessing data quality for {total_rows} rows, {total_cols} columns")
+        
+        response = self._call_gemini(prompt)
+        
+        # Clean response
+        response = response.strip()
+        if response.startswith('```json'):
+            response = response[7:]
+        elif response.startswith('```'):
+            response = response[3:]
+        if response.endswith('```'):
+            response = response[:-3]
+        response = response.strip()
+        
+        # Parse JSON response
+        try:
+            assessment = json.loads(response)
+            return {
+                'overall_score': assessment.get('overall_score', 0),
+                'quality_level': assessment.get('quality_level', 'unknown'),
+                'summary': assessment.get('summary', ''),
+                'issues': assessment.get('issues', []),
+                'strengths': assessment.get('strengths', []),
+                'recommendations': assessment.get('recommendations', []),
+                'causal_analysis_readiness': assessment.get('causal_analysis_readiness', 'unknown'),
+                'potential_variables': assessment.get('potential_variables', {})
+            }
+        except json.JSONDecodeError as e:
+            print(f"WARNING: JSON parsing failed: {e}")
+            print(f"Response: {response[:500]}...")
+            # Return fallback
+            return {
+                'overall_score': 50,
+                'quality_level': 'unknown',
+                'summary': 'Unable to parse AI response. Please review your data manually.',
+                'issues': [],
+                'strengths': [],
+                'recommendations': ['Review data for missing values', 'Ensure you have appropriate columns for causal analysis'],
+                'causal_analysis_readiness': 'unknown',
+                'potential_variables': {}
             }
 
 
