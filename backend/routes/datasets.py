@@ -396,6 +396,12 @@ def get_dataset_preview(dataset_id):
             s3_client.download_file(S3_BUCKET_NAME, dataset.s3_key, temp_file_path)
             df = pd.read_csv(temp_file_path)
             
+            # Validate that the DataFrame has data
+            if df.empty or len(df.columns) == 0:
+                return jsonify({
+                    "error": "Dataset is empty. CSV file must contain at least one data row and one column."
+                }), 400
+            
             # Build column information with statistics
             columns_info = []
             for column in df.columns:
@@ -422,14 +428,28 @@ def get_dataset_preview(dataset_id):
                 
                 columns_info.append(col_info)
             
-            # Summary statistics
+            # Summary statistics - safe calculation to prevent ZeroDivisionError
+            num_rows = len(df)
+            num_cols = len(df.columns)
+            
+            # Calculate total cells safely
+            if num_rows > 0 and num_cols > 0:
+                total_cells = num_rows * num_cols
+            else:
+                # This should not happen due to validation above, but defensive programming
+                total_cells = 1
+            
+            missing_cells = int(df.isnull().sum().sum())
+            # Safe division - total_cells should never be 0 at this point, but check anyway
+            missing_percentage = float((missing_cells / total_cells) * 100) if total_cells > 0 else 0.0
+            
             summary = {
                 'total_rows': len(df),
                 'total_columns': len(df.columns),
                 'numeric_columns': sum(1 for c in columns_info if c['type'] == 'numeric'),
                 'categorical_columns': sum(1 for c in columns_info if c['type'] == 'categorical'),
-                'missing_cells': int(df.isnull().sum().sum()),
-                'missing_percentage': float((df.isnull().sum().sum() / (len(df) * len(df.columns))) * 100)
+                'missing_cells': missing_cells,
+                'missing_percentage': missing_percentage
             }
             
             # Preview rows (first 100)
