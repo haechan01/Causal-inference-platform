@@ -1,9 +1,12 @@
+"""
+Flask application initialization and configuration.
+"""
 from flask import Flask
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from datetime import timedelta
 import os
-from dotenv import load_dotenv 
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
@@ -35,8 +38,12 @@ if not JWT_ACCESS_TOKEN_EXPIRES:
 if not JWT_REFRESH_TOKEN_EXPIRES:
     raise ValueError("JWT_REFRESH_TOKEN_EXPIRES environment variable is not set")
 
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(seconds=int(JWT_ACCESS_TOKEN_EXPIRES))
-app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(seconds=int(JWT_REFRESH_TOKEN_EXPIRES))
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(
+    seconds=int(JWT_ACCESS_TOKEN_EXPIRES)
+)
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(
+    seconds=int(JWT_REFRESH_TOKEN_EXPIRES)
+)
 
 # Initialize JWT
 jwt = JWTManager(app)
@@ -67,6 +74,10 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 from models import db  # noqa: E402
 db.init_app(app)
 
+# Initialize Flask-Migrate for database migrations
+from flask_migrate import Migrate
+migrate = Migrate(app, db)
+
 # Import blueprints after db initialization
 # Models are imported within routes to avoid circular imports
 from routes.analysis import analysis_bp  # noqa: E402
@@ -96,6 +107,7 @@ def health():
     }
 
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()  # Create tables
+    # Note: For production, use 'flask db upgrade' to apply migrations
+    # db.create_all() is kept for backward compatibility in development
+    # In production, always use: flask db upgrade
     app.run(debug=True, port=5001)
