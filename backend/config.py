@@ -45,8 +45,14 @@ class Config:
     AI_TEMPERATURE = float(os.environ.get('AI_TEMPERATURE', '0.7'))
     AI_MAX_TOKENS = int(os.environ.get('AI_MAX_TOKENS', '16384'))
     
-    # Redis Configuration (for caching)
+    # Redis Configuration (for caching and rate limiting)
     REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+    
+    # Rate Limiting Configuration
+    RATE_LIMIT_DEFAULT = os.environ.get(
+        'RATE_LIMIT_DEFAULT',
+        '200 per day, 50 per hour'
+    )
     
     # Logging Configuration
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
@@ -63,19 +69,27 @@ class DevelopmentConfig(Config):
     DEBUG = True
     TESTING = False
     
-    # Development database (can use SQLite for local dev)
+    # Development database - will be set in init_app
     DB_USER = os.environ.get('DB_USER', 'causalytics_user')
     DB_PASSWORD = os.environ.get('DB_PASSWORD', 'changeme')
     DB_HOST = os.environ.get('DB_HOST', 'localhost')
     DB_PORT = os.environ.get('DB_PORT', '5432')
     DB_NAME = os.environ.get('DB_NAME', 'causalytics_db')
     
-    SQLALCHEMY_DATABASE_URI = (
-        f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    )
-    
     # More verbose logging in development
     LOG_LEVEL = 'DEBUG'
+    
+    @staticmethod
+    def init_app(app):
+        """Initialize development-specific settings."""
+        Config.init_app(app)
+        # Build database URI from environment variables
+        app.config['SQLALCHEMY_DATABASE_URI'] = (
+            f"postgresql://{app.config['DB_USER']}:"
+            f"{app.config['DB_PASSWORD']}@"
+            f"{app.config['DB_HOST']}:{app.config['DB_PORT']}/"
+            f"{app.config['DB_NAME']}"
+        )
 
 
 class ProductionConfig(Config):
