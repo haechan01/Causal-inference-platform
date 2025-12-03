@@ -12,7 +12,7 @@ This approach ensures type consistency with JWT standards while maintaining
 compatibility with our integer-based database primary keys.
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import (
     create_access_token, create_refresh_token,
@@ -25,6 +25,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+
+# Rate limiting is applied via Flask-Limiter configuration in app.py
+# Default: 5 requests per minute for all auth endpoints
+# Specific limits can be configured per route if needed
 
 
 def validate_email(email):
@@ -57,6 +61,7 @@ def register():
         "email": "string",
         "password": "string"
     }
+    Rate limited: 5 requests per minute per IP
     """
     try:
         from app import db
