@@ -125,6 +125,118 @@ def get_project(project_id):
         return jsonify({"error": f"Failed to get project: {str(e)}"}), 500
 
 
+@projects_bp.route('/<int:project_id>', methods=['PUT'])
+@jwt_required()
+def update_project(project_id):
+    """
+    Update a project's details.
+    
+    Expected JSON:
+    {
+        "name": "New Project Name",
+        "description": "New description",
+        "dataset_id": 1  (optional - to change linked dataset)
+    }
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        from models import Project, Dataset
+        
+        project = Project.query.get(project_id)
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+        
+        if project.user_id != current_user_id:
+            return jsonify({"error": "Access denied"}), 403
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        # Update name if provided
+        if 'name' in data:
+            name = data['name'].strip()
+            if not name:
+                return jsonify({"error": "Project name cannot be empty"}), 400
+            project.name = name
+        
+        # Update description if provided
+        if 'description' in data:
+            project.description = data['description'].strip()
+        
+        # Update dataset if provided
+        if 'dataset_id' in data:
+            dataset_id = data['dataset_id']
+            if dataset_id:
+                dataset = Dataset.query.get(dataset_id)
+                if not dataset:
+                    return jsonify({"error": "Dataset not found"}), 404
+                if dataset.user_id != current_user_id:
+                    return jsonify({"error": "Access denied to this dataset"}), 403
+                
+                # Unlink any existing datasets from this project
+                Dataset.query.filter_by(project_id=project_id).update({'project_id': None})
+                
+                # Link the new dataset
+                dataset.project_id = project_id
+        
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Project updated successfully",
+            "project": {
+                "id": project.id,
+                "name": project.name,
+                "description": project.description,
+                "user_id": project.user_id,
+                "datasets_count": len(project.datasets)
+            }
+        }), 200
+        
+    except ValueError:
+        return jsonify({"error": "Invalid token identity"}), 401
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to update project: {str(e)}"}), 500
+
+
+@projects_bp.route('/<int:project_id>', methods=['DELETE'])
+@jwt_required()
+def delete_project(project_id):
+    """
+    Delete a project and optionally its associated datasets.
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        from models import Project, Dataset
+        
+        project = Project.query.get(project_id)
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+        
+        if project.user_id != current_user_id:
+            return jsonify({"error": "Access denied"}), 403
+        
+        # Unlink datasets from this project (don't delete them)
+        Dataset.query.filter_by(project_id=project_id).update({'project_id': None})
+        
+        # Delete the project
+        db.session.delete(project)
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Project deleted successfully"
+        }), 200
+        
+    except ValueError:
+        return jsonify({"error": "Invalid token identity"}), 401
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to delete project: {str(e)}"}), 500
+
+
 @projects_bp.route('', methods=['GET'])
 @jwt_required()
 def list_projects():

@@ -5,6 +5,7 @@ import Navbar from './Navbar';
 import ProjectCard from './ProjectCard';
 import NewProjectModal from './NewProjectModal';
 import UploadDataModal from './UploadDataModal';
+import EditProjectModal from './EditProjectModal';
 import { LoginButton, SignUpButton } from './buttons';
 import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
@@ -19,6 +20,7 @@ interface Project {
   dataset_count: number;
   datasets?: Array<{
     id: number;
+    name: string;
     file_name: string;
     created_at: string;
   }>;
@@ -34,7 +36,9 @@ const ProjectsPage: React.FC = () => {
   const [checkedProject, setCheckedProject] = useState<Project | null>(null);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [uploadProject, setUploadProject] = useState<Project | null>(null);
+  const [editProject, setEditProject] = useState<Project | null>(null);
   const [isReadyForNext, setIsReadyForNext] = useState(false);
   const [loading, setLoading] = useState(true);
   
@@ -181,6 +185,35 @@ const ProjectsPage: React.FC = () => {
     }
   };
 
+  // Handle edit project
+  const handleEditProject = (project: Project) => {
+    setEditProject(project);
+    setIsEditModalOpen(true);
+  };
+
+  // Handle delete project
+  const handleDeleteProject = async (project: Project) => {
+    try {
+      await axios.delete(`/projects/${project.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      
+      // Remove from local state
+      setProjects(projects.filter(p => p.id !== project.id));
+      
+      // Clear selection if deleted project was selected
+      if (checkedProject?.id === project.id) {
+        setCheckedProject(null);
+        setIsReadyForNext(false);
+      }
+      if (selectedProject?.id === project.id) {
+        setSelectedProject(null);
+      }
+    } catch (error) {
+      console.error('Error deleting project:', error);
+    }
+  };
+
   // Custom next handler that passes project ID - go directly to method selection
   const handleNext = () => {
     if (checkedProject && checkedProject.datasets && checkedProject.datasets.length > 0) {
@@ -228,17 +261,8 @@ const ProjectsPage: React.FC = () => {
       <Navbar />
       <div style={styles.contentContainer}>
         <div style={styles.projectsHeader}>
-          <h1 style={styles.pageTitle}>Step 2: Select or Create a Project</h1>
-          <p style={styles.pageSubtitle}>Create a new project and link your uploaded dataset to start the analysis</p>
-          <div style={styles.stepIndicator}>
-            <span style={styles.stepCompleted}>✓ Upload Data</span>
-            <span style={styles.stepArrow}>→</span>
-            <span style={styles.stepActive}>② Create Project</span>
-            <span style={styles.stepArrow}>→</span>
-            <span style={styles.stepInactive}>③ Select Method</span>
-            <span style={styles.stepArrow}>→</span>
-            <span style={styles.stepInactive}>④ Results</span>
-          </div>
+          <h1 style={styles.pageTitle}>Your Projects</h1>
+          <p style={styles.pageSubtitle}>Select an existing project or create a new one to organize your analysis</p>
         </div>
 
         <div style={styles.projectsGrid}>
@@ -267,6 +291,8 @@ const ProjectsPage: React.FC = () => {
                 onSelect={handleProjectSelect}
                 onUpload={handleUploadClick}
                 onCheckboxChange={handleCheckboxChange}
+                onEdit={handleEditProject}
+                onDelete={handleDeleteProject}
               />
             ))
           )}
@@ -300,6 +326,19 @@ const ProjectsPage: React.FC = () => {
           }}
           onUploadSuccess={handleUploadSuccess}
           projectId={uploadProject.id}
+        />
+      )}
+
+      {/* Edit Project Modal */}
+      {editProject && (
+        <EditProjectModal
+          isOpen={isEditModalOpen}
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setEditProject(null);
+          }}
+          onSave={loadProjects}
+          project={editProject}
         />
       )}
        {/* Bottom Progress Bar */}
@@ -342,38 +381,6 @@ const styles = {
     fontSize: '18px',
     color: '#666',
     margin: '0 0 20px 0'
-  },
-  stepIndicator: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '12px',
-    marginTop: '8px'
-  },
-  stepCompleted: {
-    backgroundColor: '#22c55e',
-    color: 'white',
-    padding: '8px 16px',
-    borderRadius: '20px',
-    fontSize: '14px',
-    fontWeight: '600'
-  },
-  stepActive: {
-    backgroundColor: '#3b82f6',
-    color: 'white',
-    padding: '8px 16px',
-    borderRadius: '20px',
-    fontSize: '14px',
-    fontWeight: '600'
-  },
-  stepInactive: {
-    color: '#94a3b8',
-    fontSize: '14px',
-    fontWeight: '500'
-  },
-  stepArrow: {
-    color: '#cbd5e1',
-    fontSize: '16px'
   },
   projectsGrid: {
     display: 'grid',

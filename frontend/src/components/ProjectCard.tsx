@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 interface Project {
   id: number;
@@ -8,6 +8,7 @@ interface Project {
   dataset_count: number;
   datasets?: Array<{
     id: number;
+    name: string;
     file_name: string;
     created_at: string;
   }>;
@@ -19,9 +20,21 @@ interface ProjectCardProps {
   onSelect: (project: Project) => void;
   onUpload: (project: Project) => void;
   onCheckboxChange: (project: Project, checked: boolean) => void;
+  onEdit?: (project: Project) => void;
+  onDelete?: (project: Project) => void;
 }
 
-const ProjectCard: React.FC<ProjectCardProps> = ({ project, isSelected, onSelect, onUpload, onCheckboxChange }) => {
+const ProjectCard: React.FC<ProjectCardProps> = ({ 
+  project, 
+  isSelected, 
+  onSelect, 
+  onUpload, 
+  onCheckboxChange,
+  onEdit,
+  onDelete 
+}) => {
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+
   const handleUploadClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onUpload(project);
@@ -30,6 +43,27 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, isSelected, onSelect
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     e.stopPropagation();
     onCheckboxChange(project, e.target.checked);
+  };
+
+  const handleEditClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onEdit?.(project);
+  };
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowConfirmDelete(true);
+  };
+
+  const handleConfirmDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDelete?.(project);
+    setShowConfirmDelete(false);
+  };
+
+  const handleCancelDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowConfirmDelete(false);
   };
 
   const hasDatasets = project.datasets && project.datasets.length > 0;
@@ -82,13 +116,50 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, isSelected, onSelect
         <span style={styles.cardDate}>
           Created {new Date(project.created_at).toLocaleDateString()}
         </span>
-        <button
-          onClick={handleUploadClick}
-          style={styles.uploadButton}
-        >
-          + Upload Data
-        </button>
+        <div style={styles.actionButtons}>
+          <button
+            onClick={handleEditClick}
+            style={styles.editButton}
+            title="Edit project"
+          >
+            ✏️
+          </button>
+          <button
+            onClick={handleDeleteClick}
+            style={styles.deleteButton}
+            title="Delete project"
+          >
+            🗑️
+          </button>
+          <button
+            onClick={handleUploadClick}
+            style={styles.uploadButton}
+          >
+            + Upload Data
+          </button>
+        </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showConfirmDelete && (
+        <div style={styles.confirmOverlay} onClick={handleCancelDelete}>
+          <div style={styles.confirmModal} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.confirmTitle}>Delete Project?</h3>
+            <p style={styles.confirmText}>
+              Are you sure you want to delete "{project.title}"? This action cannot be undone.
+              Linked datasets will be unlinked but not deleted.
+            </p>
+            <div style={styles.confirmButtons}>
+              <button onClick={handleCancelDelete} style={styles.cancelButton}>
+                Cancel
+              </button>
+              <button onClick={handleConfirmDelete} style={styles.confirmDeleteButton}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -197,6 +268,29 @@ const styles = {
     color: '#999',
     flex: 1
   },
+  actionButtons: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center'
+  },
+  editButton: {
+    backgroundColor: '#f1f5f9',
+    border: 'none',
+    borderRadius: '6px',
+    padding: '6px 10px',
+    fontSize: '14px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
+  },
+  deleteButton: {
+    backgroundColor: '#fee2e2',
+    border: 'none',
+    borderRadius: '6px',
+    padding: '6px 10px',
+    fontSize: '14px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
+  },
   uploadButton: {
     backgroundColor: '#043873',
     color: 'white',
@@ -206,11 +300,64 @@ const styles = {
     fontSize: '12px',
     fontWeight: '500',
     cursor: 'pointer',
-    transition: 'all 0.3s ease',
-    '&:hover': {
-      backgroundColor: '#0a4a8a',
-      transform: 'translateY(-1px)'
-    }
+    transition: 'all 0.3s ease'
+  },
+  confirmOverlay: {
+    position: 'fixed' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000
+  },
+  confirmModal: {
+    backgroundColor: 'white',
+    borderRadius: '12px',
+    padding: '24px',
+    maxWidth: '400px',
+    width: '90%',
+    boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
+  },
+  confirmTitle: {
+    fontSize: '18px',
+    fontWeight: '600',
+    color: '#1e293b',
+    margin: '0 0 12px 0'
+  },
+  confirmText: {
+    fontSize: '14px',
+    color: '#64748b',
+    lineHeight: 1.5,
+    margin: '0 0 20px 0'
+  },
+  confirmButtons: {
+    display: 'flex',
+    gap: '12px',
+    justifyContent: 'flex-end'
+  },
+  cancelButton: {
+    padding: '10px 20px',
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#64748b',
+    backgroundColor: '#f1f5f9',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer'
+  },
+  confirmDeleteButton: {
+    padding: '10px 20px',
+    fontSize: '14px',
+    fontWeight: '500',
+    color: 'white',
+    backgroundColor: '#ef4444',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer'
   }
 };
 
