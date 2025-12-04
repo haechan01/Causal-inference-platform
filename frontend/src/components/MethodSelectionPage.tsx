@@ -521,6 +521,7 @@ const MethodSelectionPage: React.FC = () => {
                 onPrev={goToPreviousStep}
                 onNext={handleNext}
                 canGoNext={selectedMethod === 'did'} // Only allow next if DiD is selected (others are coming soon)
+                onStepClick={(path) => navigate(path)}
             />
         </div>
     )

@@ -729,6 +729,7 @@ const DataUploadPage: React.FC = () => {
         onPrev={goToPreviousStep}
         onNext={handleNext}
         canGoNext={!!canProceed}
+        onStepClick={(path) => navigate(path)}
       />
     </div>
   );

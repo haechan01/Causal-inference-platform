@@ -4,7 +4,6 @@ import { useAuth } from '../contexts/AuthContext';
 import Navbar from './Navbar';
 import ProjectCard from './ProjectCard';
 import NewProjectModal from './NewProjectModal';
-import UploadDataModal from './UploadDataModal';
 import EditProjectModal from './EditProjectModal';
 import { LoginButton, SignUpButton } from './buttons';
 import BottomProgressBar from './BottomProgressBar';
@@ -35,22 +34,13 @@ const ProjectsPage: React.FC = () => {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [checkedProject, setCheckedProject] = useState<Project | null>(null);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [uploadProject, setUploadProject] = useState<Project | null>(null);
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [isReadyForNext, setIsReadyForNext] = useState(false);
   const [loading, setLoading] = useState(true);
   
   // Pre-selected dataset from DataUploadPage
   const preSelectedDatasetId = (location.state as any)?.selectedDatasetId || null;
-  
-  // Auto-open new project modal if coming with a pre-selected dataset
-  useEffect(() => {
-    if (preSelectedDatasetId && !isLoading && isAuthenticated) {
-      setIsNewProjectModalOpen(true);
-    }
-  }, [preSelectedDatasetId, isLoading, isAuthenticated]);
 
   // Load projects from API
   const loadProjects = async () => {
@@ -159,19 +149,6 @@ const ProjectsPage: React.FC = () => {
     }
   };
 
-
-  // Handle upload button click
-  const handleUploadClick = (project: Project) => {
-    setUploadProject(project);
-    setIsUploadModalOpen(true);
-  };
-
-  // Handle successful upload
-  const handleUploadSuccess = (uploadedFile: any) => {
-    console.log('File uploaded successfully:', uploadedFile);
-    // Reload projects to update dataset counts
-    loadProjects();
-  };
 
   // Handle checkbox change
   const handleCheckboxChange = (project: Project, checked: boolean) => {
@@ -289,7 +266,6 @@ const ProjectsPage: React.FC = () => {
                 project={project}
                 isSelected={checkedProject?.id === project.id}
                 onSelect={handleProjectSelect}
-                onUpload={handleUploadClick}
                 onCheckboxChange={handleCheckboxChange}
                 onEdit={handleEditProject}
                 onDelete={handleDeleteProject}
@@ -316,19 +292,6 @@ const ProjectsPage: React.FC = () => {
         preSelectedDatasetId={preSelectedDatasetId}
       />
 
-      {/* Upload Data Modal */}
-      {uploadProject && (
-        <UploadDataModal
-          isOpen={isUploadModalOpen}
-          onClose={() => {
-            setIsUploadModalOpen(false);
-            setUploadProject(null);
-          }}
-          onUploadSuccess={handleUploadSuccess}
-          projectId={uploadProject.id}
-        />
-      )}
-
       {/* Edit Project Modal */}
       {editProject && (
         <EditProjectModal
@@ -348,6 +311,7 @@ const ProjectsPage: React.FC = () => {
          onPrev={goToPreviousStep}
          onNext={handleNext}
          canGoNext={isReadyForNext}
+         onStepClick={(path) => navigate(path)}
        />
      </div>
    );

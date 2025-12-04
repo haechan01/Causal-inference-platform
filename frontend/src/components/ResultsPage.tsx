@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Navbar from './Navbar';
 import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
@@ -57,6 +58,7 @@ interface DiDResults {
 
 const ResultsPage: React.FC = () => {
     console.log("=== RESULTS PAGE COMPONENT LOADED ===");
+    const navigate = useNavigate();
     const { currentStep, steps, goToPreviousStep, goToNextStep } = useProgressStep();
     const [results, setResults] = useState<DiDResults | null>(null);
     const [loading, setLoading] = useState(true);
@@ -605,6 +607,7 @@ const ResultsPage: React.FC = () => {
                 onPrev={goToPreviousStep}
                 onNext={goToNextStep}
                 canGoNext={true}
+                onStepClick={(path) => navigate(path)}
             />
         </div>
     );

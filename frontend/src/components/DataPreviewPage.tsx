@@ -174,6 +174,7 @@ const DataPreviewPage: React.FC<DataPreviewProps> = () => {
         onPrev={goToPreviousStep}
         onNext={handleNext}
         canGoNext={!loading}
+        onStepClick={(path) => navigate(path)}
       />
     </div>
   );

@@ -18,7 +18,6 @@ interface ProjectCardProps {
   project: Project;
   isSelected: boolean;
   onSelect: (project: Project) => void;
-  onUpload: (project: Project) => void;
   onCheckboxChange: (project: Project, checked: boolean) => void;
   onEdit?: (project: Project) => void;
   onDelete?: (project: Project) => void;
@@ -28,16 +27,19 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
   project, 
   isSelected, 
   onSelect, 
-  onUpload, 
   onCheckboxChange,
   onEdit,
   onDelete 
 }) => {
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const hasDatasets = project.datasets && project.datasets.length > 0;
 
-  const handleUploadClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onUpload(project);
+  // Handle card click - toggle selection if has datasets
+  const handleCardClick = () => {
+    if (hasDatasets) {
+      onCheckboxChange(project, !isSelected);
+    }
+    onSelect(project);
   };
 
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -66,15 +68,14 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
     setShowConfirmDelete(false);
   };
 
-  const hasDatasets = project.datasets && project.datasets.length > 0;
-
   return (
     <div 
       style={{
         ...styles.card,
-        ...(isSelected ? styles.selectedCard : {})
+        ...(isSelected ? styles.selectedCard : {}),
+        ...(hasDatasets ? {} : styles.cardDisabled)
       }}
-      onClick={() => onSelect(project)}
+      onClick={handleCardClick}
     >
       <div style={styles.cardHeader}>
         <div style={styles.headerLeft}>
@@ -131,12 +132,6 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
           >
             🗑️
           </button>
-          <button
-            onClick={handleUploadClick}
-            style={styles.uploadButton}
-          >
-            + Upload Data
-          </button>
         </div>
       </div>
 
@@ -181,6 +176,10 @@ const styles = {
   selectedCard: {
     border: '2px solid #043873',
     boxShadow: '0 4px 20px rgba(4, 56, 115, 0.2)'
+  },
+  cardDisabled: {
+    opacity: 0.7,
+    cursor: 'default'
   },
   cardHeader: {
     display: 'flex',
@@ -290,17 +289,6 @@ const styles = {
     fontSize: '14px',
     cursor: 'pointer',
     transition: 'all 0.2s ease'
-  },
-  uploadButton: {
-    backgroundColor: '#043873',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    padding: '6px 12px',
-    fontSize: '12px',
-    fontWeight: '500',
-    cursor: 'pointer',
-    transition: 'all 0.3s ease'
   },
   confirmOverlay: {
     position: 'fixed' as const,

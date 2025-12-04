@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Navbar from './Navbar';
 import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
@@ -32,6 +32,7 @@ interface VariableSelection {
 }
 
 const VariableSelectionPage: React.FC = () => {
+  const navigate = useNavigate();
   const { currentStep, steps, goToPreviousStep, goToNextStep } = useProgressStep();
   const { accessToken } = useAuth();
   const location = useLocation();
@@ -694,6 +695,7 @@ const VariableSelectionPage: React.FC = () => {
         onPrev={goToPreviousStep}
         onNext={handleNextClick}
         canGoNext={canProceed}
+        onStepClick={(path) => navigate(path)}
       />
     </div>
   );
