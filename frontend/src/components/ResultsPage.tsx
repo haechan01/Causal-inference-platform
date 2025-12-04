@@ -71,8 +71,9 @@ const ResultsPage: React.FC = () => {
     const [loadingAI, setLoadingAI] = useState(false);
     const [aiError, setAiError] = useState<string | null>(null);
     
-    // Get project ID from navigation state
-    const projectId = (location.state as any)?.projectId;
+    // Get project ID and dataset ID from navigation state or saved state
+    const [projectId, setProjectId] = useState<number | null>((location.state as any)?.projectId || null);
+    const [datasetId, setDatasetId] = useState<number | null>((location.state as any)?.datasetId || null);
 
     // Helper function to safely format numbers, handling null/undefined
     const formatNumber = (value: number | null | undefined, decimals: number = 2): string => {
@@ -88,41 +89,68 @@ const ResultsPage: React.FC = () => {
             console.log("=== LOADING RESULTS ===");
             const storedResults = localStorage.getItem('didAnalysisResults');
             
+            // Track values to set at the end
+            let loadedDatasetId: number | null = datasetId;
+            let loadedProjectId: number | null = projectId;
+            
             if (storedResults) {
                 try {
                     const parsedResults = JSON.parse(storedResults);
-                    console.log("Loaded results from localStorage");
+                    console.log("Loaded results from localStorage", { dataset_id: parsedResults.dataset_id });
                     setResults(parsedResults);
-                    setLoading(false);
-                    return;
+                    // Set datasetId from results if not already set
+                    if (parsedResults.dataset_id) {
+                        loadedDatasetId = parsedResults.dataset_id;
+                    }
                 } catch (error) {
                     console.error('Error parsing stored results:', error);
                 }
             }
             
-            // If no localStorage results, try to load from saved project state
-            if (projectId && accessToken) {
+            // Try to get projectId from URL if not in state
+            if (!loadedProjectId) {
+                const urlParams = new URLSearchParams(location.search);
+                loadedProjectId = parseInt(urlParams.get('projectId') || '0') || null;
+            }
+            
+            // If no results from localStorage, try loading from project state
+            if (!storedResults && loadedProjectId && accessToken) {
                 try {
                     console.log("Trying to load saved results from project state...");
-                    const project = await projectStateService.loadProject(projectId, accessToken);
+                    const project = await projectStateService.loadProject(loadedProjectId, accessToken);
                     if (project.lastResults) {
                         console.log("Loaded results from project state");
                         setResults(project.lastResults);
+                        // Set datasetId from results
+                        if (project.lastResults.dataset_id) {
+                            loadedDatasetId = project.lastResults.dataset_id;
+                        }
                         // Also cache in localStorage for subsequent page loads
                         localStorage.setItem('didAnalysisResults', JSON.stringify(project.lastResults));
-                    } else {
-                        console.log("No saved results found in project state");
+                    }
+                    // Get datasetId from project datasets if still not set
+                    if (!loadedDatasetId && project.datasets && project.datasets.length > 0) {
+                        loadedDatasetId = project.datasets[0].id;
                     }
                 } catch (error) {
                     console.error('Error loading project state:', error);
                 }
             }
             
+            // Update state values
+            if (loadedProjectId && loadedProjectId !== projectId) {
+                setProjectId(loadedProjectId);
+            }
+            if (loadedDatasetId && loadedDatasetId !== datasetId) {
+                setDatasetId(loadedDatasetId);
+            }
+            
             setLoading(false);
         };
         
         loadResults();
-    }, [projectId, accessToken]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [projectId, accessToken, location.search]);
 
     // Load AI interpretation when results are available
     useEffect(() => {
@@ -193,7 +221,8 @@ const ResultsPage: React.FC = () => {
                 notLoadingAI: !loadingAI
             });
         }
-    }, [results, loading]); // Note: Intentionally not including aiInterpretation and loadingAI to avoid loops
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [results, loading]); // Intentionally not including aiInterpretation and loadingAI to avoid loops
 
     if (loading) {
         return (
@@ -296,8 +325,6 @@ const ResultsPage: React.FC = () => {
         
         return ratio < 0.5; // Passed if pre-treatment difference is less than half of post-treatment difference
     };
-
-    const parallelTrendsPassed = checkParallelTrends();
 
     return (
         <div>
@@ -630,7 +657,7 @@ const ResultsPage: React.FC = () => {
                 onPrev={goToPreviousStep}
                 onNext={goToNextStep}
                 canGoNext={true}
-                onStepClick={(path) => navigate(path, { state: { projectId, datasetId: results?.dataset_id } })}
+                onStepClick={(path) => navigate(path, { state: { projectId, datasetId } })}
             />
         </div>
     );

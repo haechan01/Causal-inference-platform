@@ -17,18 +17,32 @@ const MethodSelectionPage: React.FC = () => {
     // AI aid section state
     const [showAIAid, setShowAIAid] = useState(false);
     
-    // Get project info from navigation state
-    const projectId = (location.state as any)?.projectId;
-    const datasetId = (location.state as any)?.datasetId;
+    // Get project info from navigation state (with state management for fallback)
+    const [projectId, setProjectId] = useState<number | null>((location.state as any)?.projectId || null);
+    const [datasetId, setDatasetId] = useState<number | null>((location.state as any)?.datasetId || null);
 
     // Load saved state when page opens
     useEffect(() => {
         const loadSavedState = async () => {
-            if (projectId && accessToken) {
+            // Try to get projectId from URL params if not in location state
+            let currentProjectId = projectId;
+            if (!currentProjectId) {
+                const urlParams = new URLSearchParams(location.search);
+                currentProjectId = parseInt(urlParams.get('projectId') || '0') || null;
+                if (currentProjectId) {
+                    setProjectId(currentProjectId);
+                }
+            }
+            
+            if (currentProjectId && accessToken) {
                 try {
-                    const project = await projectStateService.loadProject(projectId, accessToken);
+                    const project = await projectStateService.loadProject(currentProjectId, accessToken);
                     if (project.selectedMethod) {
                         setSelectedMethod(project.selectedMethod);
+                    }
+                    // Get datasetId from project if not set
+                    if (!datasetId && project.datasets && project.datasets.length > 0) {
+                        setDatasetId(project.datasets[0].id);
                     }
                 } catch (error) {
                     console.error('Failed to load project state:', error);
@@ -36,7 +50,8 @@ const MethodSelectionPage: React.FC = () => {
             }
         };
         loadSavedState();
-    }, [projectId, accessToken]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [projectId, accessToken, location.search]);
 
     const [treatmentVariable, setTreatmentVariable] = useState('');
     const [outcomeVariable, setOutcomeVariable] = useState('');

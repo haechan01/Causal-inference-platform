@@ -53,6 +53,7 @@ const EditProjectModal: React.FC<EditProjectModalProps> = ({
       );
       loadAvailableDatasets();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, project]);
 
   const loadAvailableDatasets = async () => {

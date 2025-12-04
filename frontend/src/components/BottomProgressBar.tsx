@@ -1,6 +1,4 @@
 import React from 'react';
-import { NavigationButton } from './buttons';
-import { NavigationButtonConfig } from '../types/buttons';
 
 interface ProgressStep {
   id: string;
@@ -33,18 +31,6 @@ const BottomProgressBar: React.FC<BottomProgressBarProps> = ({
       onStepClick(step.path);
     }
   };
-  
-  const prevButtonConfig: NavigationButtonConfig = {
-    to: '#',
-    text: '<',
-    style: styles.prevButton
-  };
-
-  const nextButtonConfig: NavigationButtonConfig = {
-    to: '#',
-    text: '>',
-    style: styles.nextButton
-  };
 
   return (
     <div style={styles.progressBar}>
@@ -59,7 +45,6 @@ const BottomProgressBar: React.FC<BottomProgressBarProps> = ({
           {steps.map((step, index) => {
             const isCompleted = index < currentStepIndex;
             const isCurrent = index === currentStepIndex;
-            const isFuture = index > currentStepIndex;
             const isClickable = isCompleted;
             
             return (

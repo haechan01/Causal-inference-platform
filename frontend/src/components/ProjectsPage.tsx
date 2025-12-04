@@ -104,6 +104,7 @@ const ProjectsPage: React.FC = () => {
     if (isAuthenticated && accessToken) {
       loadProjects();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, accessToken]);
 
   // Handle project selection
