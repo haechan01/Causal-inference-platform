@@ -719,6 +719,83 @@ def run_did_analysis(dataset_id):
                 )
             }
             
+            # Calculate period-by-period statistics for detailed breakdown
+            # Using proper DiD event study methodology:
+            # - Counterfactual_t = Y_treated_pre + (Y_control_t - Y_control_pre)
+            # - Effect_t = Y_treated_t - Counterfactual_t
+            # - Treatment start year is marked as transition (partial effect)
+            
+            period_statistics = []
+            all_periods = sorted(analysis_data[time_var].unique())
+            
+            # Get pre-treatment baseline means
+            pre_treatment_mean_treated = basic_stats['outcome_mean_treated_pre']
+            pre_treatment_mean_control = basic_stats['outcome_mean_control_pre']
+            
+            print(f"Period stats - Pre-treatment baselines: treated={pre_treatment_mean_treated:.4f}, control={pre_treatment_mean_control:.4f}")
+            print(f"Period stats - Treatment start: {treatment_start}")
+            
+            try:
+                for period in all_periods:
+                    period_data = analysis_data[analysis_data[time_var] == period]
+                    
+                    # Calculate group means for this period
+                    treated_data = period_data[period_data['is_treated'] == 1][outcome_var]
+                    control_data = period_data[period_data['is_treated'] == 0][outcome_var]
+                    
+                    treated_mean = treated_data.mean() if len(treated_data) > 0 else np.nan
+                    control_mean = control_data.mean() if len(control_data) > 0 else np.nan
+                    
+                    # Determine period type
+                    is_post = bool(period_data['post_treatment'].iloc[0] == 1) if len(period_data) > 0 else False
+                    
+                    # Compare as floats to handle type mismatches (period might be int, treatment_start might be float)
+                    try:
+                        is_treatment_start_year = (float(period) == float(treatment_start))
+                    except (ValueError, TypeError):
+                        is_treatment_start_year = (str(period) == str(treatment_start))
+                    
+                    # Calculate counterfactual using parallel trends assumption:
+                    # "What would treatment group be at time t if it followed control's trajectory?"
+                    # Counterfactual_t = Treatment_pre_mean + (Control_t - Control_pre_mean)
+                    control_change_from_baseline = control_mean - pre_treatment_mean_control if not pd.isna(control_mean) else 0
+                    counterfactual_treated = pre_treatment_mean_treated + control_change_from_baseline
+                    
+                    # Calculate period-specific causal effect
+                    # Effect_t = Actual_treatment_t - Counterfactual_t
+                    # Only calculate for post-treatment periods, excluding treatment start year
+                    if is_post and not is_treatment_start_year and not pd.isna(treated_mean) and not pd.isna(counterfactual_treated):
+                        period_effect = treated_mean - counterfactual_treated
+                    elif is_treatment_start_year:
+                        # Treatment year is a transition - effect may be partial
+                        period_effect = None  # Mark as transition, don't calculate
+                    else:
+                        period_effect = None
+                    
+                    # Format period value for JSON
+                    if pd.api.types.is_numeric_dtype(analysis_data[time_var]):
+                        period_val = int(period) if float(period).is_integer() else float(period)
+                    else:
+                        period_val = str(period)
+                    
+                    period_statistics.append({
+                        'period': period_val,
+                        'treatment_mean': float(treated_mean) if not pd.isna(treated_mean) else None,
+                        'control_mean': float(control_mean) if not pd.isna(control_mean) else None,
+                        'is_post_treatment': is_post,
+                        'is_treatment_start': is_treatment_start_year,
+                        'period_effect': float(period_effect) if period_effect is not None else None,
+                        'counterfactual': float(counterfactual_treated) if is_post and not pd.isna(counterfactual_treated) else None
+                    })
+                
+                print(f"Generated {len(period_statistics)} period statistics")
+            except Exception as e:
+                print(f"Error generating period statistics: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                # Continue with empty period statistics if there's an error
+                period_statistics = []
+            
             # Calculate simple DiD estimate
             treated_diff = basic_stats['outcome_mean_treated_post'] - basic_stats['outcome_mean_treated_pre']
             control_diff = basic_stats['outcome_mean_control_post'] - basic_stats['outcome_mean_control_pre']
@@ -829,6 +906,7 @@ def run_did_analysis(dataset_id):
                 'p_value': float(p_value),
                 'is_significant': bool(p_value < 0.05),
                 'statistics': basic_stats,
+                'period_statistics': period_statistics,
                 'interpretation': {
                     'effect_size': float(abs(did_estimate)),
                     'effect_direction': 'positive' if did_estimate > 0 else 'negative',

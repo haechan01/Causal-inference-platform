@@ -155,9 +155,6 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
             {progressStatus.label}
             {progressStatus.method && ` • ${progressStatus.method}`}
           </span>
-          {project.current_step !== 'projects' && (
-            <span style={styles.continueHint}>Click to continue →</span>
-          )}
         </div>
       )}
       
