@@ -89,8 +89,8 @@ const SignUpPage: React.FC = () => {
       // Call the register function from auth context
       await register(formData.username, formData.email, formData.password);
       
-      // Navigate to projects page after successful registration
-      navigate('/projects');
+      // Navigate to home page after successful registration
+      navigate('/');
       
     } catch (error: any) {
       // Handle registration errors

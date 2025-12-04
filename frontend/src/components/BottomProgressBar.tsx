@@ -1,6 +1,4 @@
 import React from 'react';
-import { NavigationButton } from './buttons';
-import { NavigationButtonConfig } from '../types/buttons';
 
 interface ProgressStep {
   id: string;
@@ -14,6 +12,7 @@ interface BottomProgressBarProps {
   onPrev: () => void;
   onNext: () => void;
   canGoNext: boolean;
+  onStepClick?: (stepPath: string) => void;
 }
 
 const BottomProgressBar: React.FC<BottomProgressBarProps> = ({ 
@@ -21,20 +20,16 @@ const BottomProgressBar: React.FC<BottomProgressBarProps> = ({
   steps, 
   onPrev, 
   onNext, 
-  canGoNext 
+  canGoNext,
+  onStepClick 
 }) => {
   const currentStepIndex = steps.findIndex(step => step.id === currentStep);
   
-  const prevButtonConfig: NavigationButtonConfig = {
-    to: '#',
-    text: '<',
-    style: styles.prevButton
-  };
-
-  const nextButtonConfig: NavigationButtonConfig = {
-    to: '#',
-    text: '>',
-    style: styles.nextButton
+  const handleStepClick = (step: ProgressStep, index: number) => {
+    // Only allow clicking on previous (completed) steps
+    if (index < currentStepIndex && onStepClick) {
+      onStepClick(step.path);
+    }
   };
 
   return (
@@ -50,15 +45,22 @@ const BottomProgressBar: React.FC<BottomProgressBarProps> = ({
           {steps.map((step, index) => {
             const isCompleted = index < currentStepIndex;
             const isCurrent = index === currentStepIndex;
-            const isFuture = index > currentStepIndex;
+            const isClickable = isCompleted;
             
             return (
               <div key={step.id} style={styles.stepContainer}>
-              <div style={styles.stepWrapper}>
+              <div 
+                style={{
+                  ...styles.stepWrapper,
+                  ...(isClickable ? styles.stepWrapperClickable : {})
+                }}
+                onClick={() => handleStepClick(step, index)}
+              >
                 <div
                   style={{
                     ...styles.stepCircle,
-                    ...(isCompleted || isCurrent ? styles.stepCircleActive : styles.stepCircleInactive)
+                    ...(isCompleted || isCurrent ? styles.stepCircleActive : styles.stepCircleInactive),
+                    ...(isClickable ? styles.stepCircleClickable : {})
                   }}
                 >
                   {isCompleted ? (
@@ -146,6 +148,9 @@ const styles = {
     position: 'relative' as const,
     zIndex: 2
   },
+  stepWrapperClickable: {
+    cursor: 'pointer'
+  },
   stepCircle: {
     width: '40px',
     height: '40px',
@@ -165,6 +170,10 @@ const styles = {
   stepCircleInactive: {
     backgroundColor: '#e0e0e0',
     color: '#999'
+  },
+  stepCircleClickable: {
+    cursor: 'pointer',
+    transition: 'transform 0.2s ease, box-shadow 0.2s ease'
   },
   stepNumber: {
     fontSize: '12px',

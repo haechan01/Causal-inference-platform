@@ -274,6 +274,33 @@ const DataUploadPage: React.FC = () => {
     }
   };
 
+  // Delete dataset
+  const handleDeleteDataset = async (e: React.MouseEvent, datasetId: number) => {
+    e.stopPropagation();
+    
+    if (!window.confirm('Are you sure you want to delete this dataset? This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      await axios.delete(`/projects/user/datasets/${datasetId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      
+      // Remove from local state
+      setExistingDatasets(existingDatasets.filter(d => d.id !== datasetId));
+      
+      // Clear selection if deleted dataset was selected
+      if (selectedExistingDataset === datasetId) {
+        setSelectedExistingDataset(null);
+        setPreviewData(null);
+      }
+    } catch (error) {
+      console.error('Failed to delete dataset:', error);
+      setUploadError('Failed to delete dataset');
+    }
+  };
+
   // Run AI data quality check
   const runQualityCheck = async () => {
     if (!previewData) return;
@@ -312,17 +339,10 @@ const DataUploadPage: React.FC = () => {
       <Navbar />
       <div style={styles.contentContainer}>
         <div style={styles.header}>
-          <h1 style={styles.pageTitle}>📊 Step 1: Upload Your Data</h1>
+          <h1 style={styles.pageTitle}>📊 Upload Your Data</h1>
           <p style={styles.subtitle}>
-            Start by uploading a CSV file. Give it a name, preview the data quality, and then proceed to create a project.
+            Upload a CSV file and give it a name to get started with your analysis.
           </p>
-          <div style={styles.stepIndicator}>
-            <span style={styles.stepActive}>① Upload Data</span>
-            <span style={styles.stepArrow}>→</span>
-            <span style={styles.stepInactive}>② Create Project</span>
-            <span style={styles.stepArrow}>→</span>
-            <span style={styles.stepInactive}>③ Run Analysis</span>
-          </div>
         </div>
 
         <div style={styles.mainContent}>
@@ -468,6 +488,13 @@ const DataUploadPage: React.FC = () => {
                         {selectedExistingDataset === dataset.id && (
                           <div style={styles.checkmark}>✓</div>
                         )}
+                        <button
+                          onClick={(e) => handleDeleteDataset(e, dataset.id)}
+                          style={styles.deleteDatasetButton}
+                          title="Delete dataset"
+                        >
+                          🗑️
+                        </button>
                       </div>
                     ))
                   )}
@@ -702,6 +729,7 @@ const DataUploadPage: React.FC = () => {
         onPrev={goToPreviousStep}
         onNext={handleNext}
         canGoNext={!!canProceed}
+        onStepClick={(path) => navigate(path)}
       />
     </div>
   );
@@ -731,30 +759,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#64748b',
     margin: '0 0 20px 0',
     lineHeight: '1.6'
-  },
-  stepIndicator: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '12px',
-    marginTop: '8px'
-  },
-  stepActive: {
-    backgroundColor: '#3b82f6',
-    color: 'white',
-    padding: '8px 16px',
-    borderRadius: '20px',
-    fontSize: '14px',
-    fontWeight: '600'
-  },
-  stepInactive: {
-    color: '#94a3b8',
-    fontSize: '14px',
-    fontWeight: '500'
-  },
-  stepArrow: {
-    color: '#cbd5e1',
-    fontSize: '16px'
   },
   mainContent: {
     display: 'grid',
@@ -995,6 +999,16 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '18px',
     color: '#3b82f6',
     fontWeight: 'bold'
+  },
+  deleteDatasetButton: {
+    backgroundColor: '#fee2e2',
+    border: 'none',
+    borderRadius: '6px',
+    padding: '6px 10px',
+    fontSize: '14px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    marginLeft: '8px'
   },
   previewCard: {
     backgroundColor: 'white',

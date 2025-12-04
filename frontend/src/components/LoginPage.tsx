@@ -69,8 +69,8 @@ const LoginPage: React.FC = () => {
       // Call the login function from auth context
       await login(formData.email, formData.password);
       
-      // Navigate to projects page after successful login
-      navigate('/projects');
+      // Navigate to home page after successful login
+      navigate('/');
       
     } catch (error: any) {
       // Handle login errors

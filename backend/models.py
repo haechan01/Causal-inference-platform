@@ -44,8 +44,32 @@ class Project(db.Model):
     )
     name = db.Column(db.String(120), nullable=False)
     description = db.Column(db.Text, nullable=True)
+    
+    # Progress tracking fields
+    current_step = db.Column(db.String(50), nullable=True, default='projects')  # projects, method, variables, results
+    selected_method = db.Column(db.String(50), nullable=True)  # did, rdd, iv
+    analysis_config = db.Column(db.JSON, nullable=True)  # Stores variable selections, time periods, etc.
+    last_results = db.Column(db.JSON, nullable=True)  # Stores last analysis results
+    updated_at = db.Column(db.DateTime, nullable=True, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
     datasets = db.relationship('Dataset', backref='project', lazy=True)
     analyses = db.relationship('Analysis', backref='project', lazy=True)
+    
+    def to_dict(self):
+        """Convert project to dictionary for JSON serialization"""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'user_id': self.user_id,
+            'current_step': self.current_step,
+            'selected_method': self.selected_method,
+            'analysis_config': self.analysis_config,
+            'last_results': self.last_results,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'datasets_count': len(self.datasets),
+            'analyses_count': len(self.analyses)
+        }
 
 
 class Dataset(db.Model):

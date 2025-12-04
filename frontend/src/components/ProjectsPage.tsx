@@ -4,12 +4,13 @@ import { useAuth } from '../contexts/AuthContext';
 import Navbar from './Navbar';
 import ProjectCard from './ProjectCard';
 import NewProjectModal from './NewProjectModal';
-import UploadDataModal from './UploadDataModal';
+import EditProjectModal from './EditProjectModal';
 import { LoginButton, SignUpButton } from './buttons';
 import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
+import { projectStateService } from '../services/projectStateService';
 
 interface Project {
   id: number;
@@ -17,8 +18,12 @@ interface Project {
   description: string;
   created_at: string;
   dataset_count: number;
+  current_step?: string;
+  selected_method?: string;
+  updated_at?: string;
   datasets?: Array<{
     id: number;
+    name: string;
     file_name: string;
     created_at: string;
   }>;
@@ -33,20 +38,13 @@ const ProjectsPage: React.FC = () => {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [checkedProject, setCheckedProject] = useState<Project | null>(null);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [uploadProject, setUploadProject] = useState<Project | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editProject, setEditProject] = useState<Project | null>(null);
   const [isReadyForNext, setIsReadyForNext] = useState(false);
   const [loading, setLoading] = useState(true);
   
   // Pre-selected dataset from DataUploadPage
   const preSelectedDatasetId = (location.state as any)?.selectedDatasetId || null;
-  
-  // Auto-open new project modal if coming with a pre-selected dataset
-  useEffect(() => {
-    if (preSelectedDatasetId && !isLoading && isAuthenticated) {
-      setIsNewProjectModalOpen(true);
-    }
-  }, [preSelectedDatasetId, isLoading, isAuthenticated]);
 
   // Load projects from API
   const loadProjects = async () => {
@@ -71,6 +69,9 @@ const ProjectsPage: React.FC = () => {
               description: project.description,
               created_at: new Date().toISOString(),  // Add timestamp
               dataset_count: project.datasets_count || 0,
+              current_step: project.current_step,
+              selected_method: project.selected_method,
+              updated_at: project.updated_at,
               datasets: datasetsResponse.data.datasets || []
             };
           } catch (error) {
@@ -81,6 +82,9 @@ const ProjectsPage: React.FC = () => {
               description: project.description,
               created_at: new Date().toISOString(),
               dataset_count: project.datasets_count || 0,
+              current_step: project.current_step,
+              selected_method: project.selected_method,
+              updated_at: project.updated_at,
               datasets: []
             };
           }
@@ -100,6 +104,7 @@ const ProjectsPage: React.FC = () => {
     if (isAuthenticated && accessToken) {
       loadProjects();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, accessToken]);
 
   // Handle project selection
@@ -156,19 +161,6 @@ const ProjectsPage: React.FC = () => {
   };
 
 
-  // Handle upload button click
-  const handleUploadClick = (project: Project) => {
-    setUploadProject(project);
-    setIsUploadModalOpen(true);
-  };
-
-  // Handle successful upload
-  const handleUploadSuccess = (uploadedFile: any) => {
-    console.log('File uploaded successfully:', uploadedFile);
-    // Reload projects to update dataset counts
-    loadProjects();
-  };
-
   // Handle checkbox change
   const handleCheckboxChange = (project: Project, checked: boolean) => {
     if (checked) {
@@ -181,15 +173,64 @@ const ProjectsPage: React.FC = () => {
     }
   };
 
-  // Custom next handler that passes project ID - go directly to method selection
-  const handleNext = () => {
-    if (checkedProject && checkedProject.datasets && checkedProject.datasets.length > 0) {
-      navigate('/method-selection', { 
-        state: { 
-          projectId: checkedProject.id,
-          datasetId: checkedProject.datasets[0].id
-        } 
+  // Handle edit project
+  const handleEditProject = (project: Project) => {
+    setEditProject(project);
+    setIsEditModalOpen(true);
+  };
+
+  // Handle delete project
+  const handleDeleteProject = async (project: Project) => {
+    try {
+      await axios.delete(`/projects/${project.id}`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
       });
+      
+      // Remove from local state
+      setProjects(projects.filter(p => p.id !== project.id));
+      
+      // Clear selection if deleted project was selected
+      if (checkedProject?.id === project.id) {
+        setCheckedProject(null);
+        setIsReadyForNext(false);
+      }
+      if (selectedProject?.id === project.id) {
+        setSelectedProject(null);
+      }
+    } catch (error) {
+      console.error('Error deleting project:', error);
+    }
+  };
+
+  // Custom next handler that passes project ID - go to saved step or method selection
+  const handleNext = async () => {
+    if (checkedProject && checkedProject.datasets && checkedProject.datasets.length > 0) {
+      const navState = { 
+        projectId: checkedProject.id,
+        datasetId: checkedProject.datasets[0].id
+      };
+      
+      // Check if project has saved state - navigate to where user left off
+      try {
+        const project = await projectStateService.loadProject(checkedProject.id, accessToken!);
+        
+        // Save that we're at project selection step
+        await projectStateService.saveState(checkedProject.id, {
+          currentStep: 'projects'
+        }, accessToken!);
+        
+        if (project.currentStep && project.currentStep !== 'projects') {
+          // Navigate to saved step
+          const stepPath = projectStateService.getStepPath(project.currentStep);
+          navigate(stepPath, { state: navState });
+        } else {
+          // Default to method selection
+          navigate('/method-selection', { state: navState });
+        }
+      } catch (error) {
+        console.warn('Failed to load project state, going to method selection:', error);
+        navigate('/method-selection', { state: navState });
+      }
     }
   };
 
@@ -228,22 +269,13 @@ const ProjectsPage: React.FC = () => {
       <Navbar />
       <div style={styles.contentContainer}>
         <div style={styles.projectsHeader}>
-          <h1 style={styles.pageTitle}>Step 2: Select or Create a Project</h1>
-          <p style={styles.pageSubtitle}>Create a new project and link your uploaded dataset to start the analysis</p>
-          <div style={styles.stepIndicator}>
-            <span style={styles.stepCompleted}>✓ Upload Data</span>
-            <span style={styles.stepArrow}>→</span>
-            <span style={styles.stepActive}>② Create Project</span>
-            <span style={styles.stepArrow}>→</span>
-            <span style={styles.stepInactive}>③ Select Method</span>
-            <span style={styles.stepArrow}>→</span>
-            <span style={styles.stepInactive}>④ Results</span>
-          </div>
+          <h1 style={styles.pageTitle}>Your Projects</h1>
+          <p style={styles.pageSubtitle}>Select an existing project or create a new one to organize your analysis</p>
         </div>
 
         <div style={styles.projectsGrid}>
           {loading ? (
-            <div style={styles.loadingContainer}>
+            <div style={styles.gridLoadingContainer}>
               <div style={styles.loadingSpinner}></div>
               <p style={styles.loadingText}>Loading projects...</p>
             </div>
@@ -265,8 +297,9 @@ const ProjectsPage: React.FC = () => {
                 project={project}
                 isSelected={checkedProject?.id === project.id}
                 onSelect={handleProjectSelect}
-                onUpload={handleUploadClick}
                 onCheckboxChange={handleCheckboxChange}
+                onEdit={handleEditProject}
+                onDelete={handleDeleteProject}
               />
             ))
           )}
@@ -290,16 +323,16 @@ const ProjectsPage: React.FC = () => {
         preSelectedDatasetId={preSelectedDatasetId}
       />
 
-      {/* Upload Data Modal */}
-      {uploadProject && (
-        <UploadDataModal
-          isOpen={isUploadModalOpen}
+      {/* Edit Project Modal */}
+      {editProject && (
+        <EditProjectModal
+          isOpen={isEditModalOpen}
           onClose={() => {
-            setIsUploadModalOpen(false);
-            setUploadProject(null);
+            setIsEditModalOpen(false);
+            setEditProject(null);
           }}
-          onUploadSuccess={handleUploadSuccess}
-          projectId={uploadProject.id}
+          onSave={loadProjects}
+          project={editProject}
         />
       )}
        {/* Bottom Progress Bar */}
@@ -309,6 +342,19 @@ const ProjectsPage: React.FC = () => {
          onPrev={goToPreviousStep}
          onNext={handleNext}
          canGoNext={isReadyForNext}
+         onStepClick={(path) => {
+           // Pass project state if a project is selected
+           if (checkedProject && checkedProject.datasets && checkedProject.datasets.length > 0) {
+             navigate(path, { 
+               state: { 
+                 projectId: checkedProject.id,
+                 datasetId: checkedProject.datasets[0].id
+               } 
+             });
+           } else {
+             navigate(path);
+           }
+         }}
        />
      </div>
    );
@@ -342,38 +388,6 @@ const styles = {
     fontSize: '18px',
     color: '#666',
     margin: '0 0 20px 0'
-  },
-  stepIndicator: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '12px',
-    marginTop: '8px'
-  },
-  stepCompleted: {
-    backgroundColor: '#22c55e',
-    color: 'white',
-    padding: '8px 16px',
-    borderRadius: '20px',
-    fontSize: '14px',
-    fontWeight: '600'
-  },
-  stepActive: {
-    backgroundColor: '#3b82f6',
-    color: 'white',
-    padding: '8px 16px',
-    borderRadius: '20px',
-    fontSize: '14px',
-    fontWeight: '600'
-  },
-  stepInactive: {
-    color: '#94a3b8',
-    fontSize: '14px',
-    fontWeight: '500'
-  },
-  stepArrow: {
-    color: '#cbd5e1',
-    fontSize: '16px'
   },
   projectsGrid: {
     display: 'grid',
@@ -494,6 +508,15 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#f5f5f5'
+  },
+  gridLoadingContainer: {
+    gridColumn: '1 / -1',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '60px 20px',
+    color: '#666'
   },
   loadingSpinner: {
     width: '40px',

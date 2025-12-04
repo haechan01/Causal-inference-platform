@@ -1,9 +1,15 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LoginButton, SignUpButton, ProfileButton, LogoutButton, Logo } from './buttons';
 
 const Navbar: React.FC = () => {
     const { isAuthenticated } = useAuth();
+    const navigate = useNavigate();
+    
+    const handleHomeClick = () => {
+      navigate('/');
+    };
     
     return (
     <nav style={styles.navbar}>
@@ -14,6 +20,9 @@ const Navbar: React.FC = () => {
           <div style={styles.navButtons}>
             {isAuthenticated ? (
               <>
+                <button onClick={handleHomeClick} style={styles.homeButton}>
+                  🏠 Home
+                </button>
                 <ProfileButton style={styles.navButton} />
                 <LogoutButton style={styles.logoutButton} />
               </>
@@ -73,6 +82,18 @@ const styles = {
       display: 'flex',
       gap: '15px',
       alignItems: 'center'
+    },
+    homeButton: {
+      backgroundColor: '#FFE492',
+      color: '#043873',
+      border: 'none',
+      borderRadius: '6px',
+      padding: '10px 20px',
+      fontSize: '16px',
+      fontWeight: '500',
+      cursor: 'pointer',
+      transition: 'all 0.3s ease',
+      textDecoration: 'none'
     },
     navButton: {
       backgroundColor: 'transparent',

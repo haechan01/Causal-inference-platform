@@ -4,14 +4,12 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LandingPage from './components/LandingPage';
 import Authentication from './components/Authentication';
-import Dashboard from './components/Dashboard';
 import DataUploadPage from './components/DataUploadPage';
 import ProjectsPage from './components/ProjectsPage';
 import MethodSelectionPage from './components/MethodSelectionPage';
 import VariableSelectionPage from './components/VariableSelectionPage';
 import DataPreviewPage from './components/DataPreviewPage';
 import ResultsPage from './components/ResultsPage';
-import ResultsPageTest from './components/ResultsPageTest';
 
 // Main app content component that uses auth context
 const AppContent: React.FC = () => {
@@ -35,10 +33,6 @@ const AppContent: React.FC = () => {
       <Route path="/signup" element={<Authentication />} />
       
       {/* Protected routes */}
-      <Route 
-        path="/dashboard" 
-        element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" />} 
-      />
       <Route 
         path="/upload-data" 
         element={isAuthenticated ? <DataUploadPage /> : <Navigate to="/login" />} 

@@ -90,7 +90,7 @@ def create_project():
 @jwt_required()
 def get_project(project_id):
     """
-    Get project details by ID.
+    Get project details by ID, including saved state.
     """
     try:
         # Get current user
@@ -108,13 +108,29 @@ def get_project(project_id):
         if project.user_id != current_user_id:
             return jsonify({"error": "Access denied"}), 403
         
+        # Get datasets with their info
+        datasets_info = []
+        for dataset in project.datasets:
+            datasets_info.append({
+                'id': dataset.id,
+                'name': dataset.name,
+                'file_name': dataset.file_name,
+                'created_at': dataset.created_at.isoformat() if dataset.created_at else None
+            })
+        
         return jsonify({
             "project": {
                 "id": project.id,
                 "name": project.name,
                 "description": project.description,
                 "user_id": project.user_id,
+                "current_step": project.current_step,
+                "selected_method": project.selected_method,
+                "analysis_config": project.analysis_config,
+                "last_results": project.last_results,
+                "updated_at": project.updated_at.isoformat() if project.updated_at else None,
                 "datasets_count": len(project.datasets),
+                "datasets": datasets_info,
                 "analyses_count": len(project.analyses)
             }
         }), 200
@@ -125,11 +141,196 @@ def get_project(project_id):
         return jsonify({"error": f"Failed to get project: {str(e)}"}), 500
 
 
+@projects_bp.route('/<int:project_id>', methods=['PUT'])
+@jwt_required()
+def update_project(project_id):
+    """
+    Update a project's details and state.
+    
+    Expected JSON:
+    {
+        "name": "New Project Name",
+        "description": "New description",
+        "dataset_id": 1,  (optional - to change linked dataset)
+        "current_step": "method",  (optional - progress tracking)
+        "selected_method": "did",  (optional - selected analysis method)
+        "analysis_config": {...},  (optional - variable selections etc.)
+        "last_results": {...}  (optional - last analysis results)
+    }
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        from models import Project, Dataset
+        
+        project = Project.query.get(project_id)
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+        
+        if project.user_id != current_user_id:
+            return jsonify({"error": "Access denied"}), 403
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        # Update name if provided
+        if 'name' in data:
+            name = data['name'].strip()
+            if not name:
+                return jsonify({"error": "Project name cannot be empty"}), 400
+            project.name = name
+        
+        # Update description if provided
+        if 'description' in data:
+            project.description = data['description'].strip()
+        
+        # Update dataset if provided
+        if 'dataset_id' in data:
+            dataset_id = data['dataset_id']
+            if dataset_id:
+                dataset = Dataset.query.get(dataset_id)
+                if not dataset:
+                    return jsonify({"error": "Dataset not found"}), 404
+                if dataset.user_id != current_user_id:
+                    return jsonify({"error": "Access denied to this dataset"}), 403
+                
+                # Unlink any existing datasets from this project
+                Dataset.query.filter_by(project_id=project_id).update({'project_id': None})
+                
+                # Link the new dataset
+                dataset.project_id = project_id
+        
+        # Update state fields if provided
+        if 'current_step' in data:
+            project.current_step = data['current_step']
+        
+        if 'selected_method' in data:
+            project.selected_method = data['selected_method']
+        
+        if 'analysis_config' in data:
+            project.analysis_config = data['analysis_config']
+        
+        if 'last_results' in data:
+            project.last_results = data['last_results']
+        
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Project updated successfully",
+            "project": project.to_dict()
+        }), 200
+        
+    except ValueError:
+        return jsonify({"error": "Invalid token identity"}), 401
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to update project: {str(e)}"}), 500
+
+
+@projects_bp.route('/<int:project_id>/state', methods=['PUT'])
+@jwt_required()
+def save_project_state(project_id):
+    """
+    Save project state/progress (lightweight endpoint for auto-save).
+    
+    Expected JSON:
+    {
+        "current_step": "method",
+        "selected_method": "did",
+        "analysis_config": {...},
+        "last_results": {...}
+    }
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        from models import Project
+        
+        project = Project.query.get(project_id)
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+        
+        if project.user_id != current_user_id:
+            return jsonify({"error": "Access denied"}), 403
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        # Update state fields
+        if 'current_step' in data:
+            project.current_step = data['current_step']
+        
+        if 'selected_method' in data:
+            project.selected_method = data['selected_method']
+        
+        if 'analysis_config' in data:
+            project.analysis_config = data['analysis_config']
+        
+        if 'last_results' in data:
+            project.last_results = data['last_results']
+        
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Project state saved successfully",
+            "project": {
+                "id": project.id,
+                "current_step": project.current_step,
+                "selected_method": project.selected_method,
+                "analysis_config": project.analysis_config
+            }
+        }), 200
+        
+    except ValueError:
+        return jsonify({"error": "Invalid token identity"}), 401
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to save project state: {str(e)}"}), 500
+
+
+@projects_bp.route('/<int:project_id>', methods=['DELETE'])
+@jwt_required()
+def delete_project(project_id):
+    """
+    Delete a project and optionally its associated datasets.
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        from models import Project, Dataset
+        
+        project = Project.query.get(project_id)
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+        
+        if project.user_id != current_user_id:
+            return jsonify({"error": "Access denied"}), 403
+        
+        # Unlink datasets from this project (don't delete them)
+        Dataset.query.filter_by(project_id=project_id).update({'project_id': None})
+        
+        # Delete the project
+        db.session.delete(project)
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Project deleted successfully"
+        }), 200
+        
+    except ValueError:
+        return jsonify({"error": "Invalid token identity"}), 401
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to delete project: {str(e)}"}), 500
+
+
 @projects_bp.route('', methods=['GET'])
 @jwt_required()
 def list_projects():
     """
-    List all projects for the authenticated user.
+    List all projects for the authenticated user, including progress state.
     """
     try:
         # Get current user
@@ -138,8 +339,10 @@ def list_projects():
         # Import models locally to avoid circular imports
         from models import Project
         
-        # Get user's projects
-        projects = Project.query.filter_by(user_id=current_user_id).all()
+        # Get user's projects, ordered by most recently updated first
+        projects = Project.query.filter_by(user_id=current_user_id).order_by(
+            Project.updated_at.desc().nullslast()
+        ).all()
         
         projects_data = []
         for project in projects:
@@ -148,7 +351,10 @@ def list_projects():
                 "name": project.name,
                 "description": project.description,
                 "datasets_count": len(project.datasets),
-                "analyses_count": len(project.analyses)
+                "analyses_count": len(project.analyses),
+                "current_step": project.current_step,
+                "selected_method": project.selected_method,
+                "updated_at": project.updated_at.isoformat() if project.updated_at else None
             })
         
         return jsonify({

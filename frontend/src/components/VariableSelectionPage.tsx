@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Navbar from './Navbar';
 import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
@@ -9,6 +9,7 @@ import SearchableDropdown from './SearchableDropdown';
 import AIVariableSuggestions from './AIVariableSuggestions';
 import HelpTooltip from './HelpTooltip';
 import AnalysisValidationModal from './AnalysisValidationModal';
+import { projectStateService } from '../services/projectStateService';
 
 interface Variable {
   name: string;
@@ -32,7 +33,8 @@ interface VariableSelection {
 }
 
 const VariableSelectionPage: React.FC = () => {
-  const { currentStep, steps, goToPreviousStep, goToNextStep } = useProgressStep();
+  const navigate = useNavigate();
+  const { currentStep, steps, goToPreviousStep } = useProgressStep();
   const { accessToken } = useAuth();
   const location = useLocation();
   const [variables, setVariables] = useState<Variable[]>([]);
@@ -68,14 +70,42 @@ const VariableSelectionPage: React.FC = () => {
         setError(null);
         
         // Get project ID and dataset ID from URL params or state
-        const projectId = new URLSearchParams(location.search).get('projectId') || 
+        let projectId = new URLSearchParams(location.search).get('projectId') || 
                          (location.state as any)?.projectId;
-        const datasetId = (location.state as any)?.datasetId;
+        let datasetId = (location.state as any)?.datasetId;
         
         if (!projectId) {
           setError('No project selected. Please go back and select a project.');
           setLoading(false);
           return;
+        }
+
+        // Load saved project state first
+        try {
+          const project = await projectStateService.loadProject(parseInt(projectId as string), accessToken!);
+          if (project.analysisConfig) {
+            const config = project.analysisConfig;
+            setSelection(prev => ({
+              ...prev,
+              outcome: config.outcome || '',
+              treatment: config.treatment || '',
+              treatment_value: config.treatmentValue || '',
+              time: config.time || '',
+              treatment_start: config.treatmentStart || '',
+              start_period: config.startPeriod || '',
+              end_period: config.endPeriod || '',
+              unit: config.unit || '',
+              controls: config.controls || [],
+              treatment_units: config.treatmentUnits || [],
+              control_units: config.controlUnits || []
+            }));
+          }
+          // Get datasetId from project if not provided in navigation state
+          if (!datasetId && project.datasets && project.datasets.length > 0) {
+            datasetId = project.datasets[0].id;
+          }
+        } catch (err) {
+          console.warn('Failed to load saved state:', err);
         }
 
         // Load datasets for the project
@@ -211,50 +241,87 @@ const VariableSelectionPage: React.FC = () => {
     }
   };
 
-  const handleRunAnalysis = async () => {
-    setShowValidationModal(false);
-    if (selectedDataset) {
+  const handleRunAnalysis = async (): Promise<void> => {
+    // Use current selectedDataset or fallback
+    const datasetToUse = selectedDataset;
+    if (!datasetToUse) {
+      console.error('No dataset selected for analysis');
+      setShowValidationModal(false);
+      setError('No dataset selected. Please refresh and try again.');
+      throw new Error('No dataset selected');
+    }
+    
+    // Clear any cached results before making fresh API call
+    localStorage.removeItem('didAnalysisResults');
+    
+    // Get project ID
+    const projectId = new URLSearchParams(location.search).get('projectId') || 
+                     (location.state as any)?.projectId;
+    
+    // Run DiD analysis
+    const analysisResponse = await axios.post(`/datasets/${datasetToUse.id}/analyze/did`, {
+      outcome: selection.outcome,
+      treatment: selection.treatment,
+      treatment_value: selection.treatment_value,
+      time: selection.time,
+      treatment_start: selection.treatment_start,
+      start_period: selection.start_period,
+      end_period: selection.end_period,
+      unit: selection.unit,
+      controls: selection.controls,
+      treatment_units: selection.treatment_units,
+      control_units: selection.control_units
+    }, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    
+    // Check if response.data is a string that needs parsing
+    let responseData = analysisResponse.data;
+    if (typeof responseData === 'string') {
       try {
-        // Clear any cached results before making fresh API call
-        localStorage.removeItem('didAnalysisResults');
-        
-        // Run DiD analysis
-        const analysisResponse = await axios.post(`/datasets/${selectedDataset.id}/analyze/did`, {
-          outcome: selection.outcome,
-          treatment: selection.treatment,
-          treatment_value: selection.treatment_value,
-          time: selection.time,
-          treatment_start: selection.treatment_start,
-          start_period: selection.start_period,
-          end_period: selection.end_period,
-          unit: selection.unit,
-          controls: selection.controls,
-          treatment_units: selection.treatment_units,
-          control_units: selection.control_units
-        }, {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
-        
-        // Check if response.data is a string that needs parsing (handled in existing code, keeping logic)
-        let responseData = analysisResponse.data;
-        if (typeof responseData === 'string') {
-          try {
-            responseData = JSON.parse(responseData);
-          } catch (parseError) {
-            throw new Error('Failed to parse analysis response');
-          }
-        }
-        
-        // Store results in localStorage for the results page
-        localStorage.setItem('didAnalysisResults', JSON.stringify(responseData));
-        
-        // Navigate to results page
-        goToNextStep();
-      } catch (error: any) {
-        console.error('Error running DiD analysis:', error);
-        setError(error.response?.data?.error || 'Failed to run analysis');
+        responseData = JSON.parse(responseData);
+      } catch (parseError) {
+        throw new Error('Failed to parse analysis response');
       }
     }
+    
+    // Store results in localStorage for the results page
+    localStorage.setItem('didAnalysisResults', JSON.stringify(responseData));
+    
+    // Save project state with analysis config and results
+    if (projectId && accessToken) {
+      try {
+        await projectStateService.saveState(parseInt(projectId), {
+          currentStep: 'results',
+          analysisConfig: {
+            outcome: selection.outcome,
+            treatment: selection.treatment,
+            treatmentValue: selection.treatment_value,
+            time: selection.time,
+            treatmentStart: selection.treatment_start,
+            startPeriod: selection.start_period,
+            endPeriod: selection.end_period,
+            unit: selection.unit,
+            controls: selection.controls,
+            treatmentUnits: selection.treatment_units,
+            controlUnits: selection.control_units
+          },
+          lastResults: responseData
+        }, accessToken);
+      } catch (saveError) {
+        console.warn('Failed to save project state:', saveError);
+      }
+    }
+    
+    // Close modal and navigate to results page with state
+    setShowValidationModal(false);
+    const datasetIdToPass = (location.state as any)?.datasetId || datasetToUse.id;
+    navigate('/results', { 
+      state: { 
+        projectId: parseInt(projectId as string), 
+        datasetId: datasetIdToPass 
+      } 
+    });
   };
 
   if (loading) {
@@ -694,6 +761,12 @@ const VariableSelectionPage: React.FC = () => {
         onPrev={goToPreviousStep}
         onNext={handleNextClick}
         canGoNext={canProceed}
+        onStepClick={(path) => {
+          const projectId = new URLSearchParams(location.search).get('projectId') || 
+                           (location.state as any)?.projectId;
+          const datasetId = (location.state as any)?.datasetId || selectedDataset?.id;
+          navigate(path, { state: { projectId, datasetId } });
+        }}
       />
     </div>
   );

@@ -17,7 +17,7 @@ const ProfileButton: React.FC<ProfileButtonProps> = ({ style }) => {
       onClick={handleProfile} 
       style={style}
     >
-      Profile
+      Projects
     </button>
   );
 };

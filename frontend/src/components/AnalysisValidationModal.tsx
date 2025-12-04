@@ -18,7 +18,7 @@ interface Props {
   isOpen: boolean;
   parameters: any;
   dataSummary: any;
-  onProceed: () => void;
+  onProceed: () => Promise<void>;
   onCancel: () => void;
 }
 
@@ -31,6 +31,17 @@ const AnalysisValidationModal: React.FC<Props> = ({
 }) => {
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [runningAnalysis, setRunningAnalysis] = useState(false);
+
+  const handleRunClick = async () => {
+    setRunningAnalysis(true);
+    try {
+      await onProceed();
+    } catch (error) {
+      console.error('Analysis failed:', error);
+      setRunningAnalysis(false);
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -70,10 +81,10 @@ const AnalysisValidationModal: React.FC<Props> = ({
         </div>
 
         <div style={styles.content}>
-          {loading ? (
+          {loading || runningAnalysis ? (
             <div style={styles.loading}>
               <div style={styles.spinner}></div>
-              <p>AI is validating your analysis setup...</p>
+              <p>{runningAnalysis ? 'Running analysis...' : 'AI is validating your analysis setup...'}</p>
             </div>
           ) : validation && (
             <>
@@ -152,20 +163,22 @@ const AnalysisValidationModal: React.FC<Props> = ({
         </div>
 
         <div style={styles.footer}>
-          <button onClick={onCancel} style={styles.cancelButton}>
+          <button 
+            onClick={onCancel} 
+            style={styles.cancelButton}
+            disabled={runningAnalysis}
+          >
             Go Back & Edit
           </button>
           <button 
-            onClick={onProceed}
-            disabled={validation?.proceed_recommendation === 'stop'}
+            onClick={handleRunClick}
+            disabled={loading || runningAnalysis || validation?.proceed_recommendation === 'stop'}
             style={{
               ...styles.proceedButton,
-              opacity: validation?.proceed_recommendation === 'stop' ? 0.5 : 1
+              opacity: (loading || runningAnalysis || validation?.proceed_recommendation === 'stop') ? 0.5 : 1
             }}
           >
-            {validation?.proceed_recommendation === 'proceed' 
-              ? 'Run Analysis' 
-              : 'Proceed Anyway'}
+            {runningAnalysis ? 'Running...' : 'Run Analysis'}
           </button>
         </div>
       </div>
