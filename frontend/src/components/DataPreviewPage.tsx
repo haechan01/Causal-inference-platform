@@ -174,7 +174,11 @@ const DataPreviewPage: React.FC<DataPreviewProps> = () => {
         onPrev={goToPreviousStep}
         onNext={handleNext}
         canGoNext={!loading}
-        onStepClick={(path) => navigate(path)}
+        onStepClick={(path) => {
+          const projectId = (location.state as any)?.projectId;
+          const datasetId = selectedDataset?.id;
+          navigate(path, { state: { projectId, datasetId } });
+        }}
       />
     </div>
   );

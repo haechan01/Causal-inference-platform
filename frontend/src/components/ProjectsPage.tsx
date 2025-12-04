@@ -10,6 +10,7 @@ import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
+import { projectStateService } from '../services/projectStateService';
 
 interface Project {
   id: number;
@@ -17,6 +18,9 @@ interface Project {
   description: string;
   created_at: string;
   dataset_count: number;
+  current_step?: string;
+  selected_method?: string;
+  updated_at?: string;
   datasets?: Array<{
     id: number;
     name: string;
@@ -65,6 +69,9 @@ const ProjectsPage: React.FC = () => {
               description: project.description,
               created_at: new Date().toISOString(),  // Add timestamp
               dataset_count: project.datasets_count || 0,
+              current_step: project.current_step,
+              selected_method: project.selected_method,
+              updated_at: project.updated_at,
               datasets: datasetsResponse.data.datasets || []
             };
           } catch (error) {
@@ -75,6 +82,9 @@ const ProjectsPage: React.FC = () => {
               description: project.description,
               created_at: new Date().toISOString(),
               dataset_count: project.datasets_count || 0,
+              current_step: project.current_step,
+              selected_method: project.selected_method,
+              updated_at: project.updated_at,
               datasets: []
             };
           }
@@ -191,15 +201,35 @@ const ProjectsPage: React.FC = () => {
     }
   };
 
-  // Custom next handler that passes project ID - go directly to method selection
-  const handleNext = () => {
+  // Custom next handler that passes project ID - go to saved step or method selection
+  const handleNext = async () => {
     if (checkedProject && checkedProject.datasets && checkedProject.datasets.length > 0) {
-      navigate('/method-selection', { 
-        state: { 
-          projectId: checkedProject.id,
-          datasetId: checkedProject.datasets[0].id
-        } 
-      });
+      const navState = { 
+        projectId: checkedProject.id,
+        datasetId: checkedProject.datasets[0].id
+      };
+      
+      // Check if project has saved state - navigate to where user left off
+      try {
+        const project = await projectStateService.loadProject(checkedProject.id, accessToken!);
+        
+        // Save that we're at project selection step
+        await projectStateService.saveState(checkedProject.id, {
+          currentStep: 'projects'
+        }, accessToken!);
+        
+        if (project.currentStep && project.currentStep !== 'projects') {
+          // Navigate to saved step
+          const stepPath = projectStateService.getStepPath(project.currentStep);
+          navigate(stepPath, { state: navState });
+        } else {
+          // Default to method selection
+          navigate('/method-selection', { state: navState });
+        }
+      } catch (error) {
+        console.warn('Failed to load project state, going to method selection:', error);
+        navigate('/method-selection', { state: navState });
+      }
     }
   };
 
@@ -311,7 +341,19 @@ const ProjectsPage: React.FC = () => {
          onPrev={goToPreviousStep}
          onNext={handleNext}
          canGoNext={isReadyForNext}
-         onStepClick={(path) => navigate(path)}
+         onStepClick={(path) => {
+           // Pass project state if a project is selected
+           if (checkedProject && checkedProject.datasets && checkedProject.datasets.length > 0) {
+             navigate(path, { 
+               state: { 
+                 projectId: checkedProject.id,
+                 datasetId: checkedProject.datasets[0].id
+               } 
+             });
+           } else {
+             navigate(path);
+           }
+         }}
        />
      </div>
    );

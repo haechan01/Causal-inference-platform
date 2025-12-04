@@ -9,6 +9,7 @@ import SearchableDropdown from './SearchableDropdown';
 import AIVariableSuggestions from './AIVariableSuggestions';
 import HelpTooltip from './HelpTooltip';
 import AnalysisValidationModal from './AnalysisValidationModal';
+import { projectStateService } from '../services/projectStateService';
 
 interface Variable {
   name: string;
@@ -77,6 +78,30 @@ const VariableSelectionPage: React.FC = () => {
           setError('No project selected. Please go back and select a project.');
           setLoading(false);
           return;
+        }
+
+        // Load saved project state first
+        try {
+          const project = await projectStateService.loadProject(parseInt(projectId), accessToken!);
+          if (project.analysisConfig) {
+            const config = project.analysisConfig;
+            setSelection(prev => ({
+              ...prev,
+              outcome: config.outcome || '',
+              treatment: config.treatment || '',
+              treatment_value: config.treatmentValue || '',
+              time: config.time || '',
+              treatment_start: config.treatmentStart || '',
+              start_period: config.startPeriod || '',
+              end_period: config.endPeriod || '',
+              unit: config.unit || '',
+              controls: config.controls || [],
+              treatment_units: config.treatmentUnits || [],
+              control_units: config.controlUnits || []
+            }));
+          }
+        } catch (err) {
+          console.warn('Failed to load saved state:', err);
         }
 
         // Load datasets for the project
@@ -219,6 +244,10 @@ const VariableSelectionPage: React.FC = () => {
         // Clear any cached results before making fresh API call
         localStorage.removeItem('didAnalysisResults');
         
+        // Get project ID
+        const projectId = new URLSearchParams(location.search).get('projectId') || 
+                         (location.state as any)?.projectId;
+        
         // Run DiD analysis
         const analysisResponse = await axios.post(`/datasets/${selectedDataset.id}/analyze/did`, {
           outcome: selection.outcome,
@@ -248,6 +277,31 @@ const VariableSelectionPage: React.FC = () => {
         
         // Store results in localStorage for the results page
         localStorage.setItem('didAnalysisResults', JSON.stringify(responseData));
+        
+        // Save project state with analysis config and results
+        if (projectId && accessToken) {
+          try {
+            await projectStateService.saveState(parseInt(projectId), {
+              currentStep: 'results',
+              analysisConfig: {
+                outcome: selection.outcome,
+                treatment: selection.treatment,
+                treatmentValue: selection.treatment_value,
+                time: selection.time,
+                treatmentStart: selection.treatment_start,
+                startPeriod: selection.start_period,
+                endPeriod: selection.end_period,
+                unit: selection.unit,
+                controls: selection.controls,
+                treatmentUnits: selection.treatment_units,
+                controlUnits: selection.control_units
+              },
+              lastResults: responseData
+            }, accessToken);
+          } catch (saveError) {
+            console.warn('Failed to save project state:', saveError);
+          }
+        }
         
         // Navigate to results page
         goToNextStep();
@@ -695,7 +749,12 @@ const VariableSelectionPage: React.FC = () => {
         onPrev={goToPreviousStep}
         onNext={handleNextClick}
         canGoNext={canProceed}
-        onStepClick={(path) => navigate(path)}
+        onStepClick={(path) => {
+          const projectId = new URLSearchParams(location.search).get('projectId') || 
+                           (location.state as any)?.projectId;
+          const datasetId = (location.state as any)?.datasetId || selectedDataset?.id;
+          navigate(path, { state: { projectId, datasetId } });
+        }}
       />
     </div>
   );

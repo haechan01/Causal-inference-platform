@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Navbar from './Navbar';
 import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
 import { aiService, ResultsInterpretation } from '../services/aiService';
 import NextStepsCard from './NextStepsCard';
+import { useAuth } from '../contexts/AuthContext';
+import { projectStateService } from '../services/projectStateService';
 
 interface DiDResults {
   analysis_type: string;
@@ -59,6 +61,8 @@ interface DiDResults {
 const ResultsPage: React.FC = () => {
     console.log("=== RESULTS PAGE COMPONENT LOADED ===");
     const navigate = useNavigate();
+    const location = useLocation();
+    const { accessToken } = useAuth();
     const { currentStep, steps, goToPreviousStep, goToNextStep } = useProgressStep();
     const [results, setResults] = useState<DiDResults | null>(null);
     const [loading, setLoading] = useState(true);
@@ -66,6 +70,9 @@ const ResultsPage: React.FC = () => {
     const [aiInterpretation, setAiInterpretation] = useState<ResultsInterpretation | null>(null);
     const [loadingAI, setLoadingAI] = useState(false);
     const [aiError, setAiError] = useState<string | null>(null);
+    
+    // Get project ID from navigation state
+    const projectId = (location.state as any)?.projectId;
 
     // Helper function to safely format numbers, handling null/undefined
     const formatNumber = (value: number | null | undefined, decimals: number = 2): string => {
@@ -76,30 +83,46 @@ const ResultsPage: React.FC = () => {
     };
 
     useEffect(() => {
-        // Load results from localStorage
-        console.log("=== LOADING RESULTS FROM LOCALSTORAGE ===");
-        console.log("Current time:", new Date().toLocaleTimeString());
-        const storedResults = localStorage.getItem('didAnalysisResults');
-        console.log("Raw stored results (first 500 chars):", storedResults ? storedResults.substring(0, 500) : 'null');
-        console.log("Stored results type:", typeof storedResults);
-        console.log("Stored results length:", storedResults ? storedResults.length : 'null');
-        
-        if (storedResults) {
-            try {
-                const parsedResults = JSON.parse(storedResults);
-                console.log("Parsed results:", parsedResults);
-                console.log("Parsed results type:", typeof parsedResults);
-                console.log("Parsed results keys:", Object.keys(parsedResults));
-                setResults(parsedResults);
-            } catch (error) {
-                console.error('Error parsing stored results:', error);
-                console.error('Raw stored results that failed to parse:', storedResults.substring(0, 200) + '...');
+        const loadResults = async () => {
+            // First try to load from localStorage (fresh analysis)
+            console.log("=== LOADING RESULTS ===");
+            const storedResults = localStorage.getItem('didAnalysisResults');
+            
+            if (storedResults) {
+                try {
+                    const parsedResults = JSON.parse(storedResults);
+                    console.log("Loaded results from localStorage");
+                    setResults(parsedResults);
+                    setLoading(false);
+                    return;
+                } catch (error) {
+                    console.error('Error parsing stored results:', error);
+                }
             }
-        } else {
-            console.log("No stored results found in localStorage");
-        }
-        setLoading(false);
-    }, []);
+            
+            // If no localStorage results, try to load from saved project state
+            if (projectId && accessToken) {
+                try {
+                    console.log("Trying to load saved results from project state...");
+                    const project = await projectStateService.loadProject(projectId, accessToken);
+                    if (project.lastResults) {
+                        console.log("Loaded results from project state");
+                        setResults(project.lastResults);
+                        // Also cache in localStorage for subsequent page loads
+                        localStorage.setItem('didAnalysisResults', JSON.stringify(project.lastResults));
+                    } else {
+                        console.log("No saved results found in project state");
+                    }
+                } catch (error) {
+                    console.error('Error loading project state:', error);
+                }
+            }
+            
+            setLoading(false);
+        };
+        
+        loadResults();
+    }, [projectId, accessToken]);
 
     // Load AI interpretation when results are available
     useEffect(() => {
@@ -607,7 +630,7 @@ const ResultsPage: React.FC = () => {
                 onPrev={goToPreviousStep}
                 onNext={goToNextStep}
                 canGoNext={true}
-                onStepClick={(path) => navigate(path)}
+                onStepClick={(path) => navigate(path, { state: { projectId, datasetId: results?.dataset_id } })}
             />
         </div>
     );

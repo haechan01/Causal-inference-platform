@@ -6,6 +6,9 @@ interface Project {
   description: string;
   created_at: string;
   dataset_count: number;
+  current_step?: string;
+  selected_method?: string;
+  updated_at?: string;
   datasets?: Array<{
     id: number;
     name: string;
@@ -33,6 +36,33 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
 }) => {
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const hasDatasets = project.datasets && project.datasets.length > 0;
+
+  // Helper to get progress status text and color
+  const getProgressStatus = () => {
+    if (!project.current_step || project.current_step === 'projects') {
+      return null;
+    }
+    
+    const stepLabels: Record<string, string> = {
+      'method': 'Method Selected',
+      'variables': 'Configuring Variables',
+      'results': 'Analysis Complete'
+    };
+    
+    const stepColors: Record<string, string> = {
+      'method': '#3498db',
+      'variables': '#f39c12',
+      'results': '#27ae60'
+    };
+    
+    return {
+      label: stepLabels[project.current_step] || 'In Progress',
+      color: stepColors[project.current_step] || '#7f8c8d',
+      method: project.selected_method?.toUpperCase()
+    };
+  };
+
+  const progressStatus = getProgressStatus();
 
   // Handle card click - toggle selection if has datasets
   const handleCardClick = () => {
@@ -109,6 +139,24 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
             <div style={styles.moreFiles}>
               +{project.datasets.length - 3} more files
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Progress Status Badge */}
+      {progressStatus && (
+        <div style={styles.progressContainer}>
+          <span 
+            style={{
+              ...styles.progressBadge,
+              backgroundColor: progressStatus.color
+            }}
+          >
+            {progressStatus.label}
+            {progressStatus.method && ` • ${progressStatus.method}`}
+          </span>
+          {project.current_step !== 'projects' && (
+            <span style={styles.continueHint}>Click to continue →</span>
           )}
         </div>
       )}
@@ -346,6 +394,27 @@ const styles = {
     border: 'none',
     borderRadius: '8px',
     cursor: 'pointer'
+  },
+  progressContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    marginTop: '12px',
+    marginBottom: '12px'
+  },
+  progressBadge: {
+    padding: '4px 10px',
+    borderRadius: '12px',
+    fontSize: '11px',
+    fontWeight: '600',
+    color: 'white',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.5px'
+  },
+  continueHint: {
+    fontSize: '12px',
+    color: '#7f8c8d',
+    fontStyle: 'italic'
   }
 };
 

@@ -4,9 +4,12 @@ import Navbar from './Navbar';
 import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
 import { aiService, MethodRecommendation } from '../services/aiService';
+import { useAuth } from '../contexts/AuthContext';
+import { projectStateService } from '../services/projectStateService';
 
 const MethodSelectionPage: React.FC = () => {
     const { currentStep, steps, goToPreviousStep } = useProgressStep();
+    const { accessToken } = useAuth();
     const location = useLocation();
     const navigate = useNavigate();
     const [selectedMethod, setSelectedMethod] = useState<string>('');
@@ -14,10 +17,26 @@ const MethodSelectionPage: React.FC = () => {
     // AI aid section state
     const [showAIAid, setShowAIAid] = useState(false);
     
-    // Debug: Log when component renders
+    // Get project info from navigation state
+    const projectId = (location.state as any)?.projectId;
+    const datasetId = (location.state as any)?.datasetId;
+
+    // Load saved state when page opens
     useEffect(() => {
-        console.log('MethodSelectionPage rendered');
-    }, []);
+        const loadSavedState = async () => {
+            if (projectId && accessToken) {
+                try {
+                    const project = await projectStateService.loadProject(projectId, accessToken);
+                    if (project.selectedMethod) {
+                        setSelectedMethod(project.selectedMethod);
+                    }
+                } catch (error) {
+                    console.error('Failed to load project state:', error);
+                }
+            }
+        };
+        loadSavedState();
+    }, [projectId, accessToken]);
 
     const [treatmentVariable, setTreatmentVariable] = useState('');
     const [outcomeVariable, setOutcomeVariable] = useState('');
@@ -28,11 +47,37 @@ const MethodSelectionPage: React.FC = () => {
     const [recommendation, setRecommendation] = useState<MethodRecommendation | null>(null);
     const [recommendationError, setRecommendationError] = useState<string | null>(null);
 
-    const handleNext = () => {
-        const projectId = (location.state as any)?.projectId;
-        const datasetId = (location.state as any)?.datasetId;
+    // Save state when method is selected
+    const handleMethodSelect = async (method: string) => {
+        setSelectedMethod(method);
         
+        // Auto-save state
+        if (projectId && accessToken) {
+            try {
+                await projectStateService.saveState(projectId, {
+                    currentStep: 'method',
+                    selectedMethod: method
+                }, accessToken);
+            } catch (error) {
+                console.error('Failed to save state:', error);
+            }
+        }
+    };
+
+    const handleNext = async () => {
         if (selectedMethod === 'did') {
+            // Save state before navigating
+            if (projectId && accessToken) {
+                try {
+                    await projectStateService.saveState(projectId, {
+                        currentStep: 'variables',
+                        selectedMethod: selectedMethod
+                    }, accessToken);
+                } catch (error) {
+                    console.error('Failed to save state:', error);
+                }
+            }
+            
             // Navigate to variable selection with project ID
             navigate('/variable-selection', { 
                 state: { projectId, datasetId } 
@@ -95,76 +140,78 @@ const MethodSelectionPage: React.FC = () => {
                                 ...styles.methodCard,
                                 ...(selectedMethod === 'did' ? styles.selectedCard : {})
                             }}
-                            onClick={() => setSelectedMethod('did')}
+                            onClick={() => handleMethodSelect('did')}
                         >
-                            <div style={styles.cardHeader}>
-                                <div style={styles.icon}>📈</div>
-                                <h3 style={styles.cardTitle}>Difference-in-Differences (DiD)</h3>
-                            </div>
-                            <p style={styles.cardDescription}>
-                                Compares changes over time between a treatment group and a control group.
-                            </p>
-                            <div style={styles.whenToUse}>
-                                <strong>When to use:</strong>
-                                <ul>
-                                    <li>You have data over time (before/after)</li>
-                                    <li>You have a treated group and a control group</li>
-                                    <li>Parallel trends assumption likely holds</li>
-                                </ul>
-                            </div>
                             <div style={styles.statusBadge}>Available</div>
+                            <div style={styles.cardContent}>
+                                <div style={styles.icon}>📈</div>
+                                <h3 style={styles.cardTitle}>Difference-in-Differences</h3>
+                                <p style={styles.cardDescription}>
+                                    Compare changes over time between treatment and control groups
+                                </p>
+                            </div>
+                            <div style={styles.cardRadio}>
+                                <div style={{
+                                    ...styles.radioOuter,
+                                    ...(selectedMethod === 'did' ? styles.radioOuterSelected : {})
+                                }}>
+                                    {selectedMethod === 'did' && <div style={styles.radioInner}></div>}
+                                </div>
+                            </div>
                         </div>
 
                         {/* Regression Discontinuity Card */}
                         <div 
                             style={{
                                 ...styles.methodCard,
-                                ...(selectedMethod === 'rdd' ? styles.selectedCard : {}),
-                                opacity: 0.7
+                                ...styles.methodCardDisabled,
+                                ...(selectedMethod === 'rdd' ? styles.selectedCard : {})
                             }}
-                            onClick={() => setSelectedMethod('rdd')}
+                            onClick={() => handleMethodSelect('rdd')}
                         >
-                            <div style={styles.cardHeader}>
-                                <div style={styles.icon}>✂️</div>
-                                <h3 style={styles.cardTitle}>Regression Discontinuity (RDD)</h3>
-                            </div>
-                            <p style={styles.cardDescription}>
-                                Exploits a cutoff or threshold in assignment to estimate causal effects.
-                            </p>
-                            <div style={styles.whenToUse}>
-                                <strong>When to use:</strong>
-                                <ul>
-                                    <li>Treatment is assigned based on a score/threshold</li>
-                                    <li>No other changes occur at the threshold</li>
-                                </ul>
-                            </div>
                             <div style={styles.comingSoonBadge}>Coming Soon</div>
+                            <div style={styles.cardContent}>
+                                <div style={styles.icon}>✂️</div>
+                                <h3 style={styles.cardTitle}>Regression Discontinuity</h3>
+                                <p style={styles.cardDescription}>
+                                    Exploit cutoffs or thresholds to estimate causal effects
+                                </p>
+                            </div>
+                            <div style={styles.cardRadio}>
+                                <div style={{
+                                    ...styles.radioOuter,
+                                    ...(selectedMethod === 'rdd' ? styles.radioOuterSelected : {})
+                                }}>
+                                    {selectedMethod === 'rdd' && <div style={styles.radioInner}></div>}
+                                </div>
+                            </div>
                         </div>
 
                         {/* Instrumental Variables Card */}
                         <div 
                             style={{
                                 ...styles.methodCard,
-                                ...(selectedMethod === 'iv' ? styles.selectedCard : {}),
-                                opacity: 0.7
+                                ...styles.methodCardDisabled,
+                                ...(selectedMethod === 'iv' ? styles.selectedCard : {})
                             }}
-                            onClick={() => setSelectedMethod('iv')}
+                            onClick={() => handleMethodSelect('iv')}
                         >
-                            <div style={styles.cardHeader}>
-                                <div style={styles.icon}>🎻</div>
-                                <h3 style={styles.cardTitle}>Instrumental Variables (IV)</h3>
-                            </div>
-                            <p style={styles.cardDescription}>
-                                Uses an external instrument to isolate causal variation in treatment.
-                            </p>
-                            <div style={styles.whenToUse}>
-                                <strong>When to use:</strong>
-                                <ul>
-                                    <li>Treatment is endogenous (correlated with errors)</li>
-                                    <li>You have a valid instrument (relevant & exclusive)</li>
-                                </ul>
-                            </div>
                             <div style={styles.comingSoonBadge}>Coming Soon</div>
+                            <div style={styles.cardContent}>
+                                <div style={styles.icon}>🎻</div>
+                                <h3 style={styles.cardTitle}>Instrumental Variables</h3>
+                                <p style={styles.cardDescription}>
+                                    Use external instruments to isolate causal variation
+                                </p>
+                            </div>
+                            <div style={styles.cardRadio}>
+                                <div style={{
+                                    ...styles.radioOuter,
+                                    ...(selectedMethod === 'iv' ? styles.radioOuterSelected : {})
+                                }}>
+                                    {selectedMethod === 'iv' && <div style={styles.radioInner}></div>}
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -174,8 +221,27 @@ const MethodSelectionPage: React.FC = () => {
                             {selectedMethod === 'did' && (
                                 <div style={styles.methodExplanation}>
                                     <div style={styles.explanationHeader}>
-                                        <h3 style={styles.explanationTitle}>📊 Understanding Difference-in-Differences</h3>
+                                        <h3 style={styles.explanationTitle}>📊 Difference-in-Differences (DiD)</h3>
                                         <p style={styles.explanationSubtitle}>A powerful method for estimating causal effects from observational data</p>
+                                    </div>
+                                    
+                                    {/* When to use section */}
+                                    <div style={styles.whenToUseSection}>
+                                        <h4 style={styles.whenToUseTitle}>✓ When to use this method</h4>
+                                        <div style={styles.whenToUseGrid}>
+                                            <div style={styles.whenToUseItem}>
+                                                <span style={styles.whenToUseIcon}>⏰</span>
+                                                <span>You have data over time (before & after treatment)</span>
+                                            </div>
+                                            <div style={styles.whenToUseItem}>
+                                                <span style={styles.whenToUseIcon}>👥</span>
+                                                <span>You have a treated group and a control group</span>
+                                            </div>
+                                            <div style={styles.whenToUseItem}>
+                                                <span style={styles.whenToUseIcon}>📈</span>
+                                                <span>Parallel trends assumption likely holds</span>
+                                            </div>
+                                        </div>
                                     </div>
                                     
                                     <div style={styles.explanationContent}>
@@ -343,11 +409,30 @@ const MethodSelectionPage: React.FC = () => {
                             {selectedMethod === 'rdd' && (
                                 <div style={styles.methodExplanation}>
                                     <div style={styles.explanationHeader}>
-                                        <h3 style={styles.explanationTitle}>✂️ Understanding Regression Discontinuity</h3>
+                                        <h3 style={styles.explanationTitle}>✂️ Regression Discontinuity (RDD)</h3>
                                         <p style={styles.explanationSubtitle}>Exploiting cutoffs to estimate causal effects</p>
                                     </div>
+                                    
+                                    <div style={styles.whenToUseSection}>
+                                        <h4 style={styles.whenToUseTitle}>✓ When to use this method</h4>
+                                        <div style={styles.whenToUseGrid}>
+                                            <div style={styles.whenToUseItem}>
+                                                <span style={styles.whenToUseIcon}>📊</span>
+                                                <span>Treatment is assigned based on a score or threshold</span>
+                                            </div>
+                                            <div style={styles.whenToUseItem}>
+                                                <span style={styles.whenToUseIcon}>✂️</span>
+                                                <span>There's a clear cutoff point for treatment eligibility</span>
+                                            </div>
+                                            <div style={styles.whenToUseItem}>
+                                                <span style={styles.whenToUseIcon}>🚫</span>
+                                                <span>No other changes occur exactly at the threshold</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
                                     <div style={styles.comingSoonContent}>
-                                        <p>Detailed explanation coming soon!</p>
+                                        <p style={styles.comingSoonText}>🚧 Full analysis coming soon!</p>
                                         <p style={{ color: '#666', fontSize: '14px' }}>
                                             RDD is used when treatment is assigned based on whether units fall above or below a specific threshold.
                                         </p>
@@ -358,11 +443,30 @@ const MethodSelectionPage: React.FC = () => {
                             {selectedMethod === 'iv' && (
                                 <div style={styles.methodExplanation}>
                                     <div style={styles.explanationHeader}>
-                                        <h3 style={styles.explanationTitle}>🎻 Understanding Instrumental Variables</h3>
+                                        <h3 style={styles.explanationTitle}>🎻 Instrumental Variables (IV)</h3>
                                         <p style={styles.explanationSubtitle}>Using external variation to identify causal effects</p>
                                     </div>
+                                    
+                                    <div style={styles.whenToUseSection}>
+                                        <h4 style={styles.whenToUseTitle}>✓ When to use this method</h4>
+                                        <div style={styles.whenToUseGrid}>
+                                            <div style={styles.whenToUseItem}>
+                                                <span style={styles.whenToUseIcon}>⚠️</span>
+                                                <span>Treatment is endogenous (correlated with errors)</span>
+                                            </div>
+                                            <div style={styles.whenToUseItem}>
+                                                <span style={styles.whenToUseIcon}>🎯</span>
+                                                <span>You have a valid instrument (relevant to treatment)</span>
+                                            </div>
+                                            <div style={styles.whenToUseItem}>
+                                                <span style={styles.whenToUseIcon}>🔒</span>
+                                                <span>The instrument is exclusive (only affects outcome through treatment)</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
                                     <div style={styles.comingSoonContent}>
-                                        <p>Detailed explanation coming soon!</p>
+                                        <p style={styles.comingSoonText}>🚧 Full analysis coming soon!</p>
                                         <p style={{ color: '#666', fontSize: '14px' }}>
                                             IV uses an external "instrument" that affects treatment but has no direct effect on the outcome.
                                         </p>
@@ -521,7 +625,7 @@ const MethodSelectionPage: React.FC = () => {
                 onPrev={goToPreviousStep}
                 onNext={handleNext}
                 canGoNext={selectedMethod === 'did'} // Only allow next if DiD is selected (others are coming soon)
-                onStepClick={(path) => navigate(path)}
+                onStepClick={(path) => navigate(path, { state: { projectId, datasetId } })}
             />
         </div>
     )
@@ -565,25 +669,30 @@ const styles = {
     },
     cardsContainer: {
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+        gridTemplateColumns: 'repeat(3, 1fr)',
         gap: '20px',
         width: '100%',
-        maxWidth: '1000px',
+        maxWidth: '900px',
         marginBottom: '40px'
     },
     methodCard: {
         backgroundColor: 'white',
-        borderRadius: '12px',
-        padding: '25px',
+        borderRadius: '16px',
+        padding: '24px 20px',
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
         cursor: 'pointer',
         borderWidth: '2px',
         borderStyle: 'solid',
         borderColor: 'transparent',
         transition: 'all 0.2s ease',
-        position: 'relative' as const,
         display: 'flex',
-        flexDirection: 'column' as const
+        flexDirection: 'column' as const,
+        alignItems: 'center',
+        textAlign: 'center' as const,
+        minHeight: '200px'
+    },
+    methodCardDisabled: {
+        opacity: 0.65
     },
     selectedCard: {
         borderColor: '#043873',
@@ -591,56 +700,71 @@ const styles = {
         transform: 'translateY(-2px)',
         boxShadow: '0 8px 20px rgba(4, 56, 115, 0.15)'
     },
-    cardHeader: {
+    cardContent: {
+        flex: 1,
         display: 'flex',
+        flexDirection: 'column' as const,
         alignItems: 'center',
-        marginBottom: '15px'
+        justifyContent: 'center',
+        gap: '12px'
     },
     icon: {
-        fontSize: '24px',
-        marginRight: '12px'
+        fontSize: '36px'
     },
     cardTitle: {
-        fontSize: '18px',
-        fontWeight: 'bold',
+        fontSize: '16px',
+        fontWeight: '600',
         color: '#043873',
-        margin: 0
+        margin: 0,
+        lineHeight: '1.3'
     },
     cardDescription: {
-        fontSize: '14px',
-        color: '#333',
-        lineHeight: '1.5',
-        marginBottom: '15px',
-        flex: 1
-    },
-    whenToUse: {
         fontSize: '13px',
         color: '#666',
-        backgroundColor: '#f8f9fa',
-        padding: '12px',
-        borderRadius: '8px'
+        lineHeight: '1.4',
+        margin: 0
+    },
+    cardRadio: {
+        marginTop: '16px'
+    },
+    radioOuter: {
+        width: '22px',
+        height: '22px',
+        borderRadius: '50%',
+        borderWidth: '2px',
+        borderStyle: 'solid',
+        borderColor: '#cbd5e1',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transition: 'all 0.2s'
+    },
+    radioOuterSelected: {
+        borderColor: '#043873'
+    },
+    radioInner: {
+        width: '12px',
+        height: '12px',
+        borderRadius: '50%',
+        backgroundColor: '#043873'
     },
     statusBadge: {
-        position: 'absolute' as const,
-        top: '15px',
-        right: '15px',
         backgroundColor: '#d4edda',
         color: '#155724',
-        padding: '4px 8px',
+        padding: '4px 12px',
         borderRadius: '12px',
         fontSize: '11px',
-        fontWeight: 'bold'
+        fontWeight: '600',
+        marginBottom: '12px'
     },
     comingSoonBadge: {
-        position: 'absolute' as const,
-        top: '15px',
-        right: '15px',
-        backgroundColor: '#f8d7da',
-        color: '#721c24',
-        padding: '4px 8px',
+        backgroundColor: '#f1f5f9',
+        color: '#64748b',
+        padding: '4px 12px',
         borderRadius: '12px',
         fontSize: '11px',
-        fontWeight: 'bold'
+        fontWeight: '600',
+        marginBottom: '12px'
     },
     aiAidCard: {
         backgroundColor: 'white',
@@ -827,9 +951,37 @@ const styles = {
     },
     explanationHeader: {
         textAlign: 'center' as const,
-        marginBottom: '35px',
-        paddingBottom: '25px',
+        marginBottom: '25px',
+        paddingBottom: '20px',
         borderBottom: '2px solid #f0f4f8'
+    },
+    whenToUseSection: {
+        backgroundColor: '#f0f7ff',
+        borderRadius: '12px',
+        padding: '20px 24px',
+        marginBottom: '30px',
+        border: '1px solid #d4e5f7'
+    },
+    whenToUseTitle: {
+        fontSize: '16px',
+        fontWeight: '600',
+        color: '#043873',
+        margin: '0 0 16px 0'
+    },
+    whenToUseGrid: {
+        display: 'flex',
+        flexDirection: 'column' as const,
+        gap: '12px'
+    },
+    whenToUseItem: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+        fontSize: '14px',
+        color: '#334155'
+    },
+    whenToUseIcon: {
+        fontSize: '18px'
     },
     explanationTitle: {
         fontSize: '26px',
@@ -991,6 +1143,15 @@ const styles = {
     comingSoonContent: {
         textAlign: 'center' as const,
         padding: '40px 20px',
-        color: '#666'
+        color: '#666',
+        backgroundColor: '#f8fafc',
+        borderRadius: '12px',
+        border: '2px dashed #e2e8f0'
+    },
+    comingSoonText: {
+        fontSize: '18px',
+        fontWeight: '600',
+        color: '#64748b',
+        margin: '0 0 12px 0'
     }
 }
