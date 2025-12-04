@@ -4,7 +4,6 @@ import Navbar from './Navbar';
 import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
 import { aiService, ResultsInterpretation } from '../services/aiService';
-import NextStepsCard from './NextStepsCard';
 import { useAuth } from '../contexts/AuthContext';
 import { projectStateService } from '../services/projectStateService';
 
@@ -164,8 +163,10 @@ const ResultsPage: React.FC = () => {
                     const storedInterpretation = localStorage.getItem('aiInterpretation');
                     if (storedInterpretation) {
                         const parsed = JSON.parse(storedInterpretation);
-                        // Check if the interpretation matches the current analysis (by comparing DiD estimate)
-                        if (parsed.analysisKey === loadedResults.results?.did_estimate) {
+                        // Create a unique key for this analysis based on parameters
+                        const currentAnalysisKey = `${loadedResults.dataset_id}_${loadedResults.parameters?.outcome}_${loadedResults.parameters?.treatment_start}`;
+                        // Check if the interpretation matches the current analysis
+                        if (parsed.analysisKey === currentAnalysisKey) {
                             setAiInterpretation(parsed.interpretation);
                         }
                     }
@@ -210,8 +211,9 @@ const ResultsPage: React.FC = () => {
             
             // Store the interpretation in localStorage with a key tied to this analysis
             try {
+                const analysisKey = `${results.dataset_id}_${results.parameters?.outcome}_${results.parameters?.treatment_start}`;
                 localStorage.setItem('aiInterpretation', JSON.stringify({
-                    analysisKey: results.results.did_estimate,
+                    analysisKey: analysisKey,
                     interpretation: interpretation,
                     timestamp: new Date().toISOString()
                 }));
@@ -441,33 +443,22 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
             <div style={styles.contentContainer}>
                 <div style={styles.mainContent}>
                     
-                    {/* 1. THE KEY FINDING */}
-                    <div style={styles.heroSection}>
-                        <h1 style={styles.heroTitle}>Analysis Results</h1>
-                        
-                        {/* AI-Powered Summary */}
-                        <div style={styles.aiSummary}>
-                            <div style={styles.aiIcon}>🤖</div>
-                            <p style={styles.aiSummaryText}>{generateAISummary()}</p>
-                        </div>
-
-                        {/* Big Number Card */}
-                        <div style={styles.bigNumberCard}>
-                            <div style={styles.metricLabel}>Causal Effect</div>
-                            <div style={styles.bigNumber}>
-                                {(results.results?.did_estimate || 0) > 0 ? '+' : ''}{formatNumber(results.results?.did_estimate, 0)}
-                            </div>
-                            <div style={styles.significanceBadge}>
-                                {(results.results?.is_significant || false) ? (
-                                    <span style={styles.significantBadge}>
-                                        ✓ Statistically Significant (p &lt; 0.05)
+                    {/* Summary Header */}
+                    <div style={styles.summaryHeader}>
+                        <h1 style={styles.pageTitle}>Analysis Results</h1>
+                        <div style={styles.summaryCard}>
+                            <p style={styles.summaryText}>
+                                {generateAISummary()}
+                                {' '}
+                                <span style={{
+                                    ...styles.effectBadge,
+                                    backgroundColor: (results.results?.is_significant || false) ? '#d4edda' : '#f8d7da',
+                                    color: (results.results?.is_significant || false) ? '#155724' : '#721c24'
+                                }}>
+                                    Effect: {(results.results?.did_estimate || 0) > 0 ? '+' : ''}{formatNumber(results.results?.did_estimate, 2)}
+                                    {(results.results?.is_significant || false) ? ' (significant)' : ' (not significant)'}
                                     </span>
-                                ) : (
-                                    <span style={styles.notSignificantBadge}>
-                                        ✗ Not Statistically Significant
-                                    </span>
-                                )}
-                            </div>
+                            </p>
                         </div>
                     </div>
 
@@ -995,14 +986,32 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                                 </div>
                             )}
 
-                            {/* Recommendation */}
+                            {/* Next Steps */}
+                            {aiInterpretation.next_steps && aiInterpretation.next_steps.length > 0 && (
+                                <div style={{...styles.aiCard, backgroundColor: '#e8f5e9', borderColor: '#4caf50'}}>
+                                    <h3 style={styles.aiCardTitle}>🚀 Recommended Next Steps</h3>
+                                    <ul style={styles.aiList}>
+                                        {aiInterpretation.next_steps.map((step, index) => (
+                                            <li key={index} style={styles.aiListItem}>
+                                                <span style={styles.stepNumber}>{index + 1}</span>
+                                                {step}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* Overall Recommendation & Confidence */}
                             {aiInterpretation.recommendation && (
                                 <div style={{...styles.aiCard, backgroundColor: '#e3f2fd', borderColor: '#2196f3', borderLeft: '4px solid #2196f3'}}>
-                                    <h3 style={styles.aiCardTitle}>📋 Recommendation</h3>
+                                    <h3 style={styles.aiCardTitle}>📋 Bottom Line</h3>
                                     <p style={styles.aiText}>{aiInterpretation.recommendation}</p>
                                     {aiInterpretation.confidence_level && (
                                         <p style={styles.confidenceLevel}>
-                                            Confidence: <strong>{aiInterpretation.confidence_level.toUpperCase()}</strong>
+                                            Analysis Confidence: <strong style={{
+                                                color: aiInterpretation.confidence_level === 'high' ? '#28a745' : 
+                                                       aiInterpretation.confidence_level === 'medium' ? '#ffc107' : '#dc3545'
+                                            }}>{aiInterpretation.confidence_level.toUpperCase()}</strong>
                                         </p>
                                     )}
                                 </div>
@@ -1010,14 +1019,6 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                             </>
                         )}
                     </div>
-
-                    {/* 4. NEXT STEPS */}
-                    {aiInterpretation && (
-                        <NextStepsCard 
-                            analysisResults={results.results} 
-                            interpretation={aiInterpretation} 
-                        />
-                    )}
 
                     {/* 3. THE TRUST & DETAILS SECTION */}
                     <div style={styles.trustSection}>
@@ -1107,80 +1108,39 @@ const styles = {
     boxSizing: 'border-box' as const
   },
   
-  // 1. THE KEY FINDING SECTION
-  heroSection: {
+  // Summary Header Section
+  summaryHeader: {
     backgroundColor: 'white',
-    borderRadius: '16px',
-    padding: '40px',
-    marginBottom: '30px',
-    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)',
-    textAlign: 'center' as const
-  },
-  heroTitle: {
-    fontSize: '36px',
-    fontWeight: 'bold',
-    color: '#043873',
-    margin: '0 0 30px 0'
-  },
-  aiSummary: {
-    backgroundColor: '#e3f2fd',
     borderRadius: '12px',
-    padding: '20px',
-    marginBottom: '30px',
-    borderLeft: '4px solid #2196f3',
-    display: 'flex',
-    alignItems: 'center',
-    textAlign: 'left' as const
+    padding: '24px 30px',
+    marginBottom: '24px',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)'
   },
-  aiIcon: {
+  pageTitle: {
     fontSize: '24px',
-    marginRight: '15px'
-  },
-  aiSummaryText: {
-    fontSize: '18px',
-    color: '#333',
-    margin: 0,
-    lineHeight: '1.6',
-    flex: 1
-  },
-  bigNumberCard: {
-    backgroundColor: '#f8f9fa',
-    borderRadius: '12px',
-    padding: '30px',
-    border: '2px solid #e9ecef',
-    display: 'inline-block',
-    minWidth: '300px'
-  },
-  metricLabel: {
-    fontSize: '16px',
-    color: '#6c757d',
-    marginBottom: '10px',
-    fontWeight: '500'
-  },
-  bigNumber: {
-    fontSize: '48px',
     fontWeight: 'bold',
     color: '#043873',
-    marginBottom: '15px'
+    margin: '0 0 12px 0'
   },
-  significanceBadge: {
-    marginTop: '10px'
+  summaryCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: '8px',
+    padding: '16px 20px',
+    borderLeft: '4px solid #4F9CF9'
   },
-  significantBadge: {
-    backgroundColor: '#d4edda',
-    color: '#155724',
-    padding: '8px 16px',
-    borderRadius: '20px',
+  summaryText: {
+    fontSize: '16px',
+    color: '#374151',
+    margin: 0,
+    lineHeight: '1.6'
+  },
+  effectBadge: {
+    display: 'inline-block',
+    padding: '4px 12px',
+    borderRadius: '16px',
     fontSize: '14px',
-    fontWeight: 'bold'
-  },
-  notSignificantBadge: {
-    backgroundColor: '#f8d7da',
-    color: '#721c24',
-    padding: '8px 16px',
-    borderRadius: '20px',
-    fontSize: '14px',
-    fontWeight: 'bold'
+    fontWeight: '600',
+    marginLeft: '8px'
   },
 
   // 2. THE DiD VISUALIZATION SECTION
@@ -2186,5 +2146,19 @@ const styles = {
     lineHeight: '1.6',
     maxWidth: '500px',
     margin: '0 auto'
+  },
+  stepNumber: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '24px',
+    height: '24px',
+    backgroundColor: '#4caf50',
+    color: 'white',
+    borderRadius: '50%',
+    fontSize: '12px',
+    fontWeight: 'bold',
+    marginRight: '10px',
+    flexShrink: 0
   }
 };

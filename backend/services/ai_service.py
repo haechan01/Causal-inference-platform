@@ -316,10 +316,21 @@ PARALLEL TRENDS ASSUMPTION:
         # Build minimal prompt (maximize room for response)
         q = f"Q: {causal_question}\n" if causal_question else ""
         
-        prompt = f"""Interpret causal results. {q}Data: {results_summary}{pt_info}
+        prompt = f"""You are a causal inference expert. Interpret these results and provide actionable recommendations.
+{q}Data: {results_summary}{pt_info}
 
-Return JSON only:
-{{"executive_summary":"2 sentences","parallel_trends_interpretation":"2 sentences","effect_size_interpretation":"2 sentences","statistical_interpretation":"2 sentences","limitations":["item1","item2"],"implications":["item1","item2"],"confidence_level":"high/medium/low","recommendation":"1 sentence"}}"""
+Return JSON only with these exact fields:
+{{
+  "executive_summary": "2-3 sentences explaining the main finding in plain language",
+  "parallel_trends_interpretation": "2 sentences on whether the parallel trends assumption holds",
+  "effect_size_interpretation": "2 sentences on the practical significance of the effect",
+  "statistical_interpretation": "2 sentences on statistical significance and confidence",
+  "limitations": ["limitation 1", "limitation 2", "limitation 3"],
+  "implications": ["what this means for practice 1", "what this means 2"],
+  "confidence_level": "high/medium/low",
+  "next_steps": ["specific actionable step 1", "specific actionable step 2", "specific actionable step 3"],
+  "recommendation": "1-2 sentence overall recommendation based on results"
+}}"""
         
         # Log prompt length for debugging
         response = self._call_gemini(prompt)
@@ -346,6 +357,7 @@ Return JSON only:
                 'limitations': interpretation.get('limitations', []),
                 'implications': interpretation.get('implications', []),
                 'confidence_level': interpretation.get('confidence_level', 'medium'),
+                'next_steps': interpretation.get('next_steps', []),
                 'recommendation': interpretation.get('recommendation', '')
             }
         except json.JSONDecodeError:
@@ -375,6 +387,7 @@ Return JSON only:
                 'limitations': partial_data.get('limitations', ['Response was truncated - incomplete data available']),
                 'implications': partial_data.get('implications', []),
                 'confidence_level': partial_data.get('confidence_level', 'unknown'),
+                'next_steps': partial_data.get('next_steps', []),
                 'recommendation': partial_data.get('recommendation', '')
             }
     
