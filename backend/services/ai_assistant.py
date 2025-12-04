@@ -37,9 +37,20 @@ class CausalAIAssistant:
             try:
                 available_models = []
                 for model in genai.list_models():
-                    if 'generateContent' in model.supported_generation_methods:
-                        model_name_short = model.name.split('/')[-1] if '/' in model.name else model.name
-                        available_models.append((model_name_short, model.name))
+                    # Safely check supported_generation_methods (handles different SDK versions)
+                    try:
+                        supported_methods = getattr(model, 'supported_generation_methods', [])
+                        # Convert to list if needed
+                        if hasattr(supported_methods, '__iter__') and not isinstance(supported_methods, str):
+                            methods_list = list(supported_methods)
+                        else:
+                            methods_list = []
+                        if 'generateContent' in methods_list:
+                            model_name_short = model.name.split('/')[-1] if '/' in model.name else model.name
+                            available_models.append((model_name_short, model.name))
+                    except Exception:
+                        # If we can't check methods, skip this model
+                        continue
                 
                 # Check if preferred model is available
                 model_found = False
@@ -51,9 +62,33 @@ class CausalAIAssistant:
                 
                 if not model_found and available_models:
                     model_name = available_models[0][1]
-                    print(f"Preferred model not found, using: {model_name}")
-            except Exception as e:
-                print(f"Error listing models: {e}, using default: {model_name}")
+            except Exception:
+                model_name = None  # Will try fallbacks below
+
+            # If model listing failed or no model found, try common fallbacks
+            if not model_name or model_name == os.getenv('AI_MODEL_NAME', ''):
+                fallback_models = [
+                    'gemini-2.0-flash',
+                    'gemini-1.5-flash', 
+                    'gemini-1.5-pro',
+                    'gemini-pro',
+                    'models/gemini-2.0-flash',
+                    'models/gemini-1.5-flash',
+                    'models/gemini-pro',
+                ]
+                
+                for fallback in fallback_models:
+                    try:
+                        test_model = genai.GenerativeModel(model_name=fallback)
+                        # Try a simple call to verify it works
+                        test_model.generate_content("test", generation_config={'max_output_tokens': 10})
+                        model_name = fallback
+                        break
+                    except Exception:
+                        continue
+                
+                if not model_name:
+                    raise Exception("No working Gemini model found. Please check your API key permissions.")
 
             self.model = genai.GenerativeModel(
                 model_name=model_name,
@@ -63,8 +98,7 @@ class CausalAIAssistant:
                 }
             )
             self._model_name = model_name
-        except Exception as e:
-            print(f"Failed to initialize AI Assistant: {e}")
+        except Exception:
             self.model = None
     
     def assess_data_quality(self, schema_info: Dict[str, Any]) -> Dict[str, Any]:
@@ -326,89 +360,78 @@ Respond with JSON only:
                         temperature=0.3,
                     )
                 )
-            except Exception as e:
-                print(f"AI: Error calling generate_content: {type(e).__name__}: {e}")
+            except Exception:
                 raise
             
-            # Extract finish reason and content
-            finish_reason = None
+            # Try multiple approaches to extract text
             response_text = None
+            finish_reason = None
             
-            if response.candidates and len(response.candidates) > 0:
-                candidate = response.candidates[0]
+            # Approach 1: Direct response.text (works on some SDK versions)
+            try:
+                response_text = response.text
+                if response_text and response_text.strip():
+                    return response_text.strip()
+            except Exception:
+                pass  # Fall through to other extraction methods
+            
+            # Approach 2: Extract from candidates -> content -> parts
+            candidates = getattr(response, 'candidates', None)
+            if candidates and len(candidates) > 0:
+                candidate = candidates[0]
                 finish_reason = getattr(candidate, 'finish_reason', None)
+                content = getattr(candidate, 'content', None)
                 
-                # Try to extract text - handle finish_reason 2 specially (MAX_TOKENS)
-                if finish_reason == 2:
-                    # For finish_reason 2, response.text might fail, so extract from parts
-                    try:
+                if content:
+                    parts = getattr(content, 'parts', None)
+                    if parts:
+                        # Try to iterate through parts and extract text
                         parts_text = []
-                        if hasattr(candidate, 'content') and candidate.content:
-                            content = candidate.content
-                            if hasattr(content, 'parts'):
-                                parts_list = getattr(content, 'parts', [])
-                                if parts_list:
-                                    for part in parts_list:
-                                        # Try multiple ways to get text
-                                        text_attr = getattr(part, 'text', None)
-                                        if text_attr:
-                                            parts_text.append(str(text_attr))
-                                        elif hasattr(part, 'Text'):
-                                            text_attr = getattr(part, 'Text', None)
-                                            if text_attr:
-                                                parts_text.append(str(text_attr))
+                        try:
+                            for part in parts:
+                                # Direct attribute access
+                                text = getattr(part, 'text', '')
+                                if text:
+                                    parts_text.append(str(text))
+                        except TypeError:
+                            # If iteration fails, try treating as single part
+                            text = getattr(parts, 'text', '')
+                            if text:
+                                parts_text.append(str(text))
                         
                         if parts_text:
                             response_text = ''.join(parts_text)
-                        else:
-                            response_text = None
-                    except Exception:
-                        response_text = None
-                else:
-                    # Normal case
-                    try:
-                        response_text = response.text
-                    except (ValueError, AttributeError, NotImplementedError):
-                        # Fallback: extract from parts
-                        try:
-                            parts_text = []
-                            if hasattr(candidate, 'content') and candidate.content:
-                                content = candidate.content
-                                if hasattr(content, 'parts'):
-                                    parts_list = getattr(content, 'parts', [])
-                                    if parts_list:
-                                        for part in parts_list:
-                                            text_attr = getattr(part, 'text', None)
-                                            if text_attr:
-                                                parts_text.append(str(text_attr))
-                                            elif hasattr(part, 'Text'):
-                                                text_attr = getattr(part, 'Text', None)
-                                                if text_attr:
-                                                    parts_text.append(str(text_attr))
-                            if parts_text:
-                                response_text = ''.join(parts_text)
-                            else:
-                                response_text = None
-                        except Exception:
-                            response_text = None
             
-            # Handle MAX_TOKENS - return partial content if we got any
+            # Approach 3: Try response.parts directly (some SDK versions)
+            if not response_text:
+                try:
+                    parts = getattr(response, 'parts', None)
+                    if parts:
+                        parts_text = []
+                        for part in parts:
+                            text = getattr(part, 'text', '')
+                            if text:
+                                parts_text.append(str(text))
+                        if parts_text:
+                            response_text = ''.join(parts_text)
+                except Exception:
+                    pass
+            
+            # Check finish reason for errors
             if finish_reason == 2:
-                if response_text and len(response_text.strip()) > 50:
-                    return response_text.strip()
-                else:
-                    raise Exception("Response hit token limit before generating usable content.")
+                if not response_text:
+                    raise Exception("Response hit token limit before generating content.")
             elif finish_reason == 3:
                 raise Exception("Content was blocked by safety filters.")
             elif finish_reason == 4:
                 raise Exception("Content was blocked due to recitation detection.")
-            elif not response_text:
-                raise Exception("Gemini API returned empty response.")
             
-            return response_text.strip()
+            if response_text and response_text.strip():
+                return response_text.strip()
+            
+            raise Exception(f"Gemini API returned empty response. finish_reason={finish_reason}")
             
         except Exception as e:
-            print(f"AI API Error: {e}")
             raise Exception(f"AI service error: {str(e)}")
     
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
@@ -426,7 +449,6 @@ Respond with JSON only:
         try:
             return json.loads(response)
         except json.JSONDecodeError:
-            print(f"Failed to parse JSON: {response}")
             # Try to find JSON object if it's embedded
             try:
                 import re

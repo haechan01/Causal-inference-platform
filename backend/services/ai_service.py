@@ -23,20 +23,25 @@ class CausalAIService:
         # Configure Gemini
         genai.configure(api_key=self.api_key)
         
-        # Debug: Print what model name is configured
-        user_model = os.getenv('AI_MODEL_NAME')
-        print(f"DEBUG: AI_MODEL_NAME from env: {user_model}")
-        
         # List available models and find one that supports generateContent
         try:
-            print("=== Listing available Gemini models ===")
             available_models = []
             for model in genai.list_models():
-                if 'generateContent' in model.supported_generation_methods:
-                    # Model name might be like "models/gemini-pro" - extract the short name
-                    model_name = model.name.split('/')[-1] if '/' in model.name else model.name
-                    available_models.append((model_name, model.name))
-                    print(f"  Available: {model_name} (full name: {model.name})")
+                # Safely check supported_generation_methods (handles different SDK versions)
+                try:
+                    supported_methods = getattr(model, 'supported_generation_methods', [])
+                    # Convert to list if needed
+                    if hasattr(supported_methods, '__iter__') and not isinstance(supported_methods, str):
+                        methods_list = list(supported_methods)
+                    else:
+                        methods_list = []
+                    if 'generateContent' in methods_list:
+                        # Model name might be like "models/gemini-pro" - extract the short name
+                        model_name = model.name.split('/')[-1] if '/' in model.name else model.name
+                        available_models.append((model_name, model.name))
+                except Exception:
+                    # If we can't check methods, skip this model
+                    continue
             
             if not available_models:
                 raise ValueError("No Gemini models available with generateContent support. Check your API key and permissions.")
@@ -53,23 +58,40 @@ class CausalAIService:
                 
                 if model_found:
                     model_name_to_use = model_found
-                    print(f"Using user-specified model: {model_name_to_use}")
                 else:
                     # User model not found, use first available
                     model_name_to_use = available_models[0][1]
-                    print(f"Warning: User-specified model '{user_model}' not found. Using: {model_name_to_use}")
             else:
                 # Use first available model
                 model_name_to_use = available_models[0][1]
-                print(f"Using first available model: {model_name_to_use}")
                 
-        except Exception as e:
-            print(f"Error listing models: {e}")
-            # Fallback to user preference or safe default
-            user_model = os.getenv('AI_MODEL_NAME', 'gemini-1.5-flash')
-            model_name_to_use = user_model
-            print(f"Falling back to model: {model_name_to_use}")
-            # Try the fallback model - if it fails, we'll catch it later
+        except Exception:
+            model_name_to_use = None  # Will try fallbacks below
+        
+        # If model listing failed or no model found, try common fallbacks
+        if not model_name_to_use:
+            fallback_models = [
+                'gemini-2.0-flash',
+                'gemini-1.5-flash', 
+                'gemini-1.5-pro',
+                'gemini-pro',
+                'models/gemini-2.0-flash',
+                'models/gemini-1.5-flash',
+                'models/gemini-pro',
+            ]
+            
+            for fallback in fallback_models:
+                try:
+                    test_model = genai.GenerativeModel(model_name=fallback)
+                    # Try a simple call to verify it works
+                    test_model.generate_content("test", generation_config={'max_output_tokens': 10})
+                    model_name_to_use = fallback
+                    break
+                except Exception:
+                    continue
+            
+            if not model_name_to_use:
+                raise ValueError("No working Gemini model found. Please check your API key permissions.")
         
         # Create model instance with adjusted safety settings
         # Lower safety thresholds to allow analysis of statistical results
@@ -92,7 +114,6 @@ class CausalAIService:
             },
         ]
         
-        print(f"DEBUG: Creating model with name: {model_name_to_use}")
         self.model = genai.GenerativeModel(
             model_name=model_name_to_use,
             generation_config={
@@ -102,7 +123,6 @@ class CausalAIService:
             safety_settings=safety_settings
         )
         self._model_name = model_name_to_use
-        print(f"AI Service initialized with model: {model_name_to_use}")
         
         # Knowledge base (embedded in prompts)
         self.knowledge_base = self._get_knowledge_base()
@@ -157,15 +177,11 @@ PARALLEL TRENDS ASSUMPTION:
             Response text from Gemini
         """
         try:
-            # Generate with a higher token limit - force a minimum of 8192 for JSON responses
+            # Generate with a higher token limit
             max_tokens_str = os.getenv('AI_MAX_TOKENS', '16384')
-            max_tokens = int(max_tokens_str)  # Convert string to int
-            
-            print(f"AI: Generating content with max_output_tokens={max_tokens}")
-            print(f"AI: Prompt preview (first 200 chars): {prompt[:200]}...")
+            max_tokens = int(max_tokens_str)
             
             try:
-                # Override generation config to use higher token limit
                 response = self.model.generate_content(
                     prompt,
                     generation_config=genai.types.GenerationConfig(
@@ -173,162 +189,79 @@ PARALLEL TRENDS ASSUMPTION:
                         temperature=float(os.getenv('AI_TEMPERATURE', '0.7')),
                     )
                 )
-                print(f"AI: Got response, candidates: {len(response.candidates) if response.candidates else 0}")
-            except Exception as e:
-                print(f"AI: Error calling generate_content: {type(e).__name__}: {e}")
+            except Exception:
                 raise
             
-            # Extract finish reason and content
-            finish_reason = None
+            # Try multiple approaches to extract text
             response_text = None
+            finish_reason = None
             
-            if response.candidates and len(response.candidates) > 0:
-                candidate = response.candidates[0]
+            # Approach 1: Direct response.text (works on some SDK versions)
+            try:
+                response_text = response.text
+                if response_text and response_text.strip():
+                    return response_text.strip()
+            except Exception:
+                pass  # Fall through to other extraction methods
+            
+            # Approach 2: Extract from candidates -> content -> parts
+            candidates = getattr(response, 'candidates', None)
+            if candidates and len(candidates) > 0:
+                candidate = candidates[0]
                 finish_reason = getattr(candidate, 'finish_reason', None)
+                content = getattr(candidate, 'content', None)
                 
-                # Try to extract text - handle finish_reason 2 specially
-                if finish_reason == 2:
-                    # MAX_TOKENS - might still have partial content in parts
-                    print("DEBUG: finish_reason is 2 (MAX_TOKENS), attempting to extract partial content")
-                    # For finish_reason 2, response.text will fail, so extract from parts directly
-                    try:
-                        # Access parts via protobuf - use getattr to safely access nested attributes
+                if content:
+                    parts = getattr(content, 'parts', None)
+                    if parts:
+                        # Try to iterate through parts and extract text
                         parts_text = []
-                        if hasattr(candidate, 'content') and candidate.content:
-                            # Try accessing parts via the content object
-                            content = candidate.content
-                            # Check if parts attribute exists and has items
-                            if hasattr(content, 'parts'):
-                                parts_list = getattr(content, 'parts', [])
-                                if parts_list:
-                                    for part in parts_list:
-                                        # Try different ways to access text
-                                        # Method 1: part.text (if it's a direct attribute)
-                                        text_attr = getattr(part, 'text', None)
-                                        if text_attr:
-                                            parts_text.append(str(text_attr))
-                                        # Method 2: Check if part has a 'text' field (protobuf)
-                                        elif hasattr(part, 'WhichOneof'):
-                                            # It's a protobuf message, try to find text field
-                                            for field_name in ['text', 'Text']:
-                                                if hasattr(part, field_name):
-                                                    field_val = getattr(part, field_name)
-                                                    if field_val:
-                                                        parts_text.append(str(field_val))
-                                        
+                        try:
+                            for part in parts:
+                                # Direct attribute access
+                                text = getattr(part, 'text', '')
+                                if text:
+                                    parts_text.append(str(text))
+                        except TypeError:
+                            # If iteration fails, try treating as single part
+                            text = getattr(parts, 'text', '')
+                            if text:
+                                parts_text.append(str(text))
+                        
                         if parts_text:
                             response_text = ''.join(parts_text)
-                            print(f"DEBUG: Extracted {len(response_text)} chars from parts")
-                        else:
-                            print("DEBUG: No text found in parts - response was cut off before generating content")
-                            response_text = None
-                    except Exception as e:
-                        print(f"DEBUG: Error extracting text from parts: {type(e).__name__}: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        response_text = None
-                else:
-                    # Normal case - finish_reason is STOP or other
-                    # Try to get text, but handle any errors gracefully
-                    try:
-                        response_text = response.text
-                    except (ValueError, AttributeError, NotImplementedError) as e:
-                        print(f"DEBUG: response.text failed in normal case: {type(e).__name__}: {e}, extracting from parts")
-                        # Fallback: extract from parts using safe methods
-                        try:
-                            parts_text = []
-                            if hasattr(candidate, 'content') and candidate.content:
-                                content = candidate.content
-                                if hasattr(content, 'parts'):
-                                    parts_list = getattr(content, 'parts', [])
-                                    if parts_list:
-                                        for part in parts_list:
-                                            # Try multiple ways to get text
-                                            text_attr = getattr(part, 'text', None)
-                                            if text_attr:
-                                                parts_text.append(str(text_attr))
-                                            # Also try lowercase 'text'
-                                            elif hasattr(part, 'Text'):
-                                                text_attr = getattr(part, 'Text', None)
-                                                if text_attr:
-                                                    parts_text.append(str(text_attr))
-                            if parts_text:
-                                response_text = ''.join(parts_text)
-                                print(f"DEBUG: Extracted {len(response_text)} chars from parts in normal case")
-                            else:
-                                response_text = None
-                        except Exception as extract_error:
-                            print(f"DEBUG: Error extracting from parts in normal case: {extract_error}")
-                            response_text = None
             
-            # Map finish reason codes to messages
-            finish_reasons = {
-                1: "STOP (normal completion)",
-                2: "MAX_TOKENS (hit token limit)",
-                3: "SAFETY (content blocked by safety filters)",
-                4: "RECITATION (potentially copyrighted content detected)",
-            }
+            # Approach 3: Try response.parts directly (some SDK versions)
+            if not response_text:
+                try:
+                    parts = getattr(response, 'parts', None)
+                    if parts:
+                        parts_text = []
+                        for part in parts:
+                            text = getattr(part, 'text', '')
+                            if text:
+                                parts_text.append(str(text))
+                        if parts_text:
+                            response_text = ''.join(parts_text)
+                except Exception:
+                    pass
             
-            reason_name = finish_reasons.get(finish_reason, f"UNKNOWN ({finish_reason})")
-            
-            # Handle finish_reason 2 (MAX_TOKENS) - may still have partial content
+            # Check finish reason for errors
             if finish_reason == 2:
-                if response_text and len(response_text.strip()) > 50:  # Require at least 50 chars
-                    print(f"Warning: Response hit token limit, but extracted {len(response_text)} chars of partial content")
-                    return response_text.strip()
-                else:
-                    # No usable content - the response was cut off before generating anything
-                    # This usually means the prompt is too long or max_output_tokens is too low
-                    # Try increasing max_output_tokens significantly
-                    raise Exception(
-                        f"Response hit token limit before generating usable content (finish_reason: MAX_TOKENS). "
-                        f"Current max_output_tokens: {max_tokens}. "
-                        f"Try increasing AI_MAX_TOKENS in .env to 16384 or higher, "
-                        f"or reduce the size of your analysis results."
-                    )
+                if not response_text:
+                    raise Exception("Response hit token limit before generating content.")
             elif finish_reason == 3:
-                # Safety filter blocked
-                raise Exception(
-                    f"Content was blocked by safety filters (finish_reason: {reason_name}). "
-                    f"This might be due to sensitive content in your analysis results."
-                )
+                raise Exception("Content was blocked by safety filters.")
             elif finish_reason == 4:
-                raise Exception(
-                    f"Content was blocked due to recitation detection (finish_reason: {reason_name}). "
-                    f"The model detected potentially copyrighted content."
-                )
-            elif not response_text:
-                # No content and unknown finish reason
-                raise Exception(
-                    f"Gemini API returned empty response (finish_reason: {reason_name}). "
-                    f"Response may have been blocked or truncated. "
-                    f"Debug: {len(response.candidates) if response.candidates else 0} candidates"
-                )
+                raise Exception("Content was blocked due to recitation detection.")
             
-            return response_text.strip() if response_text else ""
+            if response_text and response_text.strip():
+                return response_text.strip()
+            
+            raise Exception(f"Gemini API returned empty response. finish_reason={finish_reason}")
             
         except Exception as e:
-            import traceback
-            error_msg = str(e)
-            error_type = type(e).__name__
-            
-            print(f"ERROR in _call_gemini: {error_type}: {error_msg}")
-            print(f"Traceback: {traceback.format_exc()}")
-            
-            # If model not found, suggest alternatives
-            if "404" in error_msg or "not found" in error_msg.lower():
-                raise Exception(
-                    f"Gemini API error: {error_msg}\n\n"
-                    f"Tip: The model '{getattr(self, '_model_name', 'unknown')}' may not be available. "
-                    f"Try updating your .env file:\n"
-                    f"AI_MODEL_NAME=gemini-1.5-flash  (or gemini-1.5-pro)"
-                )
-            
-            # Provide more context in the error message
-            if not error_msg:
-                error_msg = f"{error_type}: Unknown error occurred"
-            
-            raise Exception(f"Gemini API error: {error_msg}")
+            raise Exception(f"Gemini API error: {str(e)}")
     
     def interpret_results(
         self,
@@ -389,9 +322,6 @@ Return JSON only:
 {{"executive_summary":"2 sentences","parallel_trends_interpretation":"2 sentences","effect_size_interpretation":"2 sentences","statistical_interpretation":"2 sentences","limitations":["item1","item2"],"implications":["item1","item2"],"confidence_level":"high/medium/low","recommendation":"1 sentence"}}"""
         
         # Log prompt length for debugging
-        prompt_length = len(prompt)
-        print(f"AI: Prompt length: {prompt_length} characters (~{prompt_length // 4} tokens)")
-        
         response = self._call_gemini(prompt)
         
         # Clean response (remove markdown code blocks if present)
@@ -418,13 +348,8 @@ Return JSON only:
                 'confidence_level': interpretation.get('confidence_level', 'medium'),
                 'recommendation': interpretation.get('recommendation', '')
             }
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             # Try to extract partial JSON fields if response was truncated
-            print(f"WARNING: JSON parsing failed: {e}")
-            print(f"Response length: {len(response)} chars")
-            print(f"Response preview: {response[:500]}...")
-            
-            # Try to extract what we can from partial JSON
             partial_data = {}
             try:
                 # Try to find JSON object in the response
@@ -433,16 +358,13 @@ Return JSON only:
                 if json_match:
                     partial_json = json_match.group(0)
                     # Try to fix common truncation issues
-                    # Add closing braces if needed
                     open_braces = partial_json.count('{')
                     close_braces = partial_json.count('}')
                     if open_braces > close_braces:
                         partial_json += '}' * (open_braces - close_braces)
-                    # Try parsing the fixed JSON
                     partial_data = json.loads(partial_json)
-                    print(f"Successfully parsed partial JSON with {len(partial_data)} fields")
-            except Exception as parse_error:
-                print(f"Could not parse partial JSON: {parse_error}")
+            except Exception:
+                pass
             
             # Return what we have, with fallbacks
             return {
@@ -486,8 +408,6 @@ Available methods: Difference-in-Differences (DiD), Regression Discontinuity Des
 Return JSON only:
 {{"recommended_method":"method name","method_code":"did/rdd/iv/etc","explanation":"2-3 sentences why","alternatives":[{{"method":"name","code":"code","when_appropriate":"1 sentence"}}],"key_assumptions":["assumption1","assumption2"]}}"""
         
-        print(f"AI: Recommending method for treatment={treatment_variable}, outcome={outcome_variable}, time_series={is_time_series}, groups={has_control_treatment_groups}")
-        
         response = self._call_gemini(prompt)
         
         # Clean response (remove markdown code blocks if present)
@@ -510,9 +430,7 @@ Return JSON only:
                 'alternatives': recommendation.get('alternatives', []),
                 'key_assumptions': recommendation.get('key_assumptions', [])
             }
-        except json.JSONDecodeError as e:
-            print(f"WARNING: JSON parsing failed: {e}")
-            print(f"Response: {response[:500]}...")
+        except json.JSONDecodeError:
             # Return fallback
             return {
                 'recommended_method': 'Difference-in-Differences',
@@ -561,8 +479,6 @@ Columns: {cols_str}
 Evaluate for causal analysis (DiD, RDD, IV). Return JSON only:
 {{"overall_score":85,"quality_level":"good/fair/poor","summary":"2-3 sentence summary","issues":[{{"severity":"high/medium/low","issue":"description","column":"column_name or null","recommendation":"how to fix"}}],"strengths":["strength1","strength2"],"recommendations":["rec1","rec2"],"causal_analysis_readiness":"ready/needs_work/not_suitable","potential_variables":{{"outcome_candidates":["col1","col2"],"treatment_candidates":["col1"],"time_candidates":["col1"],"group_candidates":["col1"]}}}}"""
         
-        print(f"AI: Assessing data quality for {total_rows} rows, {total_cols} columns")
-        
         response = self._call_gemini(prompt)
         
         # Clean response
@@ -588,9 +504,7 @@ Evaluate for causal analysis (DiD, RDD, IV). Return JSON only:
                 'causal_analysis_readiness': assessment.get('causal_analysis_readiness', 'unknown'),
                 'potential_variables': assessment.get('potential_variables', {})
             }
-        except json.JSONDecodeError as e:
-            print(f"WARNING: JSON parsing failed: {e}")
-            print(f"Response: {response[:500]}...")
+        except json.JSONDecodeError:
             # Return fallback
             return {
                 'overall_score': 50,
