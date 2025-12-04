@@ -244,7 +244,7 @@ const ProjectsPage: React.FC = () => {
 
         <div style={styles.projectsGrid}>
           {loading ? (
-            <div style={styles.loadingContainer}>
+            <div style={styles.gridLoadingContainer}>
               <div style={styles.loadingSpinner}></div>
               <p style={styles.loadingText}>Loading projects...</p>
             </div>
@@ -465,6 +465,15 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#f5f5f5'
+  },
+  gridLoadingContainer: {
+    gridColumn: '1 / -1',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '60px 20px',
+    color: '#666'
   },
   loadingSpinner: {
     width: '40px',
