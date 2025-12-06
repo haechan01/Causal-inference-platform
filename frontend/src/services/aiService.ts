@@ -8,6 +8,7 @@ export interface ResultsInterpretation {
   limitations: string[];
   implications: string[];
   confidence_level: string;
+  next_steps: string[];
   recommendation: string;
 }
 
