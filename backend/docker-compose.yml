@@ -1,0 +1,106 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: causalytics_db
+    environment:
+      POSTGRES_USER: ${DB_USER:-causalytics_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: ${DB_NAME:-causalytics_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-causalytics_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - causalytics_network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: causalytics_redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - causalytics_network
+
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: causalytics_backend
+    ports:
+      - "${FLASK_PORT:-5001}:5001"
+    # Optional: Run migrations on startup (uncomment if desired)
+    # command: >
+    #   sh -c "flask db upgrade &&
+    #          gunicorn --bind 0.0.0.0:5001 --workers 4 --timeout 120 app:app"
+    environment:
+      # Flask Configuration
+      FLASK_ENV: ${FLASK_ENV:-development}
+      SECRET_KEY: ${SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ACCESS_TOKEN_EXPIRES: ${JWT_ACCESS_TOKEN_EXPIRES:-3600}
+      JWT_REFRESH_TOKEN_EXPIRES: ${JWT_REFRESH_TOKEN_EXPIRES:-2592000}
+      
+      # Database Configuration
+      DB_USER: ${DB_USER:-causalytics_user}
+      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-causalytics_db}
+      
+      # CORS Configuration
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      
+      # AWS S3 Configuration
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_S3_BUCKET_NAME: ${AWS_S3_BUCKET_NAME}
+      
+      # AI Configuration
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      ENABLE_AI_FEATURES: ${ENABLE_AI_FEATURES:-true}
+      AI_MODEL_NAME: ${AI_MODEL_NAME:-gemini-1.5-flash}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-16384}
+      
+      # Redis Configuration
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./logs:/app/logs
+      - ./instance:/app/instance
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - causalytics_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  causalytics_network:
+    driver: bridge
+
