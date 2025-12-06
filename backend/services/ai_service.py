@@ -489,6 +489,8 @@ Return JSON only:
 Data: {total_rows} rows, {total_cols} cols ({numeric_cols} numeric, {categorical_cols} categorical), {missing_pct:.1f}% missing overall.
 Columns: {cols_str}
 
+IMPORTANT: Data types have already been correctly detected and validated. Do NOT flag issues about incorrect data types (e.g., numeric columns labeled as categorical). Focus on other data quality issues like missing values, outliers, data completeness, and suitability for causal analysis methods.
+
 Evaluate for causal analysis (DiD, RDD, IV). Return JSON only:
 {{"overall_score":85,"quality_level":"good/fair/poor","summary":"2-3 sentence summary","issues":[{{"severity":"high/medium/low","issue":"description","column":"column_name or null","recommendation":"how to fix"}}],"strengths":["strength1","strength2"],"recommendations":["rec1","rec2"],"causal_analysis_readiness":"ready/needs_work/not_suitable","potential_variables":{{"outcome_candidates":["col1","col2"],"treatment_candidates":["col1"],"time_candidates":["col1"],"group_candidates":["col1"]}}}}"""
         
