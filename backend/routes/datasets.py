@@ -302,7 +302,24 @@ def get_dataset_schema(dataset_id):
                 elif pd.api.types.is_bool_dtype(col_data):
                     col_type = 'boolean'
                 else:
-                    col_type = 'categorical'
+                    # Try to convert object/string columns to numeric if they appear to be numeric
+                    # This handles cases where CSV columns are read as strings but should be numeric
+                    non_null_data = col_data.dropna()
+                    if len(non_null_data) > 0:
+                        # Try converting to numeric
+                        numeric_converted = pd.to_numeric(non_null_data, errors='coerce')
+                        # Count how many successfully converted
+                        successful_conversions = numeric_converted.notna().sum()
+                        conversion_rate = successful_conversions / len(non_null_data)
+                        
+                        # If >80% of non-null values can be converted to numeric, treat as numeric
+                        if conversion_rate > 0.8:
+                            col_type = 'numeric'
+                        else:
+                            col_type = 'categorical'
+                    else:
+                        # All nulls - default to categorical
+                        col_type = 'categorical'
 
                 # Get unique values for categorical columns and binary numeric columns
                 # For treatment/control unit selection, we need unique values even if there are many
@@ -412,6 +429,7 @@ def get_dataset_preview(dataset_id):
                     'unique_count': int(col_data.nunique())
                 }
                 
+                # Check if already numeric
                 if pd.api.types.is_numeric_dtype(col_data):
                     col_info['type'] = 'numeric'
                     col_info['min'] = float(col_data.min()) if not pd.isna(col_data.min()) else None
@@ -421,10 +439,33 @@ def get_dataset_preview(dataset_id):
                 elif pd.api.types.is_datetime64_any_dtype(col_data):
                     col_info['type'] = 'date'
                 else:
-                    col_info['type'] = 'categorical'
-                    unique_vals = col_data.dropna().unique()
-                    if len(unique_vals) <= 20:
-                        col_info['unique_values'] = [str(v) for v in unique_vals]
+                    # Try to convert object/string columns to numeric if they appear to be numeric
+                    # This handles cases where CSV columns are read as strings but should be numeric
+                    non_null_data = col_data.dropna()
+                    if len(non_null_data) > 0:
+                        # Try converting to numeric
+                        numeric_converted = pd.to_numeric(non_null_data, errors='coerce')
+                        # Count how many successfully converted
+                        successful_conversions = numeric_converted.notna().sum()
+                        conversion_rate = successful_conversions / len(non_null_data)
+                        
+                        # If >80% of non-null values can be converted to numeric, treat as numeric
+                        if conversion_rate > 0.8:
+                            # Convert the whole column to numeric for statistics
+                            col_data_numeric = pd.to_numeric(col_data, errors='coerce')
+                            col_info['type'] = 'numeric'
+                            col_info['min'] = float(col_data_numeric.min()) if not pd.isna(col_data_numeric.min()) else None
+                            col_info['max'] = float(col_data_numeric.max()) if not pd.isna(col_data_numeric.max()) else None
+                            col_info['mean'] = float(col_data_numeric.mean()) if not pd.isna(col_data_numeric.mean()) else None
+                            col_info['std'] = float(col_data_numeric.std()) if not pd.isna(col_data_numeric.std()) else None
+                        else:
+                            col_info['type'] = 'categorical'
+                            unique_vals = non_null_data.unique()
+                            if len(unique_vals) <= 20:
+                                col_info['unique_values'] = [str(v) for v in unique_vals]
+                    else:
+                        # All nulls - default to categorical
+                        col_info['type'] = 'categorical'
                 
                 columns_info.append(col_info)
             

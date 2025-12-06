@@ -117,7 +117,18 @@ const DataUploadPage: React.FC = () => {
         const columns: ColumnInfo[] = headers.map(header => {
           const values = dataRows.map(row => row[header]);
           const nonEmpty = values.filter(v => v !== '' && v !== null && v !== undefined);
-          const isNumeric = nonEmpty.every(v => !isNaN(parseFloat(v)));
+          
+          // Use threshold-based approach: if >80% of non-empty values are numeric, treat as numeric
+          // This handles cases where there might be a few non-numeric values (e.g., empty strings, typos)
+          let isNumeric = false;
+          if (nonEmpty.length > 0) {
+            const numericCount = nonEmpty.filter(v => {
+              const parsed = parseFloat(v);
+              return !isNaN(parsed) && isFinite(parsed);
+            }).length;
+            const numericRatio = numericCount / nonEmpty.length;
+            isNumeric = numericRatio > 0.8; // 80% threshold
+          }
           
           const info: ColumnInfo = {
             name: header,
@@ -127,10 +138,15 @@ const DataUploadPage: React.FC = () => {
           };
           
           if (isNumeric && nonEmpty.length > 0) {
-            const nums = nonEmpty.map(v => parseFloat(v));
-            info.min = Math.min(...nums);
-            info.max = Math.max(...nums);
-            info.mean = nums.reduce((a, b) => a + b, 0) / nums.length;
+            // Only parse values that are actually numeric
+            const nums = nonEmpty
+              .map(v => parseFloat(v))
+              .filter(v => !isNaN(v) && isFinite(v));
+            if (nums.length > 0) {
+              info.min = Math.min(...nums);
+              info.max = Math.max(...nums);
+              info.mean = nums.reduce((a, b) => a + b, 0) / nums.length;
+            }
           } else if (!isNumeric) {
             const unique = Array.from(new Set(nonEmpty));
             if (unique.length <= 10) {
