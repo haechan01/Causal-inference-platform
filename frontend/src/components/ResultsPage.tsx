@@ -445,7 +445,15 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                     
                     {/* Summary Header */}
                     <div style={styles.summaryHeader}>
-                        <h1 style={styles.pageTitle}>Analysis Results</h1>
+                        <div style={styles.summaryHeaderTop}>
+                            <h1 style={styles.pageTitle}>Analysis Results</h1>
+                            <button 
+                                style={styles.detailsToggleBtn}
+                                onClick={() => setShowDetails(!showDetails)}
+                            >
+                                {showDetails ? '▼' : '▶'} Statistical Details
+                            </button>
+                        </div>
                         <div style={styles.summaryCard}>
                             <p style={styles.summaryText}>
                                 {generateAISummary()}
@@ -457,9 +465,50 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                                 }}>
                                     Effect: {(results.results?.did_estimate || 0) > 0 ? '+' : ''}{formatNumber(results.results?.did_estimate, 2)}
                                     {(results.results?.is_significant || false) ? ' (significant)' : ' (not significant)'}
-                                    </span>
+                                </span>
                             </p>
                         </div>
+
+                        {/* Statistical Details (expandable) */}
+                        {showDetails && (
+                            <div style={styles.statisticalDetailsInline}>
+                                <div style={styles.detailsGrid}>
+                                    <div style={styles.detailItem}>
+                                        <span style={styles.detailLabel}>Treatment Effect (DiD):</span>
+                                        <span style={styles.detailValue}>{formatNumber(results.results?.did_estimate, 2)}</span>
+                            </div>
+                                    <div style={styles.detailItem}>
+                                        <span style={styles.detailLabel}>95% Confidence Interval:</span>
+                                        <span style={styles.detailValue}>
+                                            [{formatNumber(results.results?.confidence_interval?.lower, 2)}, {formatNumber(results.results?.confidence_interval?.upper, 2)}]
+                                    </span>
+                                    </div>
+                                    <div style={styles.detailItem}>
+                                        <span style={styles.detailLabel}>p-value:</span>
+                                        <span style={styles.detailValue}>{formatNumber(results.results?.p_value, 4)}</span>
+                                    </div>
+                                    <div style={styles.detailItem}>
+                                        <span style={styles.detailLabel}>Control Variables:</span>
+                                        <span style={styles.detailValue}>
+                                            {(results.parameters?.controls?.length || 0) > 0 
+                                                ? (results.parameters?.controls || []).join(', ') 
+                                                : 'None'
+                                            }
+                                    </span>
+                            </div>
+                                    <div style={styles.detailItem}>
+                                        <span style={styles.detailLabel}>Total Observations:</span>
+                                        <span style={styles.detailValue}>{results.results?.statistics?.total_observations || 0}</span>
+                        </div>
+                                    <div style={styles.detailItem}>
+                                        <span style={styles.detailLabel}>Treated / Control Units:</span>
+                                        <span style={styles.detailValue}>
+                                            {results.results?.statistics?.treated_units || 0} / {results.results?.statistics?.control_units || 0}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
         {/* NEW: Parallel Trends Assessment Section */}
@@ -1020,63 +1069,6 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                         )}
                     </div>
 
-                    {/* 3. THE TRUST & DETAILS SECTION */}
-                    <div style={styles.trustSection}>
-                        <h2 style={styles.sectionTitle}>Analysis Validity</h2>
-                        
-
-                        {/* Statistical Summary Toggle */}
-                        <div style={styles.detailsToggle}>
-                            <button 
-                                style={styles.toggleButton}
-                                onClick={() => setShowDetails(!showDetails)}
-                            >
-                                {showDetails ? '▼' : '▶'} View Statistical Details
-                            </button>
-                        </div>
-
-                        {showDetails && (
-                            <div style={styles.statisticalDetails}>
-                                <div style={styles.detailsGrid}>
-                                    <div style={styles.detailItem}>
-                                        <span style={styles.detailLabel}>Treatment Effect (DiD):</span>
-                                        <span style={styles.detailValue}>{formatNumber(results.results?.did_estimate, 2)}</span>
-                                    </div>
-                                    <div style={styles.detailItem}>
-                                        <span style={styles.detailLabel}>95% Confidence Interval:</span>
-                                        <span style={styles.detailValue}>
-                                            [{formatNumber(results.results?.confidence_interval?.lower, 2)}, {formatNumber(results.results?.confidence_interval?.upper, 2)}]
-                                        </span>
-                                    </div>
-                                    <div style={styles.detailItem}>
-                                        <span style={styles.detailLabel}>p-value:</span>
-                                        <span style={styles.detailValue}>{formatNumber(results.results?.p_value, 4)}</span>
-                                    </div>
-                                    <div style={styles.detailItem}>
-                                        <span style={styles.detailLabel}>Control Variables Used:</span>
-                                        <span style={styles.detailValue}>
-                                            {(results.parameters?.controls?.length || 0) > 0 
-                                                ? (results.parameters?.controls || []).join(', ') 
-                                                : 'None'
-                                            }
-                                        </span>
-                                    </div>
-                                    <div style={styles.detailItem}>
-                                        <span style={styles.detailLabel}>Total Observations:</span>
-                                        <span style={styles.detailValue}>{results.results?.statistics?.total_observations || 0}</span>
-                                    </div>
-                                    <div style={styles.detailItem}>
-                                        <span style={styles.detailLabel}>Treated Units:</span>
-                                        <span style={styles.detailValue}>{results.results?.statistics?.treated_units || 0}</span>
-                                    </div>
-                                    <div style={styles.detailItem}>
-                                        <span style={styles.detailLabel}>Control Units:</span>
-                                        <span style={styles.detailValue}>{results.results?.statistics?.control_units || 0}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
                 </div>
             </div>
             <BottomProgressBar
@@ -1116,11 +1108,34 @@ const styles = {
     marginBottom: '24px',
     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)'
   },
+  summaryHeaderTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '12px'
+  },
   pageTitle: {
     fontSize: '24px',
     fontWeight: 'bold',
     color: '#043873',
-    margin: '0 0 12px 0'
+    margin: 0
+  },
+  detailsToggleBtn: {
+    backgroundColor: 'transparent',
+    border: '1px solid #dee2e6',
+    borderRadius: '6px',
+    padding: '8px 14px',
+    fontSize: '13px',
+    color: '#6c757d',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
+  },
+  statisticalDetailsInline: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: '8px',
+    padding: '16px 20px',
+    marginTop: '16px',
+    borderTop: '1px solid #e9ecef'
   },
   summaryCard: {
     backgroundColor: '#f8fafc',
