@@ -710,7 +710,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                   <div style={styles.chartContainer}>
                     <div style={styles.chartHeader}>
                       <h3 style={styles.chartSubtitle}>Event Study: Treatment Effect Over Time</h3>
-                      {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && (
+                      {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' && (
                         <button
                           onClick={() => downloadChartAsPNG(
                             pt.event_study_chart!,
@@ -748,12 +748,36 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                       />
                     ) : (
                       <div style={{padding: '20px', backgroundColor: '#fff3cd', borderRadius: '6px', border: '1px solid #ffc107'}}>
-                        <p style={{margin: 0, color: '#856404'}}>
-                          ⚠️ Event study chart is not available. {pt?.event_study_coefficients && pt.event_study_coefficients.length > 0 ? 'You can see the coefficients in the table below.' : 'No event study data available.'}
+                        <p style={{margin: 0, color: '#856404', fontWeight: '500'}}>
+                          ⚠️ Event study chart is not available.
                         </p>
+                        {pt?.event_study_coefficients && pt.event_study_coefficients.length > 0 ? (
+                          <p style={{margin: '10px 0 0 0', color: '#856404'}}>
+                            You can see the coefficients in the table below.
+                          </p>
+                        ) : (
+                          <div style={{marginTop: '12px'}}>
+                            <p style={{margin: '0 0 8px 0', color: '#856404'}}>
+                              <strong>Why isn't the event study available?</strong>
+                            </p>
+                            {pt?.warnings && pt.warnings.length > 0 ? (
+                              <ul style={{margin: '0', paddingLeft: '20px', color: '#856404'}}>
+                                {pt.warnings.filter((w: string) => w.toLowerCase().includes('event study')).map((warning: string, idx: number) => (
+                                  <li key={idx} style={{marginBottom: '4px'}}>{warning}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p style={{margin: 0, color: '#856404', fontSize: '14px'}}>
+                                Event study requires multiple pre-treatment and post-treatment periods, 
+                                and variation in treatment timing across units (or sufficient data variation).
+                                Your data may not meet these requirements.
+                              </p>
+                            )}
+                          </div>
+                        )}
                         {process.env.NODE_ENV === 'development' && (
                           <p style={{margin: '10px 0 0 0', fontSize: '12px', color: '#666'}}>
-                            Debug: event_study_chart type = {typeof pt?.event_study_chart}, 
+                            Debug: event_study_chart type = {typeof pt?.event_study_chart},
                             value = {pt?.event_study_chart ? (pt.event_study_chart.toString().substring(0, 50) + '...') : 'null/undefined'},
                             event_study_coefficients = {pt?.event_study_coefficients ? pt.event_study_coefficients.length : 'missing'}
                           </p>
@@ -767,7 +791,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                     </p>
                     
                     {/* Event Study Coefficients Table */}
-                    {pt?.event_study_coefficients && pt.event_study_coefficients.length > 0 && (
+                    {pt?.event_study_coefficients && Array.isArray(pt.event_study_coefficients) && pt.event_study_coefficients.length > 0 && (
                       <div style={styles.coefficientsTable}>
                         <h4 style={{marginBottom: '12px', fontSize: '14px', fontWeight: 'bold'}}>Event Study Coefficients</h4>
                         <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '12px'}}>

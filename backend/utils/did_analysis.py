@@ -4,8 +4,12 @@ import matplotlib.pyplot as plt
 import base64
 import io
 import sys
+import logging
 
-def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_time):
+# Set up logger
+logger = logging.getLogger(__name__)
+
+def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_time, unit_col=None):
     """
     Check the parallel trends assumption for Difference-in-Differences.
     
@@ -23,19 +27,40 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
         Column name for time period
     outcome_col : str
         Column name for the outcome variable
-    treatment_time : int/float
+    treatment_time : int/float/str/datetime
         The time period when treatment begins
+    unit_col : str, optional
+        Column name for unit identifier (required for event studies with staggered treatment)
         
     Returns:
     --------
     dict with test results, interpretation, and visualizations
+    Always includes keys: passed, p_value, message, confidence_level, mean_chart,
+    event_study_chart, event_study_coefficients, all_pre_periods_include_zero,
+    warnings, explanations
     """
-    print("=" * 80)
-    print(f"[check_parallel_trends] FUNCTION CALLED")
-    print(f"[check_parallel_trends] Starting with treatment_time={treatment_time}, type={type(treatment_time)}")
-    sys.stdout.flush()
-    print(f"[check_parallel_trends] Data shape: {df.shape}, columns: {list(df.columns)}")
-    sys.stdout.flush()
+    logger.debug("=" * 80)
+    logger.debug(f"[check_parallel_trends] FUNCTION CALLED")
+    logger.debug(f"[check_parallel_trends] Starting with treatment_time={treatment_time}, type={type(treatment_time)}")
+    logger.debug(f"[check_parallel_trends] Data shape: {df.shape}, columns: {list(df.columns)}")
+    logger.debug(f"[check_parallel_trends] Unit column: {unit_col}")
+    
+    # Normalize treatment_time to match time_col dtype exactly
+    if pd.api.types.is_datetime64_any_dtype(df[time_col]):
+        treatment_time = pd.to_datetime(treatment_time)
+    elif pd.api.types.is_numeric_dtype(df[time_col]):
+        treatment_time = pd.to_numeric(treatment_time, errors='coerce')
+        if pd.isna(treatment_time):
+            logger.warning(f"Could not convert treatment_time {treatment_time} to numeric")
+            return _empty_parallel_trends_result(
+                "Could not convert treatment_time to match time column type",
+                ["Type mismatch between treatment_time and time column"]
+            )
+    else:
+        treatment_time = str(treatment_time)
+    
+    logger.debug(f"[check_parallel_trends] Normalized treatment_time={treatment_time}, type={type(treatment_time)}")
+    logger.debug(f"[check_parallel_trends] Time column dtype: {df[time_col].dtype}")
     
     # =========================================================
     # STEP 1: Validate we have enough data
@@ -43,25 +68,16 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
     
     pre_data = df[df[time_col] < treatment_time].copy()
     pre_periods = sorted(pre_data[time_col].unique())
-    print(f"[check_parallel_trends] Pre-treatment periods: {pre_periods}, count: {len(pre_periods)}")
+    logger.debug(f"[check_parallel_trends] Pre-treatment periods: {pre_periods}, count: {len(pre_periods)}")
     
     # We need at least 2 pre-treatment periods:
     # - One to use as reference (t = -1)
     # - At least one other to compare against
     if len(pre_periods) < 2:
-        return {
-            "passed": None,
-            "p_value": None,
-            "message": "Need at least 2 pre-treatment periods to test parallel trends.",
-            "confidence_level": "unknown",
-            "mean_chart": None,
-            "visual_chart": None,  # Legacy support
-            "event_study_chart": None,
-            "event_study_coefficients": None,
-            "all_pre_periods_include_zero": None,
-            "warnings": ["Insufficient data for parallel trends test."],
-            "explanations": []
-        }
+        return _empty_parallel_trends_result(
+            "Need at least 2 pre-treatment periods to test parallel trends.",
+            ["Insufficient data for parallel trends test: need at least 2 pre-treatment periods"]
+        )
     
     # =========================================================
     # STEP 2: Run the statistical test
@@ -75,48 +91,42 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
     # STEP 3: Run the event study analysis
     # =========================================================
     
-    print(f"[check_parallel_trends] Running event study analysis...")
-    sys.stdout.flush()
-    print(f"[check_parallel_trends] Full dataframe shape: {df.shape}")
-    print(f"[check_parallel_trends] Full dataframe columns: {list(df.columns)}")
-    print(f"[check_parallel_trends] Treatment column '{treatment_col}' exists: {treatment_col in df.columns}")
-    print(f"[check_parallel_trends] Time column '{time_col}' exists: {time_col in df.columns}")
-    print(f"[check_parallel_trends] Outcome column '{outcome_col}' exists: {outcome_col in df.columns}")
-    sys.stdout.flush()
+    logger.debug(f"[check_parallel_trends] Running event study analysis...")
+    logger.debug(f"[check_parallel_trends] Full dataframe shape: {df.shape}")
+    logger.debug(f"[check_parallel_trends] Full dataframe columns: {list(df.columns)}")
+    logger.debug(f"[check_parallel_trends] Treatment column '{treatment_col}' exists: {treatment_col in df.columns}")
+    logger.debug(f"[check_parallel_trends] Time column '{time_col}' exists: {time_col in df.columns}")
+    logger.debug(f"[check_parallel_trends] Outcome column '{outcome_col}' exists: {outcome_col in df.columns}")
+    logger.debug(f"[check_parallel_trends] Unit column '{unit_col}' exists: {unit_col in df.columns if unit_col else False}")
     
     try:
         event_study = _run_event_study(
-            df, treatment_col, time_col, outcome_col, treatment_time
+            df, treatment_col, time_col, outcome_col, treatment_time, unit_col=unit_col
         )
-        print(f"[check_parallel_trends] Event study returned: {type(event_study)}")
-        sys.stdout.flush()
-        print(f"[check_parallel_trends] Event study keys: {list(event_study.keys()) if isinstance(event_study, dict) else 'Not a dict'}")
-        sys.stdout.flush()
+        logger.debug(f"[check_parallel_trends] Event study returned: {type(event_study)}")
+        logger.debug(f"[check_parallel_trends] Event study keys: {list(event_study.keys()) if isinstance(event_study, dict) else 'Not a dict'}")
         
         if event_study.get("error"):
-            print(f"[check_parallel_trends] Event study error: {event_study.get('error')}")
-            sys.stdout.flush()
+            logger.warning(f"[check_parallel_trends] Event study error: {event_study.get('error')}")
         else:
             coeffs = event_study.get('coefficients', [])
             chart = event_study.get('chart')
-            print(f"[check_parallel_trends] Event study completed:")
-            print(f"  - Coefficients: {len(coeffs) if coeffs else 0}")
-            print(f"  - Chart exists: {chart is not None}")
-            print(f"  - Chart type: {type(chart)}")
+            logger.debug(f"[check_parallel_trends] Event study completed:")
+            logger.debug(f"  - Coefficients: {len(coeffs) if coeffs else 0}")
+            logger.debug(f"  - Chart exists: {chart is not None}")
+            logger.debug(f"  - Chart type: {type(chart)}")
             if chart:
-                print(f"  - Chart length: {len(chart) if isinstance(chart, str) else 'N/A'}")
+                logger.debug(f"  - Chart length: {len(chart) if isinstance(chart, str) else 'N/A'}")
             else:
-                print(f"  - Chart is None or empty")
-                print(f"  - Event study dict: {event_study}")
-            sys.stdout.flush()
+                logger.debug(f"  - Chart is None or empty")
+                logger.debug(f"  - Event study dict: {event_study}")
     except Exception as e:
-        print(f"[check_parallel_trends] Exception in event study: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"[check_parallel_trends] Exception in event study: {str(e)}", exc_info=True)
         event_study = {
-            "coefficients": None,
+            "coefficients": [],
             "chart": None,
-            "error": str(e)
+            "error": str(e),
+            "all_pre_periods_include_zero": None
         }
     
     # =========================================================
@@ -139,12 +149,21 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
     # STEP 6: Compile and return results
     # =========================================================
     
-    print(f"[check_parallel_trends] Compiling final results...")
-    sys.stdout.flush()
-    print(f"[check_parallel_trends] Event study chart in result: {event_study.get('chart') is not None if event_study else 'event_study is None'}")
-    print(f"[check_parallel_trends] Event study coefficients in result: {len(event_study.get('coefficients', [])) if event_study and event_study.get('coefficients') else 0}")
-    print(f"[check_parallel_trends] Full event_study dict: {event_study}")
-    sys.stdout.flush()
+    logger.debug(f"[check_parallel_trends] Compiling final results...")
+    logger.debug(f"[check_parallel_trends] Event study chart in result: {event_study.get('chart') is not None if event_study else 'event_study is None'}")
+    logger.debug(f"[check_parallel_trends] Event study coefficients in result: {len(event_study.get('coefficients', [])) if event_study and event_study.get('coefficients') else 0}")
+    
+    # Ensure consistent return structure - always return same keys
+    event_coeffs = event_study.get("coefficients") if event_study else []
+    if event_coeffs is None:
+        event_coeffs = []
+    
+    # Add warning if event study failed
+    warnings = interpretation.get("warnings", [])
+    if event_study and event_study.get("error"):
+        warnings.append(f"Event study not computed: {event_study.get('error')}")
+    elif not event_coeffs:
+        warnings.append("Event study not computed: too few pre/post periods or insufficient variation in treatment timing.")
     
     return {
         # Main results
@@ -152,9 +171,9 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
         "p_value": test_result.get("p_value"),
         
         # Interpretation
-        "message": interpretation["message"],
-        "confidence_level": interpretation["confidence_level"],
-        "warnings": interpretation["warnings"],
+        "message": interpretation.get("message", ""),
+        "confidence_level": interpretation.get("confidence_level", "unknown"),
+        "warnings": warnings,
         
         # Visualizations
         "mean_chart": means_chart,  # Primary: Traditional means plot (intuitive for users)
@@ -162,11 +181,27 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
         "event_study_chart": event_study.get("chart") if event_study else None,  # Secondary: Event study plot (for advanced users)
         
         # Detailed data (for advanced users or AI interpretation)
-        "event_study_coefficients": event_study.get("coefficients") if event_study else None,
+        "event_study_coefficients": event_coeffs,  # Always a list, never None
         "all_pre_periods_include_zero": event_study.get("all_pre_periods_include_zero") if event_study else None,
         
         # Explanations for users
         "explanations": interpretation.get("explanations", [])
+    }
+
+def _empty_parallel_trends_result(message, warnings=None):
+    """Return an empty but consistent parallel trends result structure."""
+    return {
+        "passed": None,
+        "p_value": None,
+        "message": message,
+        "confidence_level": "unknown",
+        "mean_chart": None,
+        "visual_chart": None,
+        "event_study_chart": None,
+        "event_study_coefficients": [],  # Empty list, not None
+        "all_pre_periods_include_zero": None,
+        "warnings": warnings or [],
+        "explanations": []
     }
 
 # =============================================================================
@@ -235,12 +270,17 @@ def _run_statistical_test(pre_data, treatment_col, time_col, outcome_col):
         
         # Build the regression formula
         # C() tells statsmodels to treat time as categorical (creates dummies)
-        formula = f"{outcome_col} ~ C({time_col}) * {treatment_col}"
+        # Wrap column names in Q() if they contain spaces or special characters
+        outcome_term = f"Q('{outcome_col}')" if ' ' in outcome_col or not outcome_col.replace('_', '').isalnum() else outcome_col
+        time_term = f"C(Q('{time_col}'))" if ' ' in time_col or not time_col.replace('_', '').isalnum() else f"C({time_col})"
+        treatment_term = f"Q('{treatment_col}')" if ' ' in treatment_col or not treatment_col.replace('_', '').isalnum() else treatment_col
         
-        print(f"  Statistical test formula: {formula}")
-        print(f"  Pre-data shape: {pre_data.shape}")
-        print(f"  Unique times: {sorted(unique_times)}")
-        print(f"  Unique treatments: {unique_treatments}")
+        formula = f"{outcome_term} ~ {time_term} * {treatment_term}"
+
+        logger.debug(f"  Statistical test formula: {formula}")
+        logger.debug(f"  Pre-data shape: {pre_data.shape}")
+        logger.debug(f"  Unique times: {sorted(unique_times)}")
+        logger.debug(f"  Unique treatments: {unique_treatments}")
         
         # Fit OLS regression
         model = smf.ols(formula, data=pre_data).fit()
@@ -291,7 +331,7 @@ def _run_statistical_test(pre_data, treatment_col, time_col, outcome_col):
 # EVENT STUDY ANALYSIS
 # =============================================================================
 
-def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time):
+def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time, unit_col=None):
     """
     Calculate event study coefficients.
     
@@ -314,13 +354,12 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time):
     - Standard convention in the literature
     """
     try:
-        print(f"  Starting event study analysis")
-        sys.stdout.flush()
-        print(f"    Data shape: {df.shape}")
-        print(f"    Treatment column: {treatment_col}")
-        print(f"    Time column: {time_col}")
-        print(f"    Treatment time: {treatment_time} (type: {type(treatment_time)})")
-        sys.stdout.flush()
+        logger.debug(f"  Starting event study analysis")
+        logger.debug(f"    Data shape: {df.shape}")
+        logger.debug(f"    Treatment column: {treatment_col}")
+        logger.debug(f"    Time column: {time_col}")
+        logger.debug(f"    Unit column: {unit_col}")
+        logger.debug(f"    Treatment time: {treatment_time} (type: {type(treatment_time)})")
         
         analysis_df = df.copy()
         
@@ -331,44 +370,74 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time):
             analysis_df = analysis_df.dropna(subset=[outcome_col])
             if len(analysis_df) == 0:
                 return {
-                    "coefficients": None,
+                    "coefficients": [],
                     "chart": None,
-                    "error": "No valid numeric data in outcome column after conversion"
+                    "error": "No valid numeric data in outcome column after conversion",
+                    "all_pre_periods_include_zero": None
                 }
         
-        # Ensure treatment_time matches the time column type
-        if pd.api.types.is_numeric_dtype(analysis_df[time_col]):
-            treatment_time = float(treatment_time)
+        # Normalize treatment_time to match time column dtype exactly (should already be done, but double-check)
+        if pd.api.types.is_datetime64_any_dtype(analysis_df[time_col]):
+            treatment_time = pd.to_datetime(treatment_time)
+        elif pd.api.types.is_numeric_dtype(analysis_df[time_col]):
+            treatment_time = pd.to_numeric(treatment_time, errors='coerce')
+            if pd.isna(treatment_time):
+                return {
+                    "coefficients": [],
+                    "chart": None,
+                    "error": "Could not convert treatment_time to match time column type",
+                    "all_pre_periods_include_zero": None
+                }
         else:
             treatment_time = str(treatment_time)
         
         # Create relative time: periods before treatment are negative
         # Example: if treatment_time = 2020
         #   2018 → -2, 2019 → -1, 2020 → 0, 2021 → +1
-        try:
-            analysis_df['relative_time'] = analysis_df[time_col] - treatment_time
-        except Exception as e:
-            print(f"    Error creating relative_time: {str(e)}")
-            print(f"    Time column type: {analysis_df[time_col].dtype}")
-            print(f"    Treatment time type: {type(treatment_time)}, value: {treatment_time}")
-            sys.stdout.flush()
-            raise
+        # If unit_col is provided and units have different treatment times, use unit-specific timing
+        if unit_col and unit_col in analysis_df.columns:
+            # For staggered treatment: each unit may have different treatment time
+            # For now, we'll use the global treatment_time, but log if there's variation
+            unit_treatment_times = analysis_df.groupby(unit_col)[time_col].min()
+            if len(unit_treatment_times.unique()) > 1:
+                logger.debug(f"    Detected staggered treatment: {len(unit_treatment_times.unique())} unique treatment times")
+                # Use unit-specific relative time
+                analysis_df = analysis_df.merge(
+                    unit_treatment_times.reset_index().rename(columns={time_col: 'unit_treatment_time'}),
+                    on=unit_col,
+                    how='left'
+                )
+                analysis_df['relative_time'] = analysis_df[time_col] - analysis_df['unit_treatment_time']
+                analysis_df = analysis_df.drop(columns=['unit_treatment_time'])
+            else:
+                # All units treated at same time
+                analysis_df['relative_time'] = analysis_df[time_col] - treatment_time
+        else:
+            # No unit column - use global treatment_time
+            try:
+                analysis_df['relative_time'] = analysis_df[time_col] - treatment_time
+            except Exception as e:
+                logger.error(f"    Error creating relative_time: {str(e)}")
+                logger.error(f"    Time column type: {analysis_df[time_col].dtype}")
+                logger.error(f"    Treatment time type: {type(treatment_time)}, value: {treatment_time}")
+                raise
         
+        # Convert relative_time to integer to avoid float column names (e.g., -7.0)
+        analysis_df['relative_time'] = analysis_df['relative_time'].astype(int)
         periods = sorted(analysis_df['relative_time'].unique())
-        print(f"    Unique relative times: {periods}")
-        sys.stdout.flush()
+        logger.debug(f"    Unique relative times (as integers): {periods}")
         
         # Check if we have t = -1 (reference period)
         if -1 not in periods:
-            print(f"    WARNING: No reference period (t = -1) found. Closest periods: {periods}")
+            logger.warning(f"    WARNING: No reference period (t = -1) found. Closest periods: {periods}")
             # Find the closest period to -1
             closest_to_neg_one = min(periods, key=lambda x: abs(x - (-1)))
-            print(f"    Using {closest_to_neg_one} as reference instead of -1")
+            logger.debug(f"    Using {closest_to_neg_one} as reference instead of -1")
             # Adjust all periods so closest becomes -1
             adjustment = closest_to_neg_one - (-1)
             analysis_df['relative_time'] = analysis_df['relative_time'] - adjustment
             periods = sorted(analysis_df['relative_time'].unique())
-            print(f"    Adjusted relative times: {periods}")
+            logger.debug(f"    Adjusted relative times: {periods}")
         
         # Create dummy variables for each period × treatment interaction
         # EXCEPT t = -1 (our reference period)
@@ -378,7 +447,9 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time):
                 continue  # Skip reference period
                 
             # Column name: rel_time_-2, rel_time_-3, rel_time_plus_0, etc.
-            col_name = f'rel_time_{t}' if t < 0 else f'rel_time_plus_{t}'
+            # Use integer t to avoid dots in column names
+            t_int = int(t)
+            col_name = f'rel_time_{t_int}' if t_int < 0 else f'rel_time_plus_{t_int}'
             
             # This dummy = 1 only for treated units in period t
             analysis_df[col_name] = (
@@ -388,42 +459,56 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time):
             
             dummy_cols.append(col_name)
         
-        print(f"    Created {len(dummy_cols)} dummy variables")
+        logger.debug(f"    Created {len(dummy_cols)} dummy variables")
         
         if not dummy_cols:
-            print(f"    ERROR: No dummy columns created for event study")
-            sys.stdout.flush()
+            logger.warning(f"    ERROR: No dummy columns created for event study")
             return {
-                "coefficients": None,
+                "coefficients": [],
                 "chart": None,
-                "error": "No periods available for event study (need at least 2 periods)"
+                "error": "No periods available for event study (need at least 2 periods)",
+                "all_pre_periods_include_zero": None
             }
         
-        print(f"    Created {len(dummy_cols)} dummy variables for event study")
-        sys.stdout.flush()
+        logger.debug(f"    Created {len(dummy_cols)} dummy variables for event study")
         
         # Build regression formula
         # Include time fixed effects to control for common shocks
-        dummies_str = ' + '.join(dummy_cols)
-        formula = f"{outcome_col} ~ {dummies_str} + C({time_col})"
+        # If unit_col is available, include unit fixed effects
+        # Wrap ALL column names in Q() to handle special characters (spaces, negative numbers, etc.)
+        # This ensures column names with spaces or special chars are properly parsed
+        dummy_terms = [f"Q('{col}')" for col in dummy_cols]
+        dummies_str = ' + '.join(dummy_terms)
         
-        print(f"    Event study formula: {formula}")
-        sys.stdout.flush()
+        # Wrap outcome, time, and unit columns in Q() if they contain spaces or special chars
+        outcome_term = f"Q('{outcome_col}')" if ' ' in outcome_col or not outcome_col.replace('_', '').isalnum() else outcome_col
+        time_term = f"C(Q('{time_col}'))" if ' ' in time_col or not time_col.replace('_', '').isalnum() else f"C({time_col})"
+        
+        if unit_col and unit_col in analysis_df.columns:
+            unit_term = f"C(Q('{unit_col}'))" if ' ' in unit_col or not unit_col.replace('_', '').isalnum() else f"C({unit_col})"
+            formula = f"{outcome_term} ~ {dummies_str} + {time_term} + {unit_term}"
+        else:
+            formula = f"{outcome_term} ~ {dummies_str} + {time_term}"
+        
+        logger.debug(f"    Event study formula: {formula}")
+        logger.debug(f"    Dummy columns: {dummy_cols[:5]}... (showing first 5)")
+        logger.debug(f"    Outcome column: {outcome_col}, wrapped: {outcome_term}")
+        logger.debug(f"    Time column: {time_col}, wrapped: {time_term}")
         
         # Fit the model
         try:
             model = smf.ols(formula, data=analysis_df).fit()
-            print(f"    Model fitted successfully")
-            sys.stdout.flush()
+            logger.debug(f"    Model fitted successfully")
         except Exception as e:
-            print(f"    ERROR fitting model: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            sys.stdout.flush()
+            logger.error(f"    ERROR fitting model: {str(e)}", exc_info=True)
+            error_msg = str(e)
+            if "singular" in error_msg.lower() or "linalg" in error_msg.lower():
+                error_msg = "Singular matrix: insufficient variation or collinear regressors. Event study requires variation in treatment timing across units or multiple pre/post periods."
             return {
-                "coefficients": None,
+                "coefficients": [],
                 "chart": None,
-                "error": f"Failed to fit event study model: {str(e)}"
+                "error": f"Failed to fit event study model: {error_msg}",
+                "all_pre_periods_include_zero": None
             }
         
         # Extract coefficients for each period
@@ -441,22 +526,39 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time):
                     'is_pre_treatment': True
                 })
             else:
-                col_name = f'rel_time_{t}' if t < 0 else f'rel_time_plus_{t}'
+                # Use integer t to match column name creation
+                t_int = int(t)
+                col_name = f'rel_time_{t_int}' if t_int < 0 else f'rel_time_plus_{t_int}'
                 
-                if col_name in model.params:
-                    ci = model.conf_int().loc[col_name]
+                # When using Q(), the parameter name in the model is Q('col_name')
+                # But statsmodels might store it differently - check both formats
+                param_names_to_try = [
+                    f"Q('{col_name}')",  # Most likely format when using Q()
+                    col_name,  # Fallback: original name
+                    f"Q(\"{col_name}\")"  # Alternative quote style
+                ]
+                
+                found_param = None
+                for param_name in param_names_to_try:
+                    if param_name in model.params.index:
+                        found_param = param_name
+                        break
+                
+                if found_param:
+                    ci = model.conf_int().loc[found_param]
                     coefficients.append({
-                        'relative_time': int(t),
-                        'coefficient': round(float(model.params[col_name]), 4),
+                        'relative_time': t_int,
+                        'coefficient': round(float(model.params[found_param]), 4),
                         'ci_lower': round(float(ci[0]), 4),
                         'ci_upper': round(float(ci[1]), 4),
-                        'p_value': round(float(model.pvalues[col_name]), 4),
+                        'p_value': round(float(model.pvalues[found_param]), 4),
                         'is_reference': False,
-                        'is_pre_treatment': t < 0
+                        'is_pre_treatment': t_int < 0
                     })
                 else:
-                    print(f"    WARNING: Column {col_name} not found in model params. Available params: {list(model.params.index)[:10]}")
-                    sys.stdout.flush()
+                    logger.warning(f"    WARNING: Column {col_name} not found in model params.")
+                    logger.debug(f"    Available params (first 15): {list(model.params.index)[:15]}")
+                    logger.debug(f"    Looking for: {param_names_to_try}")
         
         # Key check: Do all pre-treatment confidence intervals include zero?
         pre_coeffs = [c for c in coefficients if c['relative_time'] < -1]
@@ -465,27 +567,24 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time):
             for c in pre_coeffs
         ) if pre_coeffs else True
         
-        print(f"    Generated {len(coefficients)} coefficients for event study")
-        print(f"    Pre-treatment coefficients: {len(pre_coeffs)}")
-        sys.stdout.flush()
+        logger.debug(f"    Generated {len(coefficients)} coefficients for event study")
+        logger.debug(f"    Pre-treatment coefficients: {len(pre_coeffs)}")
         
         if len(coefficients) == 0:
-            print(f"    ERROR: No coefficients generated!")
-            sys.stdout.flush()
+            logger.warning(f"    ERROR: No coefficients generated!")
             return {
-                "coefficients": None,
+                "coefficients": [],
                 "chart": None,
-                "error": "No coefficients generated for event study"
+                "error": "No coefficients generated for event study",
+                "all_pre_periods_include_zero": None
             }
         
         # Generate the event study chart
-        print(f"    Calling _generate_event_study_chart with {len(coefficients)} coefficients...")
-        sys.stdout.flush()
+        logger.debug(f"    Calling _generate_event_study_chart with {len(coefficients)} coefficients...")
         chart = _generate_event_study_chart(coefficients)
-        print(f"    Event study chart generation result: {chart is not None}, type: {type(chart)}")
+        logger.debug(f"    Event study chart generation result: {chart is not None}, type: {type(chart)}")
         if chart:
-            print(f"    Chart length: {len(chart) if isinstance(chart, str) else 'N/A'}")
-        sys.stdout.flush()
+            logger.debug(f"    Chart length: {len(chart) if isinstance(chart, str) else 'N/A'}")
         
         result = {
             "coefficients": coefficients,
@@ -494,18 +593,16 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time):
             "num_pre_periods": len(pre_coeffs),
             "num_post_periods": len([c for c in coefficients if c['relative_time'] >= 0])
         }
-        print(f"    Returning event study result with {len(coefficients)} coefficients and chart={chart is not None}")
-        sys.stdout.flush()
+        logger.debug(f"    Returning event study result with {len(coefficients)} coefficients and chart={chart is not None}")
         return result
         
     except Exception as e:
-        print(f"  Error in event study: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"  Error in event study: {str(e)}", exc_info=True)
         return {
-            "coefficients": None, 
-            "chart": None, 
-            "error": str(e)
+            "coefficients": [],
+            "chart": None,
+            "error": str(e),
+            "all_pre_periods_include_zero": None
         }
 
 # =============================================================================
@@ -784,7 +881,8 @@ def _generate_event_study_chart(coefficients):
             return None
         
         print(f"  Generating event study chart with {len(coefficients)} coefficients")
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(12, 7))
+        fig.patch.set_facecolor('white')
         
         # Extract data from coefficients
         times = [c['relative_time'] for c in coefficients]
@@ -811,73 +909,113 @@ def _generate_event_study_chart(coefficients):
         for t, c, lower, upper in zip(times, coefs, ci_lower, ci_upper):
             if t < 0:
                 color = '#4F9CF9'  # Blue for pre-treatment
+                marker = 'o'
+            elif t == -1:
+                color = '#666666'  # Gray for reference period
+                marker = 's'  # Square for reference
             else:
                 color = '#FF6B6B'  # Red for post-treatment
+                marker = 'o'
             
             ax.scatter(
                 [t], [c],
                 c=color,
-                s=100,
+                s=120 if t == -1 else 100,
+                marker=marker,
                 zorder=5,
                 edgecolors='white',
-                linewidths=2
+                linewidths=2.5 if t == -1 else 2
             )
         
         # Reference line at y = 0
-        ax.axhline(y=0, color='black', linestyle='-', linewidth=1)
+        ax.axhline(y=0, color='black', linestyle='-', linewidth=1.5, alpha=0.7)
         
         # Vertical line at treatment time (between -1 and 0)
-        ax.axvline(x=-0.5, color='#FFD93D', linestyle='--', linewidth=2.5, alpha=0.8)
+        ax.axvline(x=-0.5, color='#666666', linestyle='--', linewidth=2, alpha=0.7, zorder=1)
         
-        # Shade pre and post regions
-        ax.axvspan(min(times) - 0.5, -0.5, alpha=0.08, color='blue')
-        ax.axvspan(-0.5, max(times) + 0.5, alpha=0.08, color='red')
+        # Shade pre and post regions with subtle colors
+        ax.axvspan(min(times) - 0.5, -0.5, alpha=0.06, color='#4F9CF9', zorder=0)
+        ax.axvspan(-0.5, max(times) + 0.5, alpha=0.06, color='#FF6B6B', zorder=0)
         
         # Labels
         ax.set_title(
-            'Event Study: Treatment vs Control Over Time\n'
-            '(Pre-treatment coefficients should be near zero)',
-            fontsize=12,
-            fontweight='bold'
+            'Event Study: Treatment Effect Over Time',
+            fontsize=14,
+            fontweight='bold',
+            pad=15
         )
-        ax.set_xlabel('Time Relative to Treatment', fontsize=11)
-        ax.set_ylabel('Estimated Difference\n(Treatment − Control)', fontsize=11)
-        ax.grid(True, alpha=0.3)
+        ax.set_xlabel('Time Relative to Treatment', fontsize=12, fontweight='500')
+        ax.set_ylabel('Estimated Difference (Treatment − Control)', fontsize=12, fontweight='500')
+        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.8)
         
-        # Add helpful annotations
-        y_range = max(ci_upper) - min(ci_lower)
+        # Get y limits for positioning labels
+        y_min, y_max = ax.get_ylim()
+        y_range = y_max - y_min
         
-        ax.annotate(
-            'Pre-treatment\n(check: ≈ 0?)',
-            xy=(min(times) + 0.5, 0),
+        # Pre-treatment label - position at top center of pre-treatment region
+        pre_times = [t for t in times if t < 0]
+        if pre_times:
+            pre_x = (min(pre_times) + max(pre_times)) / 2
+            ax.text(
+                pre_x, y_max - y_range * 0.08,
+                'Pre-Treatment',
+                fontsize=11,
+                fontweight='bold',
+                color='#4F9CF9',
+                ha='center',
+                va='top',
+                bbox=dict(boxstyle='round,pad=0.6', facecolor='white', edgecolor='#4F9CF9', linewidth=2, alpha=0.95)
+            )
+        
+        # Post-treatment label - position at top center of post-treatment region
+        post_times = [t for t in times if t >= 0]
+        if post_times:
+            post_x = (min(post_times) + max(post_times)) / 2
+            ax.text(
+                post_x, y_max - y_range * 0.08,
+                'Post-Treatment',
+                fontsize=11,
+                fontweight='bold',
+                color='#FF6B6B',
+                ha='center',
+                va='top',
+                bbox=dict(boxstyle='round,pad=0.6', facecolor='white', edgecolor='#FF6B6B', linewidth=2, alpha=0.95)
+            )
+        
+        # Get y limits for positioning labels
+        y_min, y_max = ax.get_ylim()
+        
+        # Reference period annotation - only if -1 exists
+        if -1 in times:
+            ref_idx = times.index(-1)
+            ref_y = coefs[ref_idx]
+            # Small annotation pointing to reference point
+            ax.annotate(
+                'Reference\n(t = -1)',
+                xy=(-1, ref_y),
+                xytext=(-1, y_min + y_range * 0.15),
+                fontsize=9,
+                ha='center',
+                va='bottom',
+                arrowprops=dict(arrowstyle='->', color='#666666', lw=1.5, alpha=0.7),
+                color='#666666',
+                bbox=dict(boxstyle='round,pad=0.4', facecolor='white', edgecolor='#666666', linewidth=1, alpha=0.9)
+            )
+        
+        # Add treatment start line label
+        ax.text(
+            -0.5, y_max - y_range * 0.15,
+            'Treatment\nStarts',
             fontsize=9,
-            color='#4F9CF9',
-            ha='left',
-            va='bottom',
-            fontweight='bold'
-        )
-        
-        ax.annotate(
-            'Post-treatment\n(treatment effect)',
-            xy=(max(times) - 0.5, coefs[-1]),
-            fontsize=9,
-            color='#FF6B6B',
-            ha='right',
-            va='top',
-            fontweight='bold'
-        )
-        
-        ax.annotate(
-            '← Reference (t = −1)',
-            xy=(-1, 0),
-            xytext=(-1, y_range * 0.3),
-            fontsize=8,
             ha='center',
-            arrowprops=dict(arrowstyle='->', color='gray', lw=1),
-            color='gray'
+            va='top',
+            color='#666666',
+            rotation=90,
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='#666666', linewidth=1, alpha=0.8)
         )
         
-        plt.tight_layout()
+        # Adjust layout with more padding
+        plt.tight_layout(pad=2.5)
         
         chart_base64 = _fig_to_base64(fig)
         print(f"  Event study chart generated successfully, size: {len(chart_base64)} chars")
@@ -893,7 +1031,7 @@ def _generate_event_study_chart(coefficients):
 def _fig_to_base64(fig):
     """Convert matplotlib figure to base64 encoded string."""
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', bbox_inches='tight', dpi=120)
+    fig.savefig(buf, format='png', bbox_inches='tight', dpi=100, facecolor='white', edgecolor='none')
     buf.seek(0)
     plt.close(fig)
     return base64.b64encode(buf.getvalue()).decode()
@@ -942,9 +1080,16 @@ def run_did(df, treatment_col, time_col, outcome_col, treatment_time, unit_col=N
         # With unit fixed effects: use C() to create unit dummies
         # Note: This is a simplified approach. For clustered SEs, you'd need
         # statsmodels' panel data tools or linearmodels package
-        formula = f"{outcome_col} ~ {treatment_col} + post + interaction + C({unit_col})"
+        # Wrap column names in Q() if they contain spaces or special characters
+        outcome_term = f"Q('{outcome_col}')" if ' ' in outcome_col or not outcome_col.replace('_', '').isalnum() else outcome_col
+        treatment_term = f"Q('{treatment_col}')" if ' ' in treatment_col or not treatment_col.replace('_', '').isalnum() else treatment_col
+        unit_term = f"C(Q('{unit_col}'))" if ' ' in unit_col or not unit_col.replace('_', '').isalnum() else f"C({unit_col})"
+        formula = f"{outcome_term} ~ {treatment_term} + post + interaction + {unit_term}"
     else:
-        formula = f"{outcome_col} ~ {treatment_col} + post + interaction"
+        # Wrap column names in Q() if they contain spaces or special characters
+        outcome_term = f"Q('{outcome_col}')" if ' ' in outcome_col or not outcome_col.replace('_', '').isalnum() else outcome_col
+        treatment_term = f"Q('{treatment_col}')" if ' ' in treatment_col or not treatment_col.replace('_', '').isalnum() else treatment_col
+        formula = f"{outcome_term} ~ {treatment_term} + post + interaction"
     
     # Fit OLS regression
     model = smf.ols(formula, data=analysis_df).fit()

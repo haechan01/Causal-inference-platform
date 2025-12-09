@@ -611,24 +611,35 @@ def run_did_analysis(dataset_id):
             # This uses joint F-test and event study analysis
             parallel_trends_result = None
             try:
-                # Ensure treatment_time is the right type (match time column type)
-                if pd.api.types.is_numeric_dtype(df[time_var]):
-                    treatment_time_for_test = float(treatment_start)
+                # Normalize treatment_time to match time column dtype exactly using pandas
+                if pd.api.types.is_datetime64_any_dtype(df[time_var]):
+                    treatment_time_for_test = pd.to_datetime(treatment_start)
+                elif pd.api.types.is_numeric_dtype(df[time_var]):
+                    treatment_time_for_test = pd.to_numeric(treatment_start, errors='coerce')
+                    if pd.isna(treatment_time_for_test):
+                        raise ValueError(f"Could not convert treatment_start {treatment_start} to numeric to match time column type")
                 else:
                     treatment_time_for_test = str(treatment_start)
+                
+                # Get unit column if available
+                unit_var = request.json.get('unit') if request.json else None
                 
                 print(f"Running parallel trends check:")
                 print(f"  - treatment_col: is_treated")
                 print(f"  - time_col: {time_var}")
                 print(f"  - outcome_col: {outcome_var}")
+                print(f"  - unit_col: {unit_var}")
                 print(f"  - treatment_time: {treatment_time_for_test} (type: {type(treatment_time_for_test)})")
                 print(f"  - Data shape: {df.shape}")
+                print(f"  - Time column dtype: {df[time_var].dtype}")
+                if unit_var and unit_var in df.columns:
+                    print(f"  - Unit column dtype: {df[unit_var].dtype}")
+                    print(f"  - Unique units: {df[unit_var].nunique()}")
                 print(f"  - Pre-treatment periods: {sorted(df[df[time_var] < treatment_time_for_test][time_var].unique())}")
                 
                 # Use the improved check_parallel_trends function
-                # It expects: df, treatment_col, time_col, outcome_col, treatment_time
+                # It expects: df, treatment_col, time_col, outcome_col, treatment_time, unit_col
                 print(f"  Calling check_parallel_trends function...")
-                print(f"  STDOUT flush before call...")
                 import sys
                 sys.stdout.flush()
                 sys.stderr.flush()
@@ -639,7 +650,8 @@ def run_did_analysis(dataset_id):
                         treatment_col='is_treated',
                         time_col=time_var,
                         outcome_col=outcome_var,
-                        treatment_time=treatment_time_for_test
+                        treatment_time=treatment_time_for_test,
+                        unit_col=unit_var if unit_var and unit_var in df.columns else None
                     )
                     print(f"  check_parallel_trends returned successfully")
                     sys.stdout.flush()
@@ -657,20 +669,17 @@ def run_did_analysis(dataset_id):
                 print(f"  - Message: {parallel_trends_result.get('message', 'None')}")
                 print(f"  - Has mean_chart: {parallel_trends_result.get('mean_chart') is not None}")
                 print(f"  - Has event_study_chart: {parallel_trends_result.get('event_study_chart') is not None}")
-                print(f"  - Has event_study_coefficients: {parallel_trends_result.get('event_study_coefficients') is not None}")
-                event_chart = parallel_trends_result.get('event_study_chart')
-                event_coeffs = parallel_trends_result.get('event_study_coefficients')
-                print(f"  - Event study chart type: {type(event_chart)}, value: {str(event_chart)[:50] if event_chart else 'None'}")
-                print(f"  - Event study coefficients type: {type(event_coeffs)}, length: {len(event_coeffs) if event_coeffs else 0}")
-                print(f"  - All keys in result: {list(parallel_trends_result.keys())}")
+                event_coeffs = parallel_trends_result.get('event_study_coefficients', [])
+                print(f"  - Event study coefficients: {len(event_coeffs)} coefficients")
+                print(f"  - Warnings: {parallel_trends_result.get('warnings', [])}")
                 sys.stdout.flush()
-                if parallel_trends_result.get('event_study_coefficients'):
-                    print(f"  - Event study coefficients count: {len(parallel_trends_result.get('event_study_coefficients', []))}")
-                if parallel_trends_result.get('warnings'):
-                    print(f"  - Warnings: {parallel_trends_result.get('warnings')}")
-                if 'error' in str(parallel_trends_result):
-                    print(f"  - Error in result: {parallel_trends_result}")
-                sys.stdout.flush()
+                
+                # Add warning to results if event study failed
+                if not event_coeffs and parallel_trends_result.get('warnings'):
+                    event_warnings = [w for w in parallel_trends_result.get('warnings', []) if 'event study' in w.lower()]
+                    if event_warnings:
+                        print(f"  - Event study warning: {event_warnings[0]}")
+                        sys.stdout.flush()
             except Exception as e:
                 print(f"Error in parallel trends test: {str(e)}")
                 import traceback
