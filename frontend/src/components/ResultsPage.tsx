@@ -329,18 +329,37 @@ const ResultsPage: React.FC = () => {
         if (!results?.results || !results?.parameters) {
             return "Analysis results are not available.";
         }
-        
-        const effect = Math.abs(results.results.did_estimate || 0);
-        const direction = results.results.interpretation?.effect_direction || 'unknown';
+
+        const effect = results.results.did_estimate || 0;
         const outcome = results.parameters.outcome || 'outcome';
         const treatment = results.parameters.treatment || 'treatment';
         const significance = results.results.is_significant || false;
+        const pValue = results.results.p_value;
         
-        if (significance) {
-            return `Our analysis found that ${treatment} caused a statistically significant ${direction} effect on ${outcome} of approximately ${formatNumber(effect, 0)} units.`;
-        } else {
-            return `Our analysis found that ${treatment} had a ${direction} effect on ${outcome} of approximately ${formatNumber(effect, 0)} units, but this effect was not statistically significant.`;
-        }
+        const effectColor = significance ? '#28a745' : '#6c757d';
+        const significanceColor = significance ? '#28a745' : '#dc3545';
+        const significanceText = significance ? 'Significant' : 'Not Significant';
+        const pValueText = pValue !== null && pValue !== undefined ? ` (p = ${formatNumber(pValue, 3)})` : '';
+        
+        return (
+            <span>
+                <strong style={{color: '#043873'}}>{treatment}</strong> effect on <strong style={{color: '#043873'}}>{outcome}</strong>: {' '}
+                <strong style={{color: effectColor, fontSize: '18px'}}>
+                    {(effect > 0 ? '+' : '')}{formatNumber(effect, 0)} units
+                </strong>
+                {' '}
+                <span style={{
+                    color: significanceColor,
+                    fontWeight: 'bold',
+                    fontSize: '16px',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    backgroundColor: significance ? '#d4edda' : '#f8d7da'
+                }}>
+                    {significanceText}{pValueText}
+                </span>
+            </span>
+        );
     };
 
     // Generate Python code for the analysis
@@ -485,23 +504,14 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                             
                         </div>
                         <div style={styles.summaryCard}>
-                            <p style={styles.summaryText}>
+                            <div style={styles.summaryText}>
                                 {generateAISummary()}
-                                {' '}
-                                <span style={{
-                                    ...styles.effectBadge,
-                                    backgroundColor: (results.results?.is_significant || false) ? '#d4edda' : '#f8d7da',
-                                    color: (results.results?.is_significant || false) ? '#155724' : '#721c24'
-                                }}>
-                                    Effect: {(results.results?.did_estimate || 0) > 0 ? '+' : ''}{formatNumber(results.results?.did_estimate, 2)}
-                                    {(results.results?.is_significant || false) ? ' (significant)' : ' (not significant)'}
-                                </span>
-                            </p>
+                            </div>
                             <button 
                                 style={styles.detailsToggleBtn}
                                 onClick={() => setShowDetails(!showDetails)}
                             >
-                                {showDetails ? '▶' : '▼'} Statistical Details
+                                {showDetails ? '▲' : '▼'} Statistical Details
                             </button>
                         </div>
 
@@ -584,8 +594,8 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
         <div style={styles.parallelTrendsSection}>
           <h2 style={styles.sectionTitle}>Did the Groups Start Out Similar?</h2>
           <p style={styles.explanation}>
-            We check if the treatment and control groups were changing at similar rates before treatment started. 
-            If they were already diverging, we can't trust that differences after treatment are caused by the treatment.
+            Before we can trust our results, we need to check if the treatment and control groups were changing at similar rates before treatment started. 
+            If they were already diverging, we can't be sure that differences after treatment are caused by the treatment itself.
           </p>
           
           {/* Use new parallel_trends structure if available, fallback to parallel_trends_test */}
@@ -593,69 +603,277 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
             const pt = (results.results as any)?.parallel_trends || (results.results as any)?.parallel_trends_test;
             const isNewFormat = !!(results.results as any)?.parallel_trends;
             
+            // Determine if statistical test passed (high p-value = passed)
+            const statTestPassed = pt?.p_value !== null && pt?.p_value !== undefined && pt.p_value > 0.05;
+            const statTestPValue = pt?.p_value;
+            
+            // Determine if event study passed (all pre-treatment periods include zero)
+            const eventStudyPassed = pt?.all_pre_periods_include_zero === true;
+            const hasEventStudyData = pt?.event_study_coefficients && Array.isArray(pt.event_study_coefficients) && pt.event_study_coefficients.length > 0;
+            
             return (
               <>
-                {/* Statistical Test Result - Simplified Summary */}
-                <div style={styles.testResult}>
-                  {pt?.p_value !== null && pt?.p_value !== undefined ? (
+                {/* Check 1: Statistical Test */}
+                <div style={{...styles.checkBox, marginBottom: '20px'}}>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px'}}>
+                    <div style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '50%',
+                      backgroundColor: statTestPassed ? '#d4edda' : '#f8d7da',
+                      color: statTestPassed ? '#155724' : '#721c24',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 'bold',
+                      fontSize: '16px',
+                      flexShrink: 0
+                    }}>
+                      {statTestPassed ? '✓' : '✗'}
+                    </div>
+                    <h3 style={{margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#043873'}}>
+                      Check 1: Statistical Test
+                    </h3>
+                  </div>
+                  
+                  {statTestPValue !== null && statTestPValue !== undefined ? (
                     <>
-                      {/* New format with confidence level and message */}
-                      {isNewFormat && pt?.message ? (
-                        <>
-                          <div style={
-                            pt.confidence_level === 'high' ? styles.parallelPassedBadge :
-                            pt.confidence_level === 'moderate' ? styles.parallelModerateBadge :
-                            styles.parallelFailedBadge
-                          }>
-                            {pt.message}
-                          </div>
+                      <div style={{
+                        padding: '12px 16px',
+                        backgroundColor: statTestPassed ? '#d4edda' : '#f8d7da',
+                        borderRadius: '6px',
+                        marginBottom: '10px',
+                        border: `1px solid ${statTestPassed ? '#c3e6cb' : '#f5c6cb'}`
+                      }}>
+                        <p style={{margin: 0, fontSize: '15px', fontWeight: '500', color: statTestPassed ? '#155724' : '#721c24'}}>
+                          {statTestPassed 
+                            ? `✓ The parallel trends test passed with a high p-value (${formatNumber(statTestPValue, 2)}). This suggests the groups were changing at similar rates before treatment.`
+                            : `✗ The parallel trends test found evidence that groups were diverging before treatment (p = ${formatNumber(statTestPValue, 3)}). Interpret results with caution.`
+                          }
+                        </p>
+                      </div>
+                      <p style={{margin: '0 0 12px 0', fontSize: '14px', color: '#495057', lineHeight: '1.5'}}>
+                        <strong>What this means:</strong> We compared how the treatment and control groups changed over time before treatment. 
+                        A high p-value (above 0.05) means we don't see strong evidence that the groups were diverging.
+                      </p>
+                    </>
+                  ) : (
+                    <div style={{
+                      padding: '12px 16px',
+                      backgroundColor: '#fff3cd',
+                      borderRadius: '6px',
+                      marginBottom: '10px',
+                      border: '1px solid #ffeaa7'
+                    }}>
+                      <p style={{margin: 0, fontSize: '15px', color: '#856404'}}>
+                        Could not perform statistical test. {pt?.message || 'Insufficient pre-treatment data.'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Check 2: Event Study */}
+                <div style={styles.checkBox}>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px'}}>
+                    <div style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '50%',
+                      backgroundColor: hasEventStudyData ? (eventStudyPassed ? '#d4edda' : '#fff3cd') : '#e9ecef',
+                      color: hasEventStudyData ? (eventStudyPassed ? '#155724' : '#856404') : '#6c757d',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 'bold',
+                      fontSize: '16px',
+                      flexShrink: 0
+                    }}>
+                      {hasEventStudyData ? (eventStudyPassed ? '✓' : '⚠') : '—'}
+                    </div>
+                    <h3 style={{margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#043873'}}>
+                      Check 2: Event Study
+                    </h3>
+                  </div>
+                  
+                  {hasEventStudyData ? (
+                    <>
+                      <div style={{
+                        padding: '12px 16px',
+                        backgroundColor: eventStudyPassed ? '#d4edda' : '#fff3cd',
+                        borderRadius: '6px',
+                        marginBottom: '10px',
+                        border: `1px solid ${eventStudyPassed ? '#c3e6cb' : '#ffeaa7'}`
+                      }}>
+                        <p style={{margin: 0, fontSize: '15px', fontWeight: '500', color: eventStudyPassed ? '#155724' : '#856404'}}>
+                          {eventStudyPassed
+                            ? `✓ Pre-treatment periods show no significant differences. The groups appear to follow parallel trends.`
+                            : `⚠ Some pre-treatment periods show differences between groups. This may indicate a violation of parallel trends.`
+                          }
+                        </p>
+                      </div>
+                      <p style={{margin: '0 0 12px 0', fontSize: '14px', color: '#495057', lineHeight: '1.5'}}>
+                        <strong>What this means:</strong> We examined the difference between treatment and control groups at each time point before treatment. 
+                        If pre-treatment differences hover around zero, parallel trends likely holds.
+                      </p>
+                    </>
+                  ) : (
+                    <div style={{
+                      padding: '12px 16px',
+                      backgroundColor: '#f8f9fa',
+                      borderRadius: '6px',
+                      marginBottom: '10px',
+                      border: '1px solid #dee2e6'
+                    }}>
+                      <p style={{margin: 0, fontSize: '15px', color: '#6c757d'}}>
+                        Event study not available. {pt?.warnings?.find((w: string) => w.toLowerCase().includes('event study')) || 'Insufficient data for event study analysis.'}
+                      </p>
+                    </div>
+                  )}
+                </div>
                           
-                          {/* Show More/Less Toggle */}
-                          {(pt?.explanations?.length > 0 || pt?.warnings?.length > 0) && (
-                            <button
-                              onClick={() => setShowParallelTrendsDetails(!showParallelTrendsDetails)}
-                              style={{
-                                marginTop: '12px',
-                                padding: '8px 16px',
-                                backgroundColor: 'transparent',
-                                border: '1px solid #4F9CF9',
-                                borderRadius: '6px',
-                                color: '#4F9CF9',
-                                cursor: 'pointer',
-                                fontSize: '14px',
-                                fontWeight: '500',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                transition: 'all 0.2s'
-                              }}
-                              onMouseOver={(e) => {
-                                e.currentTarget.style.backgroundColor = '#f0f7ff';
-                              }}
-                              onMouseOut={(e) => {
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                              }}
-                            >
-                              {showParallelTrendsDetails ? (
-                                <>
-                                  <span>Show less</span>
-                                  <span>▲</span>
-                                </>
-                              ) : (
-                                <>
-                                  <span>Show more details</span>
-                                  <span>▼</span>
-                                </>
+                {/* Show More/Less Toggle */}
+                {(pt?.explanations?.length > 0 || pt?.warnings?.length > 0 || hasEventStudyData) && (
+                  <button
+                    onClick={() => setShowParallelTrendsDetails(!showParallelTrendsDetails)}
+                    style={{
+                      marginTop: '20px',
+                      padding: '10px 18px',
+                      backgroundColor: 'transparent',
+                      border: '1px solid #4F9CF9',
+                      borderRadius: '6px',
+                      color: '#4F9CF9',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.backgroundColor = '#f0f7ff';
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                    }}
+                  >
+                    {showParallelTrendsDetails ? (
+                      <>
+                        <span>Show less</span>
+                        <span>▲</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Show more details</span>
+                        <span>▼</span>
+                      </>
+                    )}
+                  </button>
+                )}
+                          
+                {/* Detailed Explanations - Hidden by default */}
+                {showParallelTrendsDetails && (
+                  <div style={{marginTop: '20px'}}>
+                    {/* Check 1: Statistical Test - Detailed Explanation */}
+                    <div style={styles.explanationsBox}>
+                      <h3 style={{fontSize: '16px', fontWeight: 'bold', marginBottom: '12px', color: '#043873'}}>
+                        Check 1: Statistical Test - Detailed Explanation
+                      </h3>
+                      <p style={{marginBottom: '12px', fontSize: '14px', lineHeight: '1.6', color: '#374151'}}>
+                        <strong>What we tested:</strong> We compared how the treatment and control groups changed over time before treatment started. 
+                        We used a statistical test that checks if the groups had different trends (slopes) in the pre-treatment period.
+                      </p>
+                      <p style={{marginBottom: '12px', fontSize: '14px', lineHeight: '1.6', color: '#374151'}}>
+                        <strong>What the p-value means:</strong> The p-value tells us how likely we would see these results if the groups were actually changing at the same rate. 
+                        A high p-value (above 0.05) means we don't have strong evidence that the groups were diverging. 
+                        A low p-value (below 0.05) suggests the groups were already moving apart before treatment.
+                      </p>
+                      {statTestPValue !== null && statTestPValue !== undefined && (
+                        <p style={{marginBottom: '0', fontSize: '14px', lineHeight: '1.6', color: '#374151'}}>
+                          <strong>Your result:</strong> p-value = {formatNumber(statTestPValue, 3)}. 
+                          {statTestPassed 
+                            ? ' This is above 0.05, suggesting parallel trends likely holds.'
+                            : ' This is below 0.05, suggesting the groups may have been diverging before treatment.'
+                          }
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Check 2: Event Study - Detailed Explanation */}
+                    {hasEventStudyData && (
+                      <div style={{...styles.explanationsBox, marginTop: '16px'}}>
+                        <h3 style={{fontSize: '16px', fontWeight: 'bold', marginBottom: '12px', color: '#043873'}}>
+                          Check 2: Event Study - Detailed Explanation
+                        </h3>
+                        <p style={{marginBottom: '12px', fontSize: '14px', lineHeight: '1.6', color: '#374151'}}>
+                          <strong>What is an event study?</strong> An event study shows the treatment effect at each time point, rather than just one average effect. 
+                          Pre-treatment coefficients (blue points) should be near zero if parallel trends holds. 
+                          Post-treatment coefficients (red points) show how the treatment effect changes over time.
+                        </p>
+                        <p style={{marginBottom: '12px', fontSize: '14px', lineHeight: '1.6', color: '#374151'}}>
+                          <strong>How to read this chart:</strong> Pre-treatment periods (blue points) should hover around zero. 
+                          If they do, parallel trends likely holds. Post-treatment periods (red points) show the treatment effect over time.
+                          The reference period (t = -1) is normalized to zero.
+                        </p>
+                        <p style={{marginBottom: '0', fontSize: '14px', lineHeight: '1.6', color: '#374151'}}>
+                          <strong>Your result:</strong> {eventStudyPassed 
+                            ? 'All pre-treatment confidence intervals include zero, suggesting parallel trends holds.'
+                            : 'Some pre-treatment periods show differences between groups, which may indicate a violation of parallel trends.'
+                          }
+                        </p>
+                      </div>
+                    )}
+
+                              {/* Event Study Coefficients Table */}
+                              {pt?.event_study_coefficients && Array.isArray(pt.event_study_coefficients) && pt.event_study_coefficients.length > 0 && (
+                                <div style={{...styles.coefficientsTable, marginTop: '16px'}}>
+                                  <h3 style={{fontSize: '16px', fontWeight: 'bold', marginBottom: '12px', color: '#043873'}}>
+                                    Event Study Coefficients
+                                  </h3>
+                                  <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '13px'}}>
+                                    <thead>
+                                      <tr style={{backgroundColor: '#f8f9fa', borderBottom: '2px solid #dee2e6'}}>
+                                        <th style={{padding: '10px', textAlign: 'left', fontWeight: '600', color: '#374151'}}>Period</th>
+                                        <th style={{padding: '10px', textAlign: 'right', fontWeight: '600', color: '#374151'}}>Coefficient</th>
+                                        <th style={{padding: '10px', textAlign: 'right', fontWeight: '600', color: '#374151'}}>95% CI Lower</th>
+                                        <th style={{padding: '10px', textAlign: 'right', fontWeight: '600', color: '#374151'}}>95% CI Upper</th>
+                                        <th style={{padding: '10px', textAlign: 'center', fontWeight: '600', color: '#374151'}}>Type</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {pt.event_study_coefficients.map((coef: any, idx: number) => (
+                                        <tr key={idx} style={{borderBottom: '1px solid #dee2e6'}}>
+                                          <td style={{padding: '10px', fontWeight: coef.is_reference ? 'bold' : '500', color: '#374151'}}>
+                                            {coef.relative_time === -1 ? 't = -1 (ref)' : `t = ${coef.relative_time}`}
+                                          </td>
+                                          <td style={{padding: '10px', textAlign: 'right', color: '#374151', fontWeight: '500'}}>
+                                            {coef.is_reference ? '0.00' : formatNumber(coef.coefficient, 4)}
+                                          </td>
+                                          <td style={{padding: '10px', textAlign: 'right', color: '#374151'}}>
+                                            {coef.is_reference ? '0.00' : formatNumber(coef.ci_lower, 4)}
+                                          </td>
+                                          <td style={{padding: '10px', textAlign: 'right', color: '#374151'}}>
+                                            {coef.is_reference ? '0.00' : formatNumber(coef.ci_upper, 4)}
+                                          </td>
+                                          <td style={{padding: '10px', textAlign: 'center'}}>
+                                            {coef.is_reference ? (
+                                              <span style={{color: '#666', fontStyle: 'italic', fontWeight: '500'}}>Reference</span>
+                                            ) : coef.is_pre_treatment ? (
+                                              <span style={{color: '#4F9CF9', fontWeight: '600'}}>Pre-treatment</span>
+                                            ) : (
+                                              <span style={{color: '#FF6B6B', fontWeight: '600'}}>Post-treatment</span>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
                               )}
-                            </button>
-                          )}
-                          
-                          {/* Detailed Explanations - Hidden by default */}
-                          {showParallelTrendsDetails && (
-                            <div style={{marginTop: '16px'}}>
+                              
                               {/* Explanations */}
                               {pt?.explanations && pt.explanations.length > 0 && (
-                                <div style={styles.explanationsBox}>
+                                <div style={{...styles.explanationsBox, marginTop: '16px'}}>
                                   <h3 style={{fontSize: '16px', fontWeight: 'bold', marginBottom: '12px', color: '#043873'}}>
                                     What do these results mean?
                                   </h3>
@@ -669,173 +887,94 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                               
                               {/* Warnings */}
                               {pt?.warnings && pt.warnings.length > 0 && (
-                                <div style={styles.warningsBox}>
-                                  <strong style={{display: 'block', marginBottom: '8px'}}>⚠️ Important Notes:</strong>
+                                <div style={{...styles.warningsBox, marginTop: '16px'}}>
+                                  <strong style={{display: 'block', marginBottom: '8px', color: '#856404'}}>⚠️ Important Notes:</strong>
                                   <ul style={{margin: '8px 0', paddingLeft: '20px'}}>
                                     {pt.warnings.map((warning: string, idx: number) => (
-                                      <li key={idx} style={{marginBottom: '6px', lineHeight: '1.5'}}>{warning}</li>
+                                      <li key={idx} style={{marginBottom: '6px', lineHeight: '1.5', color: '#856404'}}>{warning}</li>
                                     ))}
                                   </ul>
                                 </div>
                               )}
                             </div>
                           )}
-                        </>
-                      ) : (
-                        /* Old format */
-                        pt?.passed ? (
-                          <div style={styles.parallelPassedBadge}>
-                            ✓ Trends look parallel (p = {formatNumber(pt.p_value, 3)})
-                          </div>
-                        ) : (
-                          <div style={styles.parallelFailedBadge}>
-                            ⚠ Trends may differ (p = {formatNumber(pt.p_value, 3)})
-                            <p>Consider refining your control group for more reliable results.</p>
-                          </div>
-                        )
-                      )}
-                    </>
+              
+              {/* Event Study Chart - Primary Visualization */}
+              {isNewFormat && pt && (
+                <div style={styles.chartContainer}>
+                  <div style={styles.chartHeader}>
+                    <h3 style={styles.chartSubtitle}>Event Study: Treatment Effect Over Time</h3>
+                    {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' && (
+                      <button
+                        onClick={() => downloadChartAsPNG(
+                          pt.event_study_chart!,
+                          'event_study_chart.png'
+                        )}
+                        style={styles.downloadButton}
+                        title="Download chart as PNG"
+                      >
+                        ⬇️ Download PNG
+                      </button>
+                    )}
+                  </div>
+                  {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' ? (
+                    <img 
+                      src={`data:image/png;base64,${pt.event_study_chart}`} 
+                      alt="Event study: treatment-control difference over time" 
+                      style={styles.chart}
+                      onError={(e) => {
+                        console.error('Failed to load event study chart. Chart data length:', pt.event_study_chart?.length || 0);
+                        console.error('First 100 chars:', pt.event_study_chart?.substring(0, 100));
+                        (e.target as HTMLImageElement).style.display = 'none';
+                        const errorDiv = document.createElement('div');
+                        errorDiv.style.padding = '20px';
+                        errorDiv.style.backgroundColor = '#f8d7da';
+                        errorDiv.style.borderRadius = '6px';
+                        errorDiv.style.border = '1px solid #dc3545';
+                        errorDiv.innerHTML = '<p style="margin: 0; color: #721c24;">⚠️ Failed to load event study chart image.</p>';
+                        (e.target as HTMLImageElement).parentElement?.appendChild(errorDiv);
+                      }}
+                    />
                   ) : (
-                    <div style={styles.infoMessage}>
-                      ℹ️ {pt?.message || 'Insufficient pre-treatment data to perform parallel trends test.'}
-                      {!isNewFormat && (
-                        <p>The analysis has been completed, but we couldn&apos;t statistically verify the parallel trends assumption due to limited pre-treatment observations.</p>
+                    <div style={{padding: '20px', backgroundColor: '#fff3cd', borderRadius: '6px', border: '1px solid #ffc107'}}>
+                      <p style={{margin: 0, color: '#856404', fontWeight: '500'}}>
+                        ⚠️ Event study chart is not available.
+                      </p>
+                      {pt?.event_study_coefficients && pt.event_study_coefficients.length > 0 ? (
+                        <p style={{margin: '10px 0 0 0', color: '#856404'}}>
+                          You can see the coefficients in the table below.
+                        </p>
+                      ) : (
+                        <div style={{marginTop: '12px'}}>
+                          <p style={{margin: '0 0 8px 0', color: '#856404'}}>
+                            <strong>Why isn't the event study available?</strong>
+                          </p>
+                          {pt?.warnings && pt.warnings.length > 0 ? (
+                            <ul style={{margin: '0', paddingLeft: '20px', color: '#856404'}}>
+                              {pt.warnings.filter((w: string) => w.toLowerCase().includes('event study')).map((warning: string, idx: number) => (
+                                <li key={idx} style={{marginBottom: '4px'}}>{warning}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p style={{margin: 0, color: '#856404', fontSize: '14px'}}>
+                              Event study requires multiple pre-treatment and post-treatment periods, 
+                              and variation in treatment timing across units (or sufficient data variation).
+                              Your data may not meet these requirements.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {process.env.NODE_ENV === 'development' && (
+                        <p style={{margin: '10px 0 0 0', fontSize: '12px', color: '#666'}}>
+                          Debug: event_study_chart type = {typeof pt?.event_study_chart},
+                          value = {pt?.event_study_chart ? (pt.event_study_chart.toString().substring(0, 50) + '...') : 'null/undefined'},
+                          event_study_coefficients = {pt?.event_study_coefficients ? pt.event_study_coefficients.length : 'missing'}
+                        </p>
                       )}
                     </div>
                   )}
                 </div>
-                
-                {/* Event Study Chart - Primary Visualization */}
-                {isNewFormat && (
-                  <div style={styles.chartContainer}>
-                    <div style={styles.chartHeader}>
-                      <h3 style={styles.chartSubtitle}>Event Study: Treatment Effect Over Time</h3>
-                      {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' && (
-                        <button
-                          onClick={() => downloadChartAsPNG(
-                            pt.event_study_chart!,
-                            'event_study_chart.png'
-                          )}
-                          style={styles.downloadButton}
-                          title="Download chart as PNG"
-                        >
-                          ⬇️ Download PNG
-                        </button>
-                      )}
-                    </div>
-                    <p style={{...styles.chartNote, marginBottom: '16px', backgroundColor: '#f8f9fa', padding: '12px', borderRadius: '6px'}}>
-                      <strong>What is an event study?</strong> An event study shows the treatment effect at each time point, 
-                      rather than just one average effect. Pre-treatment coefficients (blue points) should be near zero if 
-                      parallel trends holds. Post-treatment coefficients (red points) show how the treatment effect changes over time.
-                    </p>
-                    {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' ? (
-                      <img 
-                        src={`data:image/png;base64,${pt.event_study_chart}`} 
-                        alt="Event study: treatment-control difference over time" 
-                        style={styles.chart}
-                        onError={(e) => {
-                          console.error('Failed to load event study chart. Chart data length:', pt.event_study_chart?.length || 0);
-                          console.error('First 100 chars:', pt.event_study_chart?.substring(0, 100));
-                          (e.target as HTMLImageElement).style.display = 'none';
-                          const errorDiv = document.createElement('div');
-                          errorDiv.style.padding = '20px';
-                          errorDiv.style.backgroundColor = '#f8d7da';
-                          errorDiv.style.borderRadius = '6px';
-                          errorDiv.style.border = '1px solid #dc3545';
-                          errorDiv.innerHTML = '<p style="margin: 0; color: #721c24;">⚠️ Failed to load event study chart image.</p>';
-                          (e.target as HTMLImageElement).parentElement?.appendChild(errorDiv);
-                        }}
-                      />
-                    ) : (
-                      <div style={{padding: '20px', backgroundColor: '#fff3cd', borderRadius: '6px', border: '1px solid #ffc107'}}>
-                        <p style={{margin: 0, color: '#856404', fontWeight: '500'}}>
-                          ⚠️ Event study chart is not available.
-                        </p>
-                        {pt?.event_study_coefficients && pt.event_study_coefficients.length > 0 ? (
-                          <p style={{margin: '10px 0 0 0', color: '#856404'}}>
-                            You can see the coefficients in the table below.
-                          </p>
-                        ) : (
-                          <div style={{marginTop: '12px'}}>
-                            <p style={{margin: '0 0 8px 0', color: '#856404'}}>
-                              <strong>Why isn't the event study available?</strong>
-                            </p>
-                            {pt?.warnings && pt.warnings.length > 0 ? (
-                              <ul style={{margin: '0', paddingLeft: '20px', color: '#856404'}}>
-                                {pt.warnings.filter((w: string) => w.toLowerCase().includes('event study')).map((warning: string, idx: number) => (
-                                  <li key={idx} style={{marginBottom: '4px'}}>{warning}</li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p style={{margin: 0, color: '#856404', fontSize: '14px'}}>
-                                Event study requires multiple pre-treatment and post-treatment periods, 
-                                and variation in treatment timing across units (or sufficient data variation).
-                                Your data may not meet these requirements.
-                              </p>
-                            )}
-                          </div>
-                        )}
-                        {process.env.NODE_ENV === 'development' && (
-                          <p style={{margin: '10px 0 0 0', fontSize: '12px', color: '#666'}}>
-                            Debug: event_study_chart type = {typeof pt?.event_study_chart},
-                            value = {pt?.event_study_chart ? (pt.event_study_chart.toString().substring(0, 50) + '...') : 'null/undefined'},
-                            event_study_coefficients = {pt?.event_study_coefficients ? pt.event_study_coefficients.length : 'missing'}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    <p style={styles.chartNote}>
-                      <strong>How to read this chart:</strong> Pre-treatment periods (blue points) should hover around zero. 
-                      If they do, parallel trends likely holds. Post-treatment periods (red points) show the treatment effect over time.
-                      The reference period (t = -1) is normalized to zero.
-                    </p>
-                    
-                    {/* Event Study Coefficients Table */}
-                    {pt?.event_study_coefficients && Array.isArray(pt.event_study_coefficients) && pt.event_study_coefficients.length > 0 && (
-                      <div style={styles.coefficientsTable}>
-                        <h4 style={{marginBottom: '12px', fontSize: '14px', fontWeight: 'bold'}}>Event Study Coefficients</h4>
-                        <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '12px'}}>
-                          <thead>
-                            <tr style={{backgroundColor: '#f8f9fa', borderBottom: '2px solid #dee2e6'}}>
-                              <th style={{padding: '8px', textAlign: 'left'}}>Period</th>
-                              <th style={{padding: '8px', textAlign: 'right'}}>Coefficient</th>
-                              <th style={{padding: '8px', textAlign: 'right'}}>95% CI Lower</th>
-                              <th style={{padding: '8px', textAlign: 'right'}}>95% CI Upper</th>
-                              <th style={{padding: '8px', textAlign: 'center'}}>Type</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {pt.event_study_coefficients.map((coef: any, idx: number) => (
-                              <tr key={idx} style={{borderBottom: '1px solid #dee2e6'}}>
-                                <td style={{padding: '8px', fontWeight: coef.is_reference ? 'bold' : 'normal'}}>
-                                  {coef.relative_time === -1 ? 't = -1 (ref)' : `t = ${coef.relative_time}`}
-                                </td>
-                                <td style={{padding: '8px', textAlign: 'right'}}>
-                                  {coef.is_reference ? '0.00' : formatNumber(coef.coefficient, 4)}
-                                </td>
-                                <td style={{padding: '8px', textAlign: 'right'}}>
-                                  {coef.is_reference ? '0.00' : formatNumber(coef.ci_lower, 4)}
-                                </td>
-                                <td style={{padding: '8px', textAlign: 'right'}}>
-                                  {coef.is_reference ? '0.00' : formatNumber(coef.ci_upper, 4)}
-                                </td>
-                                <td style={{padding: '8px', textAlign: 'center'}}>
-                                  {coef.is_reference ? (
-                                    <span style={{color: '#6c757d', fontStyle: 'italic'}}>Reference</span>
-                                  ) : coef.is_pre_treatment ? (
-                                    <span style={{color: '#4F9CF9'}}>Pre-treatment</span>
-                                  ) : (
-                                    <span style={{color: '#FF6B6B'}}>Post-treatment</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                )}
+              )}
               </>
             );
           })()}
@@ -1100,7 +1239,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                     onClick={() => setShowCode(!showCode)}
                     style={styles.codeToggleButton}
                 >
-                    {showCode ? '▼ Hide Code' : '▶ Show Code'}
+                    {showCode ? '▲ Hide Code' : '▼ Show Code'}
                 </button>
             </div>
             
@@ -1297,7 +1436,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                             )}
 
                             {/* Overall Recommendation & Confidence */}
-                            {aiInterpretation.recommendation && (
+                            {aiInterpretation && aiInterpretation.recommendation && (
                                 <div style={{...styles.aiCard, backgroundColor: '#e3f2fd', borderColor: '#2196f3', borderLeft: '4px solid #2196f3'}}>
                                     <h3 style={styles.aiCardTitle}>📋 Bottom Line</h3>
                                     <p style={styles.aiText}>{aiInterpretation.recommendation}</p>
@@ -1317,14 +1456,6 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                     </div>
                 </div>
             </div>
-            <BottomProgressBar
-                currentStep={currentStep}
-                steps={steps}
-                onPrev={goToPreviousStep}
-                onNext={goToNextStep}
-                canGoNext={true}
-                onStepClick={(path) => navigate(path, { state: { projectId, datasetId } })}
-            />
         </div>
     );
 };
@@ -1341,9 +1472,9 @@ const styles = {
   mainLayout: {
     display: 'flex',
     gap: '24px',
-    maxWidth: '1600px',
+    maxWidth: '1400px',
     margin: '0 auto',
-    padding: '20px',
+    padding: '20px 10px',
     width: '100%',
     boxSizing: 'border-box' as const,
     alignItems: 'flex-start'
@@ -1372,6 +1503,7 @@ const styles = {
     fontSize: '24px',
     fontWeight: 'bold',
     color: '#043873',
+    textAlign: 'center' as const,
     margin: 0
   },
   detailsToggleBtn: {
@@ -1394,14 +1526,16 @@ const styles = {
   summaryCard: {
     backgroundColor: '#f8fafc',
     borderRadius: '8px',
-    padding: '16px 20px',
-    borderLeft: '4px solid #4F9CF9'
+    padding: '20px 24px',
+    borderLeft: '4px solid #4F9CF9',
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)'
   },
   summaryText: {
-    fontSize: '16px',
+    fontSize: '18px',
     color: '#374151',
     margin: 0,
-    lineHeight: '1.6'
+    lineHeight: '1.8',
+    fontWeight: '500'
   },
   effectBadge: {
     display: 'inline-block',
@@ -1633,11 +1767,12 @@ const styles = {
     borderRadius: '2px'
   },
   chartNote: {
-    fontSize: '12px',
-    color: '#6c757d',
-    fontStyle: 'italic',
+    fontSize: '13px',
+    color: '#495057',
+    fontStyle: 'normal',
     textAlign: 'center' as const,
-    lineHeight: '1.4'
+    lineHeight: '1.5',
+    fontWeight: '400'
   },
   parallelTrendsSection: {
     backgroundColor: 'white',
@@ -1646,6 +1781,12 @@ const styles = {
     marginBottom: '30px',
     boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
     border: '1px solid #e0e0e0'
+  },
+  checkBox: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: '8px',
+    padding: '16px',
+    border: '1px solid #e9ecef'
   },
   explanation: {
     fontSize: '16px',
