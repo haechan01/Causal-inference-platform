@@ -92,13 +92,41 @@ def interpret_results():
         return jsonify(interpretation), 200
         
     except ValueError as e:
-        print(f"ERROR: Configuration error: {str(e)}")
-        return jsonify({"error": f"Configuration error: {str(e)}"}), 500
+        # Check if this is a quota error
+        if hasattr(e, 'is_quota_error') and e.is_quota_error:
+            print(f"ERROR: API quota exceeded: {str(e)}")
+            status_code = 429  # Too Many Requests
+            error_response = {
+                "error": str(e),
+                "error_type": "quota_exceeded",
+                "retry_after": getattr(e, 'retry_delay', None)
+            }
+            return jsonify(error_response), status_code
+        else:
+            print(f"ERROR: Configuration error: {str(e)}")
+            return jsonify({"error": f"Configuration error: {str(e)}"}), 500
     except Exception as e:
-        import traceback
-        print(f"ERROR: AI interpretation failed: {str(e)}")
-        traceback.print_exc()
-        return jsonify({"error": f"AI interpretation failed: {str(e)}"}), 500
+            import traceback
+            error_str = str(e)
+            print(f"ERROR: AI interpretation failed: {error_str}")
+            traceback.print_exc()
+            
+            # Check if it's a quota error even if not caught as ValueError
+            if '429' in error_str or 'quota' in error_str.lower() or 'rate.limit' in error_str.lower():
+                # Try to extract retry delay
+                import re
+                delay_match = re.search(r'retry.*?(\d+\.?\d*)\s*s', error_str, re.IGNORECASE)
+                retry_delay = float(delay_match.group(1)) if delay_match else None
+                
+                error_response = {
+                    "error": f"API quota exceeded. {'Please wait ' + str(int(retry_delay)) + ' seconds before trying again.' if retry_delay else 'Please check your Google Cloud billing and quota limits.'}",
+                    "error_type": "quota_exceeded",
+                    "retry_after": retry_delay,
+                    "details": "You can check your usage at https://ai.dev/usage"
+                }
+                return jsonify(error_response), 429
+            else:
+                return jsonify({"error": f"AI interpretation failed: {error_str}"}), 500
 
 
 @ai_bp.route('/recommend-method', methods=['POST'])

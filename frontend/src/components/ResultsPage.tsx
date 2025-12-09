@@ -70,10 +70,31 @@ interface DiDResults {
       significance: string;
     };
     chart: string;
-    parallel_trends_test: {
-      passed: boolean;
-      p_value: number;
-      visual_chart: string;
+    parallel_trends_test?: {
+      passed: boolean | null;
+      p_value: number | null;
+      visual_chart: string | null;
+    };
+    parallel_trends?: {
+      passed: boolean | null;
+      p_value: number | null;
+      message: string;
+      confidence_level: 'high' | 'moderate' | 'low' | 'unknown';
+      warnings: string[];
+      explanations?: string[];
+      mean_chart: string | null;
+      visual_chart?: string | null; // Legacy support
+      event_study_chart: string | null;
+      event_study_coefficients?: Array<{
+        relative_time: number;
+        coefficient: number;
+        ci_lower: number;
+        ci_upper: number;
+        p_value: number | null;
+        is_reference: boolean;
+        is_pre_treatment: boolean;
+      }>;
+      all_pre_periods_include_zero?: boolean;
     };
   };
 }
@@ -89,9 +110,11 @@ const ResultsPage: React.FC = () => {
     const [aiInterpretation, setAiInterpretation] = useState<ResultsInterpretation | null>(null);
     const [loadingAI, setLoadingAI] = useState(false);
     const [aiError, setAiError] = useState<string | null>(null);
-    const [showCode, setShowCode] = useState(false);
-    const [codeLanguage, setCodeLanguage] = useState<'python' | 'r'>('python');
-    const [selectedPeriod, setSelectedPeriod] = useState<string | number | null>(null);
+  const [showCode, setShowCode] = useState(false);
+  const [codeLanguage, setCodeLanguage] = useState<'python' | 'r'>('python');
+  const [selectedPeriod, setSelectedPeriod] = useState<string | number | null>(null);
+  const [showCheck1Details, setShowCheck1Details] = useState(false);
+  const [showCheck2Details, setShowCheck2Details] = useState(false);
     
     // Get project ID and dataset ID from navigation state or saved state
     const [projectId, setProjectId] = useState<number | null>((location.state as any)?.projectId || null);
@@ -221,7 +244,19 @@ const ResultsPage: React.FC = () => {
                 console.error('Error saving AI interpretation to localStorage:', storageError);
             }
             } catch (error: any) {
-                const errorMessage = error.response?.data?.error || error.message || 'Failed to load AI interpretation';
+                const errorData = error.response?.data;
+                let errorMessage = errorData?.error || error.message || 'Failed to load AI interpretation';
+                
+                // Check if it's a quota error
+                if (error.response?.status === 429 || errorData?.error_type === 'quota_exceeded') {
+                    const retryAfter = errorData?.retry_after;
+                    if (retryAfter) {
+                        errorMessage = `API quota exceeded. Please wait ${Math.ceil(retryAfter)} seconds before trying again. You can check your usage at https://ai.dev/usage`;
+                    } else {
+                        errorMessage = 'API quota exceeded. Please check your Google Cloud billing and quota limits at https://ai.dev/usage';
+                    }
+                }
+                
                 setAiError(errorMessage);
             } finally {
                 setLoadingAI(false);
@@ -295,18 +330,37 @@ const ResultsPage: React.FC = () => {
         if (!results?.results || !results?.parameters) {
             return "Analysis results are not available.";
         }
-        
-        const effect = Math.abs(results.results.did_estimate || 0);
-        const direction = results.results.interpretation?.effect_direction || 'unknown';
+
+        const effect = results.results.did_estimate || 0;
         const outcome = results.parameters.outcome || 'outcome';
         const treatment = results.parameters.treatment || 'treatment';
         const significance = results.results.is_significant || false;
+        const pValue = results.results.p_value;
         
-        if (significance) {
-            return `Our analysis found that ${treatment} caused a statistically significant ${direction} effect on ${outcome} of approximately ${formatNumber(effect, 0)} units.`;
-        } else {
-            return `Our analysis found that ${treatment} had a ${direction} effect on ${outcome} of approximately ${formatNumber(effect, 0)} units, but this effect was not statistically significant.`;
-        }
+        const effectColor = significance ? '#28a745' : '#6c757d';
+        const significanceColor = significance ? '#28a745' : '#dc3545';
+        const significanceText = significance ? 'Significant' : 'Not Significant';
+        const pValueText = pValue !== null && pValue !== undefined ? ` (p = ${formatNumber(pValue, 3)})` : '';
+        
+        return (
+            <span>
+                <strong style={{color: '#043873'}}>{treatment}</strong> effect on <strong style={{color: '#043873'}}>{outcome}</strong>: {' '}
+                <strong style={{color: effectColor, fontSize: '18px'}}>
+                    {(effect > 0 ? '+' : '')}{formatNumber(effect, 0)} units
+                </strong>
+                {' '}
+                <span style={{
+                    color: significanceColor,
+                    fontWeight: 'bold',
+                    fontSize: '16px',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    backgroundColor: significance ? '#d4edda' : '#f8d7da'
+                }}>
+                    {significanceText}{pValueText}
+                </span>
+            </span>
+        );
     };
 
     // Generate Python code for the analysis
@@ -441,32 +495,32 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
         <div>
             <Navbar />
             <div style={styles.contentContainer}>
-                <div style={styles.mainContent}>
+                <div style={styles.mainLayout}>
+                    <div style={styles.mainContent}>
                     
                     {/* Summary Header */}
                     <div style={styles.summaryHeader}>
                         <div style={styles.summaryHeaderTop}>
                             <h1 style={styles.pageTitle}>Analysis Results</h1>
+                            
+                        </div>
+                        <div style={styles.summaryCard}>
+                            <div style={styles.summaryText}>
+                                {generateAISummary()}
+                            </div>
                             <button 
                                 style={styles.detailsToggleBtn}
                                 onClick={() => setShowDetails(!showDetails)}
+                                onMouseOver={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#f0f7ff';
+                                }}
+                                onMouseOut={(e) => {
+                                  e.currentTarget.style.backgroundColor = 'transparent';
+                                }}
                             >
-                                {showDetails ? '▼' : '▶'} Statistical Details
+                                <span>Show Statistical Details</span>
+                                <span>{showDetails ? '▲' : '▼'}</span>
                             </button>
-                        </div>
-                        <div style={styles.summaryCard}>
-                            <p style={styles.summaryText}>
-                                {generateAISummary()}
-                                {' '}
-                                <span style={{
-                                    ...styles.effectBadge,
-                                    backgroundColor: (results.results?.is_significant || false) ? '#d4edda' : '#f8d7da',
-                                    color: (results.results?.is_significant || false) ? '#155724' : '#721c24'
-                                }}>
-                                    Effect: {(results.results?.did_estimate || 0) > 0 ? '+' : ''}{formatNumber(results.results?.did_estimate, 2)}
-                                    {(results.results?.is_significant || false) ? ' (significant)' : ' (not significant)'}
-                                </span>
-                            </p>
                         </div>
 
                         {/* Statistical Details (expandable) */}
@@ -509,104 +563,469 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                                 </div>
                             </div>
                         )}
+                        
+                        {/* DiD Visualization Chart - Moved here from separate section */}
+                        {(results.results as any)?.chart && (
+                            <div style={{...styles.visualizationSection, marginTop: '30px'}}>
+                                <div style={styles.chartHeader}>
+                                    <h2 style={styles.sectionTitle}>What Happened Over Time</h2>
+                                    <button
+                                        onClick={() => downloadChartAsPNG(
+                                            (results.results as any).chart,
+                                            'did_analysis_chart.png'
+                                        )}
+                                        style={styles.downloadButton}
+                                        title="Download chart as PNG"
+                                    >
+                                        ⬇️ Download Chart
+                                    </button>
+                                </div>
+                                <div style={styles.chartContainer}>
+                                    <div style={styles.realChartContainer}>
+                                        <img 
+                                            src={`data:image/png;base64,${(results.results as any).chart}`} 
+                                            alt="Difference-in-Differences Analysis Chart"
+                                            style={styles.realChart}
+                                        />
+                                        <div style={styles.chartNote}>
+                                            The blue line represents the treatment group, 
+                                            the red line represents the control group, and the dashed line shows what would have happened 
+                                            to the treatment group without the intervention (counterfactual).
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
         {/* NEW: Parallel Trends Assessment Section */}
         <div style={styles.parallelTrendsSection}>
-          <h2 style={styles.sectionTitle}>Parallel Trends Check</h2>
+          <h2 style={styles.sectionTitle}>Did the Groups Start Out Similar?</h2>
           <p style={styles.explanation}>
-            For reliable results, treated and control groups should follow similar trends 
-            before treatment. Here&apos;s what we found:
+            Before we can trust our results, we need to check if the treatment and control groups were changing at similar rates before treatment started. 
+            If they were already diverging, we can't be sure that differences after treatment are caused by the treatment itself.
           </p>
           
-          {/* Statistical Test Result */}
-          <div style={styles.testResult}>
-            {(results.results as any)?.parallel_trends_test?.p_value !== null && (results.results as any)?.parallel_trends_test?.p_value !== undefined ? (
-              (results.results as any)?.parallel_trends_test?.passed ? (
-                <div style={styles.parallelPassedBadge}>
-                  ✓ Trends look parallel (p = {formatNumber((results.results as any).parallel_trends_test.p_value, 3)})
-                </div>
-              ) : (
-                <div style={styles.parallelFailedBadge}>
-                  ⚠ Trends may differ (p = {formatNumber((results.results as any).parallel_trends_test.p_value, 3)})
-                  <p>Consider refining your control group for more reliable results.</p>
-                </div>
-              )
-            ) : (
-              <div style={styles.infoMessage}>
-                ℹ️ Insufficient pre-treatment data to perform parallel trends test.
-                <p>The analysis has been completed, but we couldn&apos;t statistically verify the parallel trends assumption due to limited pre-treatment observations.</p>
-              </div>
-            )}
-          </div>
-          
-          {/* Visual Inspection Chart */}
-          {(results.results as any)?.parallel_trends_test?.visual_chart && (
-            <div style={styles.chartContainer}>
-              <div style={styles.chartHeader}>
-                <h3 style={styles.chartSubtitle}>Pre-Treatment Trends</h3>
-                <button
-                  onClick={() => downloadChartAsPNG(
-                    (results.results as any).parallel_trends_test.visual_chart,
-                    'parallel_trends_chart.png'
+          {/* Use new parallel_trends structure if available, fallback to parallel_trends_test */}
+          {(() => {
+            const pt = (results.results as any)?.parallel_trends || (results.results as any)?.parallel_trends_test;
+            const isNewFormat = !!(results.results as any)?.parallel_trends;
+            
+            // Determine if statistical test passed (high p-value = passed)
+            const statTestPassed = pt?.p_value !== null && pt?.p_value !== undefined && pt.p_value > 0.05;
+            const statTestPValue = pt?.p_value;
+            
+            // Determine if event study passed (all pre-treatment periods include zero)
+            const eventStudyPassed = pt?.all_pre_periods_include_zero === true;
+            const hasEventStudyData = pt?.event_study_coefficients && Array.isArray(pt.event_study_coefficients) && pt.event_study_coefficients.length > 0;
+            
+            return (
+              <>
+                {/* Check 1: Statistical Test */}
+                <div style={{...styles.checkBox, marginBottom: '20px'}}>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px'}}>
+                    <div style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '50%',
+                      backgroundColor: statTestPassed ? '#d4edda' : '#f8d7da',
+                      color: statTestPassed ? '#155724' : '#721c24',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 'bold',
+                      fontSize: '16px',
+                      flexShrink: 0
+                    }}>
+                      {statTestPassed ? '✓' : '✗'}
+                    </div>
+                    <h3 style={{margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#043873'}}>
+                      Check 1: Statistical Test
+                    </h3>
+                  </div>
+                  
+                  {statTestPValue !== null && statTestPValue !== undefined ? (
+                    <>
+                      <div style={{
+                        padding: '12px 16px',
+                        backgroundColor: statTestPassed ? '#d4edda' : '#f8d7da',
+                        borderRadius: '6px',
+                        marginBottom: '10px',
+                        border: `1px solid ${statTestPassed ? '#c3e6cb' : '#f5c6cb'}`
+                      }}>
+                        <p style={{margin: 0, fontSize: '15px', fontWeight: '500', color: statTestPassed ? '#155724' : '#721c24'}}>
+                          {statTestPassed 
+                            ? `✓ The parallel trends test passed with a high p-value (${formatNumber(statTestPValue, 2)}). This suggests the groups were changing at similar rates before treatment.`
+                            : `✗ The parallel trends test found evidence that groups were diverging before treatment (p = ${formatNumber(statTestPValue, 3)}). Interpret results with caution.`
+                          }
+                        </p>
+                      </div>
+                      <p style={{margin: '0 0 20px 0', fontSize: '14px', color: '#212529', lineHeight: '1.5'}}>
+                        <strong>What this means:</strong> We compared how the treatment and control groups changed over time before treatment. 
+                        A high p-value (above 0.05) means we don't see strong evidence that the groups were diverging.
+                      </p>
+                      
+                      {/* Show More Details Button for Check 1 */}
+                      <button
+                        onClick={() => setShowCheck1Details(!showCheck1Details)}
+                        style={{
+                          padding: '8px 16px',
+                          backgroundColor: 'transparent',
+                          border: '1px solid #4F9CF9',
+                          borderRadius: '6px',
+                          color: '#4F9CF9',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          fontWeight: '500',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          transition: 'all 0.2s',
+                          marginBottom: showCheck1Details ? '12px' : '0'
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f0f7ff';
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }}
+                      >
+                        {showCheck1Details ? (
+                          <>
+                            <span>Show less</span>
+                            <span>▲</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Show more details</span>
+                            <span>▼</span>
+                          </>
+                        )}
+                      </button>
+                      
+                      {/* Check 1 Detailed Explanation */}
+                      {showCheck1Details && (
+                        <div style={{
+                          marginTop: '12px',
+                          padding: '16px',
+                          backgroundColor: '#f8f9fa',
+                          borderRadius: '6px',
+                          border: '1px solid #dee2e6'
+                        }}>
+                          <h4 style={{fontSize: '15px', fontWeight: 'bold', marginBottom: '12px', color: '#043873'}}>
+                            How the p-value was calculated
+                          </h4>
+                          <p style={{marginBottom: '10px', fontSize: '14px', lineHeight: '1.6', color: '#212529'}}>
+                            We ran a regression model on pre-treatment data: <code style={{backgroundColor: '#e9ecef', padding: '2px 6px', borderRadius: '3px', fontSize: '12px', color: '#212529'}}>outcome ~ time × treatment</code>
+                          </p>
+                          <p style={{marginBottom: '10px', fontSize: '14px', lineHeight: '1.6', color: '#212529'}}>
+                            This model tests whether the interaction between time and treatment is statistically significant. 
+                            If the groups follow parallel trends, this interaction should be zero (no difference in trends).
+                          </p>
+                          <p style={{marginBottom: '10px', fontSize: '14px', lineHeight: '1.6', color: '#212529'}}>
+                            We then perform a joint F-test on all pre-treatment interaction terms. The F-test checks if, collectively, 
+                            the treatment and control groups had different trends before treatment started.
+                          </p>
+                          <p style={{marginBottom: '0', fontSize: '14px', lineHeight: '1.6', color: '#212529'}}>
+                            <strong>Your result:</strong> p-value = {formatNumber(statTestPValue, 3)}. 
+                            {statTestPassed 
+                              ? ' Since this is above 0.05, we fail to reject the null hypothesis that trends were parallel. This supports the parallel trends assumption.'
+                              : ' Since this is below 0.05, we reject the null hypothesis. This suggests the groups were diverging before treatment.'
+                            }
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{
+                      padding: '12px 16px',
+                      backgroundColor: '#fff3cd',
+                      borderRadius: '6px',
+                      marginBottom: '10px',
+                      border: '1px solid #ffeaa7'
+                    }}>
+                      <p style={{margin: 0, fontSize: '15px', color: '#856404'}}>
+                        Could not perform statistical test. {pt?.message || 'Insufficient pre-treatment data.'}
+                      </p>
+                    </div>
                   )}
-                  style={styles.downloadButton}
-                  title="Download chart as PNG"
-                >
-                  ⬇️ Download PNG
-                </button>
-              </div>
-              <img 
-                src={`data:image/png;base64,${(results.results as any).parallel_trends_test.visual_chart}`} 
-                alt="Pre-treatment trends comparison" 
-                style={styles.chart} 
-              />
-              <p style={styles.chartNote}>
-                The lines should be roughly parallel before the treatment starts. 
-                If they diverge, your results may be less reliable.
-              </p>
-            </div>
-          )}
-        </div>
+                </div>
 
-        {/* 2. THE DiD VISUALIZATION */}
-        <div style={styles.visualizationSection}>
-            <div style={styles.chartHeader}>
-            <h2 style={styles.sectionTitle}>What Happened Over Time</h2>
-                {(results.results as any)?.chart && (
-                    <button
+                {/* Check 2: Event Study */}
+                <div style={styles.checkBox}>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px'}}>
+                    <div style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '50%',
+                      backgroundColor: hasEventStudyData ? (eventStudyPassed ? '#d4edda' : '#fff3cd') : '#e9ecef',
+                      color: hasEventStudyData ? (eventStudyPassed ? '#155724' : '#856404') : '#6c757d',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 'bold',
+                      fontSize: '16px',
+                      flexShrink: 0
+                    }}>
+                      {hasEventStudyData ? (eventStudyPassed ? '✓' : '⚠') : '—'}
+                    </div>
+                    <h3 style={{margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#043873'}}>
+                      Check 2: Event Study
+                    </h3>
+                  </div>
+                  
+                  {hasEventStudyData ? (
+                    <>
+                      <div style={{
+                        padding: '12px 16px',
+                        backgroundColor: eventStudyPassed ? '#d4edda' : '#fff3cd',
+                        borderRadius: '6px',
+                        marginBottom: '10px',
+                        border: `1px solid ${eventStudyPassed ? '#c3e6cb' : '#ffeaa7'}`
+                      }}>
+                        <p style={{margin: 0, fontSize: '15px', fontWeight: '500', color: eventStudyPassed ? '#155724' : '#856404'}}>
+                          {eventStudyPassed
+                            ? `✓ Pre-treatment periods show no significant differences. The groups appear to follow parallel trends.`
+                            : `⚠ Some pre-treatment periods show differences between groups. This may indicate a violation of parallel trends.`
+                          }
+                        </p>
+                      </div>
+                      <p style={{margin: '0 0 0 0', fontSize: '14px', color: '#212529', lineHeight: '1.5'}}>
+                        <strong>What this means:</strong> We examined the difference between treatment and control groups at each time point before treatment. 
+                        If pre-treatment differences hover around zero, parallel trends likely holds.
+                      </p>
+                    </>
+                  ) : (
+                    <div style={{
+                      padding: '12px 16px',
+                      backgroundColor: '#f8f9fa',
+                      borderRadius: '6px',
+                      marginBottom: '10px',
+                      border: '1px solid #dee2e6'
+                    }}>
+                      <p style={{margin: 0, fontSize: '15px', color: '#212529'}}>
+                        Event study not available. {pt?.warnings?.find((w: string) => w.toLowerCase().includes('event study')) || 'Insufficient data for event study analysis.'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              
+              {/* Event Study Chart - Primary Visualization */}
+              {isNewFormat && pt && (
+                <div style={styles.chartContainer}>
+                  <div style={styles.chartHeader}>
+
+                    {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' && (
+                      <button
                         onClick={() => downloadChartAsPNG(
-                            (results.results as any).chart,
-                            'did_analysis_chart.png'
+                          pt.event_study_chart!,
+                          'event_study_chart.png'
                         )}
                         style={styles.downloadButton}
                         title="Download chart as PNG"
-                    >
-                        ⬇️ Download PNG
-                    </button>
-                )}
-            </div>
-            <div style={styles.chartContainer}>
-                {(results.results as any)?.chart ? (
-                    <div style={styles.realChartContainer}>
-                        <img 
-                            src={`data:image/png;base64,${(results.results as any).chart}`} 
-                            alt="Difference-in-Differences Analysis Chart"
-                            style={styles.realChart}
-                        />
-                        <div style={styles.chartNote}>
-                            📊 This chart shows the actual data from your analysis. The blue line represents the treatment group, 
-                            the red line represents the control group, and the dashed line shows what would have happened 
-                            to the treatment group without the intervention (counterfactual).
+                      >
+                        ⬇️ Download Chart
+                      </button>
+                    )}
+                  </div>
+                  {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' ? (
+                    <img 
+                      src={`data:image/png;base64,${pt.event_study_chart}`} 
+                      alt="Event study: treatment-control difference over time" 
+                      style={styles.chart}
+                      onError={(e) => {
+                        console.error('Failed to load event study chart. Chart data length:', pt.event_study_chart?.length || 0);
+                        console.error('First 100 chars:', pt.event_study_chart?.substring(0, 100));
+                        (e.target as HTMLImageElement).style.display = 'none';
+                        const errorDiv = document.createElement('div');
+                        errorDiv.style.padding = '20px';
+                        errorDiv.style.backgroundColor = '#f8d7da';
+                        errorDiv.style.borderRadius = '6px';
+                        errorDiv.style.border = '1px solid #dc3545';
+                        errorDiv.innerHTML = '<p style="margin: 0; color: #721c24;">⚠️ Failed to load event study chart image.</p>';
+                        (e.target as HTMLImageElement).parentElement?.appendChild(errorDiv);
+                      }}
+                    />
+                  ) : (
+                    <div style={{padding: '20px', backgroundColor: '#fff3cd', borderRadius: '6px', border: '1px solid #ffc107'}}>
+                      <p style={{margin: 0, color: '#856404', fontWeight: '500'}}>
+                        ⚠️ Event study chart is not available.
+                      </p>
+                      {pt?.event_study_coefficients && pt.event_study_coefficients.length > 0 ? (
+                        <p style={{margin: '10px 0 0 0', color: '#856404'}}>
+                          You can see the coefficients in the table below.
+                        </p>
+                      ) : (
+                        <div style={{marginTop: '12px'}}>
+                          <p style={{margin: '0 0 8px 0', color: '#856404'}}>
+                            <strong>Why isn't the event study available?</strong>
+                          </p>
+                          {pt?.warnings && pt.warnings.length > 0 ? (
+                            <ul style={{margin: '0', paddingLeft: '20px', color: '#856404'}}>
+                              {pt.warnings.filter((w: string) => w.toLowerCase().includes('event study')).map((warning: string, idx: number) => (
+                                <li key={idx} style={{marginBottom: '4px'}}>{warning}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p style={{margin: 0, color: '#856404', fontSize: '14px'}}>
+                              Event study requires multiple pre-treatment and post-treatment periods, 
+                              and variation in treatment timing across units (or sufficient data variation).
+                              Your data may not meet these requirements.
+                            </p>
+                          )}
                         </div>
+                      )}
+                      {process.env.NODE_ENV === 'development' && (
+                        <p style={{margin: '10px 0 0 0', fontSize: '12px', color: '#666'}}>
+                          Debug: event_study_chart type = {typeof pt?.event_study_chart},
+                          value = {pt?.event_study_chart ? (pt.event_study_chart.toString().substring(0, 50) + '...') : 'null/undefined'},
+                          event_study_coefficients = {pt?.event_study_coefficients ? pt.event_study_coefficients.length : 'missing'}
+                        </p>
+                      )}
                     </div>
-                ) : (
-                    <div style={styles.chartPlaceholder}>
-                        <div style={styles.chartTitle}>Chart Not Available</div>
-                        <p style={styles.message}>Unable to generate chart for this analysis.</p>
+                  )}
+                  
+                  {/* Check 2 Show More Details Button - Below Event Study Chart */}
+                  {hasEventStudyData && (
+                    <div style={{marginTop: '20px'}}>
+                      <button
+                        onClick={() => setShowCheck2Details(!showCheck2Details)}
+                        style={{
+                          padding: '8px 16px',
+                          backgroundColor: 'transparent',
+                          border: '1px solid #4F9CF9',
+                          borderRadius: '6px',
+                          color: '#4F9CF9',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          fontWeight: '500',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          transition: 'all 0.2s',
+                          marginBottom: showCheck2Details ? '12px' : '0'
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f0f7ff';
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }}
+                      >
+                        {showCheck2Details ? (
+                          <>
+                            <span>Show less</span>
+                            <span>▲</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Show more details</span>
+                            <span>▼</span>
+                          </>
+                        )}
+                      </button>
+                      
+                      {/* Check 2 Detailed Explanation */}
+                      {showCheck2Details && (
+                        <div style={{
+                          marginTop: '12px',
+                          padding: '16px',
+                          backgroundColor: '#f8f9fa',
+                          borderRadius: '6px',
+                          border: '1px solid #dee2e6'
+                        }}>
+                          <h4 style={{fontSize: '15px', fontWeight: 'bold', marginBottom: '12px', color: '#043873'}}>
+                            What is an event study?
+                          </h4>
+                          <p style={{marginBottom: '12px', fontSize: '14px', lineHeight: '1.6', color: '#212529'}}>
+                            An event study estimates the treatment effect at each time point relative to when treatment starts. 
+                            Pre-treatment coefficients (blue points) should be near zero if parallel trends holds. 
+                            Post-treatment coefficients (red points) show how the treatment effect evolves over time.
+                          </p>
+                          
+                          <h4 style={{fontSize: '15px', fontWeight: 'bold', marginBottom: '12px', color: '#043873'}}>
+                            How to read this chart
+                          </h4>
+                          <p style={{marginBottom: '12px', fontSize: '14px', lineHeight: '1.6', color: '#212529'}}>
+                            Pre-treatment periods (blue points) should hover around zero with confidence intervals that include zero. 
+                            If they do, parallel trends likely holds. Post-treatment periods (red points) show the treatment effect over time.
+                            The reference period (t = -1) is normalized to zero and shown as a gray square.
+                          </p>
+                          
+                          <p style={{marginBottom: '12px', fontSize: '14px', lineHeight: '1.6', color: '#212529'}}>
+                            <strong>Your result:</strong> {eventStudyPassed 
+                              ? 'All pre-treatment confidence intervals include zero, suggesting parallel trends holds.'
+                              : 'Some pre-treatment periods show differences between groups, which may indicate a violation of parallel trends.'
+                            }
+                          </p>
+                          
+                          {/* Event Study Coefficients Table */}
+                          {pt?.event_study_coefficients && Array.isArray(pt.event_study_coefficients) && pt.event_study_coefficients.length > 0 && (
+                            <>
+                              <h4 style={{fontSize: '15px', fontWeight: 'bold', marginTop: '16px', marginBottom: '12px', color: '#043873'}}>
+                                Event Study Coefficients
+                              </h4>
+                              <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '13px'}}>
+                                <thead>
+                                  <tr style={{backgroundColor: '#f8f9fa', borderBottom: '2px solid #dee2e6'}}>
+                                    <th style={{padding: '10px', textAlign: 'left', fontWeight: '600', color: '#212529'}}>Period</th>
+                                    <th style={{padding: '10px', textAlign: 'right', fontWeight: '600', color: '#212529'}}>Coefficient</th>
+                                    <th style={{padding: '10px', textAlign: 'right', fontWeight: '600', color: '#212529'}}>95% CI Lower</th>
+                                    <th style={{padding: '10px', textAlign: 'right', fontWeight: '600', color: '#212529'}}>95% CI Upper</th>
+                                    <th style={{padding: '10px', textAlign: 'center', fontWeight: '600', color: '#212529'}}>Type</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {pt.event_study_coefficients.map((coef: any, idx: number) => (
+                                    <tr key={idx} style={{borderBottom: '1px solid #dee2e6'}}>
+                                      <td style={{padding: '10px', fontWeight: coef.is_reference ? 'bold' : '500', color: '#212529'}}>
+                                        {coef.relative_time === -1 ? 't = -1 (ref)' : `t = ${coef.relative_time}`}
+                                      </td>
+                                      <td style={{padding: '10px', textAlign: 'right', color: '#212529', fontWeight: '500'}}>
+                                        {coef.is_reference ? '0.00' : formatNumber(coef.coefficient, 4)}
+                                      </td>
+                                      <td style={{padding: '10px', textAlign: 'right', color: '#212529'}}>
+                                        {coef.is_reference ? '0.00' : formatNumber(coef.ci_lower, 4)}
+                                      </td>
+                                      <td style={{padding: '10px', textAlign: 'right', color: '#212529'}}>
+                                        {coef.is_reference ? '0.00' : formatNumber(coef.ci_upper, 4)}
+                                      </td>
+                                      <td style={{padding: '10px', textAlign: 'center'}}>
+                                        {coef.is_reference ? (
+                                          <span style={{color: '#666', fontStyle: 'italic', fontWeight: '500'}}>Reference</span>
+                                        ) : coef.is_pre_treatment ? (
+                                          <span style={{color: '#4F9CF9', fontWeight: '600'}}>Pre-treatment</span>
+                                        ) : (
+                                          <span style={{color: '#FF6B6B', fontWeight: '600'}}>Post-treatment</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </>
+                          )}
+                          
+                          {/* Warnings */}
+                          {pt?.warnings && pt.warnings.length > 0 && (
+                            <div style={{marginTop: '16px', padding: '12px', backgroundColor: '#fff3cd', borderRadius: '6px', border: '1px solid #ffeaa7'}}>
+                              <strong style={{display: 'block', marginBottom: '8px', color: '#856404'}}>⚠️ Important Notes:</strong>
+                              <ul style={{margin: '8px 0', paddingLeft: '20px'}}>
+                                {pt.warnings.map((warning: string, idx: number) => (
+                                  <li key={idx} style={{marginBottom: '6px', lineHeight: '1.5', color: '#856404', fontSize: '14px'}}>{warning}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                )}
-            </div>
+                  )}
+                </div>
+              )}
+              </>
+            );
+          })()}
         </div>
 
         {/* EFFECT SIZE BREAKDOWN - Period by Period */}
@@ -868,7 +1287,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                     onClick={() => setShowCode(!showCode)}
                     style={styles.codeToggleButton}
                 >
-                    {showCode ? '▼ Hide Code' : '▶ Show Code'}
+                    {showCode ? '▲ Hide Code' : '▼ Show Code'}
                 </button>
             </div>
             
@@ -924,21 +1343,23 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                 </div>
             )}
         </div>
+                    </div>
 
-                    {/* AI INTERPRETATION SECTION */}
-                    <div style={styles.aiSection}>
-                        <div style={styles.aiSectionHeader}>
-                            <h2 style={styles.sectionTitle}>🤖 AI-Powered Interpretation</h2>
-                            {!aiInterpretation && !loadingAI && (
-                                <button 
-                                    onClick={loadAIInterpretation}
-                                    style={styles.getAiButton}
-                                    disabled={loadingAI}
-                                >
-                                    ✨ Get AI Recommendations
-                                </button>
-                            )}
-                        </div>
+                    {/* AI INTERPRETATION SECTION - Right Sidebar */}
+                    <div style={styles.aiSidebar}>
+                        <div style={styles.aiSection}>
+                            <div style={styles.aiSectionHeader}>
+                                <h2 style={styles.sectionTitle}>🤖 AI-Powered Interpretation</h2>
+                                {!aiInterpretation && !loadingAI && (
+                                    <button 
+                                        onClick={loadAIInterpretation}
+                                        style={styles.getAiButton}
+                                        disabled={loadingAI}
+                                    >
+                                        ✨ Get AI Recommendations
+                                    </button>
+                                )}
+                            </div>
                         
                         {/* Loading State */}
                         {loadingAI && (
@@ -953,15 +1374,27 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                             <div style={styles.aiError}>
                                 <p>⚠️ {aiError}</p>
                                 <p style={styles.aiErrorNote}>Your results are still valid. AI interpretation is temporarily unavailable.</p>
-                                <button 
-                                    onClick={() => {
-                                        setAiError(null);
-                                        loadAIInterpretation();
-                                    }}
-                                    style={{...styles.aiButton, marginTop: '10px', backgroundColor: '#6c757d'}}
-                                >
-                                    Try Again
-                                </button>
+                                {!aiError.includes('quota exceeded') && (
+                                    <button 
+                                        onClick={() => {
+                                            setAiError(null);
+                                            loadAIInterpretation();
+                                        }}
+                                        style={{...styles.aiButton, marginTop: '10px', backgroundColor: '#6c757d'}}
+                                    >
+                                        Try Again
+                                    </button>
+                                )}
+                                {aiError.includes('quota exceeded') && (
+                                    <div style={{marginTop: '10px', fontSize: '13px', opacity: 0.9}}>
+                                        <p>💡 <strong>Tip:</strong> Check your Google Cloud Console to:</p>
+                                        <ul style={{marginTop: '8px', paddingLeft: '20px'}}>
+                                            <li>Verify your API key has sufficient quota</li>
+                                            <li>Upgrade your plan if needed</li>
+                                            <li>Check usage limits at <a href="https://ai.dev/usage" target="_blank" rel="noopener noreferrer" style={{color: '#043873'}}>ai.dev/usage</a></li>
+                                        </ul>
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -1013,7 +1446,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
 
                             {/* Limitations */}
                             {aiInterpretation.limitations && aiInterpretation.limitations.length > 0 && (
-                                <div style={{...styles.aiCard, backgroundColor: '#fff3cd', borderColor: '#ffc107'}}>
+                                <div style={{...styles.aiCard, backgroundColor: '#fff3cd', border: '1px solid #ffc107'}}>
                                     <h3 style={styles.aiCardTitle}>⚠️ Limitations & Caveats</h3>
                                     <ul style={styles.aiList}>
                                         {aiInterpretation.limitations.map((limit, index) => (
@@ -1025,7 +1458,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
 
                             {/* Implications */}
                             {aiInterpretation.implications && aiInterpretation.implications.length > 0 && (
-                                <div style={{...styles.aiCard, backgroundColor: '#d4edda', borderColor: '#28a745'}}>
+                                <div style={{...styles.aiCard, backgroundColor: '#d4edda', border: '1px solid #28a745'}}>
                                     <h3 style={styles.aiCardTitle}>💡 Practical Implications</h3>
                                     <ul style={styles.aiList}>
                                         {aiInterpretation.implications.map((implication, index) => (
@@ -1037,7 +1470,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
 
                             {/* Next Steps */}
                             {aiInterpretation.next_steps && aiInterpretation.next_steps.length > 0 && (
-                                <div style={{...styles.aiCard, backgroundColor: '#e8f5e9', borderColor: '#4caf50'}}>
+                                <div style={{...styles.aiCard, backgroundColor: '#e8f5e9', border: '1px solid #4caf50'}}>
                                     <h3 style={styles.aiCardTitle}>🚀 Recommended Next Steps</h3>
                                     <ul style={styles.aiList}>
                                         {aiInterpretation.next_steps.map((step, index) => (
@@ -1051,7 +1484,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                             )}
 
                             {/* Overall Recommendation & Confidence */}
-                            {aiInterpretation.recommendation && (
+                            {aiInterpretation && aiInterpretation.recommendation && (
                                 <div style={{...styles.aiCard, backgroundColor: '#e3f2fd', borderColor: '#2196f3', borderLeft: '4px solid #2196f3'}}>
                                     <h3 style={styles.aiCardTitle}>📋 Bottom Line</h3>
                                     <p style={styles.aiText}>{aiInterpretation.recommendation}</p>
@@ -1067,18 +1500,10 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                             )}
                             </>
                         )}
+                        </div>
                     </div>
-
                 </div>
             </div>
-            <BottomProgressBar
-                currentStep={currentStep}
-                steps={steps}
-                onPrev={goToPreviousStep}
-                onNext={goToNextStep}
-                canGoNext={true}
-                onStepClick={(path) => navigate(path, { state: { projectId, datasetId } })}
-            />
         </div>
     );
 };
@@ -1092,11 +1517,19 @@ const styles = {
     minHeight: 'calc(100vh - 70px)',
     backgroundColor: '#f5f5f5'
   },
-  mainContent: {
-    maxWidth: '1000px',
+  mainLayout: {
+    display: 'flex',
+    gap: '24px',
+    maxWidth: '1400px',
     margin: '0 auto',
-    padding: '20px',
+    padding: '20px 10px',
     width: '100%',
+    boxSizing: 'border-box' as const,
+    alignItems: 'flex-start'
+  },
+  mainContent: {
+    flex: '1 1 0',
+    minWidth: 0,
     boxSizing: 'border-box' as const
   },
   
@@ -1118,17 +1551,23 @@ const styles = {
     fontSize: '24px',
     fontWeight: 'bold',
     color: '#043873',
+    textAlign: 'center' as const,
     margin: 0
   },
   detailsToggleBtn: {
     backgroundColor: 'transparent',
-    border: '1px solid #dee2e6',
+    border: '1px solid #4F9CF9',
     borderRadius: '6px',
-    padding: '8px 14px',
+    padding: '8px 16px',
     fontSize: '13px',
-    color: '#6c757d',
+    fontWeight: '500',
+    color: '#4F9CF9',
     cursor: 'pointer',
-    transition: 'all 0.2s ease'
+    transition: 'all 0.2s',
+    marginTop: '16px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px'
   },
   statisticalDetailsInline: {
     backgroundColor: '#f8f9fa',
@@ -1140,14 +1579,16 @@ const styles = {
   summaryCard: {
     backgroundColor: '#f8fafc',
     borderRadius: '8px',
-    padding: '16px 20px',
-    borderLeft: '4px solid #4F9CF9'
+    padding: '20px 24px',
+    borderLeft: '4px solid #4F9CF9',
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)'
   },
   summaryText: {
-    fontSize: '16px',
-    color: '#374151',
+    fontSize: '18px',
+    color: '#212529',
     margin: 0,
-    lineHeight: '1.6'
+    lineHeight: '1.8',
+    fontWeight: '500'
   },
   effectBadge: {
     display: 'inline-block',
@@ -1186,7 +1627,7 @@ const styles = {
   chartTitle: {
     fontSize: '18px',
     fontWeight: 'bold',
-    color: '#495057',
+    color: '#212529',
     marginBottom: '20px',
     textAlign: 'center' as const
   },
@@ -1204,7 +1645,7 @@ const styles = {
   },
   yAxisLabel: {
     fontSize: '12px',
-    color: '#6c757d',
+    color: '#212529',
     writingMode: 'vertical-rl' as const,
     transform: 'rotate(180deg)',
     marginBottom: '10px',
@@ -1220,7 +1661,7 @@ const styles = {
   },
   yTick: {
     fontSize: '10px',
-    color: '#6c757d',
+    color: '#212529',
     textAlign: 'right' as const
   },
   chartContent: {
@@ -1351,12 +1792,12 @@ const styles = {
   },
   xTick: {
     fontSize: '12px',
-    color: '#6c757d',
+    color: '#212529',
     fontWeight: 'bold'
   },
   xAxisLabel: {
     fontSize: '12px',
-    color: '#6c757d',
+    color: '#212529',
     textAlign: 'center' as const
   },
   chartLegend: {
@@ -1371,7 +1812,7 @@ const styles = {
     alignItems: 'center',
     gap: '8px',
     fontSize: '12px',
-    color: '#495057'
+    color: '#212529'
   },
   legendLine: {
     width: '20px',
@@ -1379,11 +1820,12 @@ const styles = {
     borderRadius: '2px'
   },
   chartNote: {
-    fontSize: '12px',
-    color: '#6c757d',
-    fontStyle: 'italic',
+    fontSize: '13px',
+    color: '#212529',
+    fontStyle: 'normal',
     textAlign: 'center' as const,
-    lineHeight: '1.4'
+    lineHeight: '1.5',
+    fontWeight: '400'
   },
   parallelTrendsSection: {
     backgroundColor: 'white',
@@ -1392,6 +1834,12 @@ const styles = {
     marginBottom: '30px',
     boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
     border: '1px solid #e0e0e0'
+  },
+  checkBox: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: '8px',
+    padding: '16px',
+    border: '1px solid #e9ecef'
   },
   explanation: {
     fontSize: '16px',
@@ -1419,6 +1867,39 @@ const styles = {
     border: '1px solid #f5c6cb',
     fontSize: '16px',
     fontWeight: 'bold'
+  },
+  parallelModerateBadge: {
+    backgroundColor: '#fff3cd',
+    color: '#856404',
+    padding: '12px 16px',
+    borderRadius: '8px',
+    border: '1px solid #ffeaa7',
+    fontSize: '16px',
+    fontWeight: 'bold'
+  },
+  warningsBox: {
+    backgroundColor: '#fff3cd',
+    color: '#856404',
+    padding: '12px 16px',
+    borderRadius: '8px',
+    border: '1px solid #ffeaa7',
+    fontSize: '14px',
+    marginTop: '12px'
+  },
+  explanationsBox: {
+    backgroundColor: 'white',
+    padding: '16px',
+    borderRadius: '8px',
+    border: '1px solid #e0e0e0',
+    marginTop: '16px',
+    marginBottom: '12px'
+  },
+  coefficientsTable: {
+    marginTop: '20px',
+    backgroundColor: 'white',
+    padding: '16px',
+    borderRadius: '8px',
+    border: '1px solid #e0e0e0'
   },
   infoMessage: {
     backgroundColor: '#d1ecf1',
@@ -1477,7 +1958,7 @@ const styles = {
   assumptionTitle: {
     fontSize: '18px',
     fontWeight: 'bold',
-    color: '#495057',
+    color: '#212529',
     margin: 0
   },
   passedBadge: {
@@ -1498,7 +1979,7 @@ const styles = {
   },
   assumptionText: {
     fontSize: '14px',
-    color: '#6c757d',
+    color: '#212529',
     margin: 0,
     lineHeight: '1.5'
   },
@@ -1511,7 +1992,7 @@ const styles = {
     borderRadius: '8px',
     padding: '10px 20px',
     fontSize: '14px',
-    color: '#495057',
+    color: '#212529',
     cursor: 'pointer',
     transition: 'all 0.2s',
     '&:hover': {
@@ -1540,12 +2021,12 @@ const styles = {
   },
   detailLabel: {
     fontSize: '14px',
-    color: '#6c757d',
+    color: '#212529',
     fontWeight: '500'
   },
   detailValue: {
     fontSize: '14px',
-    color: '#495057',
+    color: '#212529',
     fontWeight: 'bold',
     textAlign: 'right' as const
   },
@@ -1596,27 +2077,35 @@ const styles = {
   },
 
   // AI INTERPRETATION SECTION
+  aiSidebar: {
+    flex: '0 0 420px',
+    position: 'sticky' as const,
+    top: '90px',
+    maxHeight: 'calc(100vh - 110px)',
+    overflowY: 'auto' as const,
+    boxSizing: 'border-box' as const,
+    alignSelf: 'flex-start'
+  },
   aiSection: {
     backgroundColor: 'white',
-    borderRadius: '16px',
-    padding: '40px',
-    marginBottom: '30px',
-    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)',
-    border: '2px solid #4F9CF9'
+    borderRadius: '12px',
+    padding: '24px',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+    border: '1px solid #e0e0e0'
   },
   aiCard: {
     backgroundColor: '#f8f9fa',
-    borderRadius: '12px',
-    padding: '25px',
-    marginBottom: '20px',
+    borderRadius: '8px',
+    padding: '16px',
+    marginBottom: '16px',
     border: '1px solid #e9ecef',
     borderLeft: '4px solid #4F9CF9'
   },
   aiCardTitle: {
-    fontSize: '20px',
+    fontSize: '18px',
     fontWeight: 'bold',
     color: '#043873',
-    margin: '0 0 15px 0'
+    margin: '0 0 12px 0'
   },
   aiText: {
     fontSize: '16px',
@@ -1629,10 +2118,10 @@ const styles = {
     paddingLeft: '20px'
   },
   aiListItem: {
-    fontSize: '16px',
+    fontSize: '14px',
     lineHeight: '1.6',
     color: '#333',
-    marginBottom: '8px'
+    marginBottom: '6px'
   },
   aiLoading: {
     textAlign: 'center' as const,
@@ -1709,7 +2198,7 @@ const styles = {
   chartSubtitle: {
     fontSize: '18px',
     fontWeight: 'bold',
-    color: '#495057',
+    color: '#212529',
     margin: 0
   },
 
@@ -1730,7 +2219,7 @@ const styles = {
   },
   codeToggleButton: {
     backgroundColor: '#f8f9fa',
-    color: '#495057',
+    color: '#212529',
     border: '1px solid #dee2e6',
     borderRadius: '8px',
     padding: '10px 20px',
@@ -1755,7 +2244,7 @@ const styles = {
   },
   languageTab: {
     backgroundColor: '#f8f9fa',
-    color: '#495057',
+    color: '#212529',
     border: '2px solid #e9ecef',
     borderRadius: '8px',
     padding: '12px 24px',
@@ -1842,7 +2331,7 @@ const styles = {
   effectCardLabel: {
     fontSize: '16px',
     fontWeight: 'bold',
-    color: '#495057'
+    color: '#212529'
   },
   periodBadge: {
     backgroundColor: '#6c757d',
@@ -1866,7 +2355,7 @@ const styles = {
   groupLabel: {
     display: 'block',
     fontSize: '12px',
-    color: '#6c757d',
+    color: '#212529',
     marginBottom: '5px'
   },
   groupNumber: {
@@ -1882,7 +2371,7 @@ const styles = {
   effectDiff: {
     textAlign: 'center' as const,
     fontSize: '14px',
-    color: '#495057',
+    color: '#212529',
     padding: '10px',
     backgroundColor: 'white',
     borderRadius: '8px',
@@ -1897,7 +2386,7 @@ const styles = {
   effectBarTitle: {
     fontSize: '18px',
     fontWeight: 'bold',
-    color: '#495057',
+    color: '#212529',
     margin: '0 0 20px 0'
   },
   effectBarsContainer: {
@@ -1942,7 +2431,7 @@ const styles = {
   periodSelectorLabel: {
     display: 'block',
     fontSize: '15px',
-    color: '#495057',
+    color: '#212529',
     marginBottom: '12px',
     fontWeight: '500'
   },
@@ -2030,7 +2519,7 @@ const styles = {
   },
   periodValueHeader: {
     fontSize: '13px',
-    color: '#6c757d',
+    color: '#212529',
     marginBottom: '8px',
     display: 'flex',
     alignItems: 'center',
@@ -2082,7 +2571,7 @@ const styles = {
     backgroundColor: '#f1f3f4',
     borderRadius: '8px',
     padding: '15px 20px',
-    color: '#495057',
+    color: '#212529',
     fontSize: '14px',
     lineHeight: '1.6'
   },
@@ -2118,48 +2607,47 @@ const styles = {
     padding: '15px 20px',
     marginTop: '20px',
     fontSize: '13px',
-    color: '#6c757d',
+    color: '#212529',
     lineHeight: '1.6',
     borderLeft: '4px solid #6c757d'
   },
   aiSectionHeader: {
     display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '20px',
-    flexWrap: 'wrap' as const,
-    gap: '15px'
+    flexDirection: 'column' as const,
+    gap: '12px',
+    marginBottom: '20px'
   },
   getAiButton: {
     backgroundColor: '#6366f1',
     color: 'white',
     border: 'none',
-    borderRadius: '10px',
-    padding: '14px 28px',
-    fontSize: '16px',
+    borderRadius: '8px',
+    padding: '10px 16px',
+    fontSize: '14px',
     fontWeight: '600',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
-    gap: '8px',
-    boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
-    transition: 'all 0.2s ease'
+    justifyContent: 'center',
+    gap: '6px',
+    boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)',
+    transition: 'all 0.2s ease',
+    width: '100%'
   },
   aiPromptIcon: {
-    fontSize: '48px',
-    marginBottom: '15px'
+    fontSize: '36px',
+    marginBottom: '12px'
   },
   aiPromptTitle: {
-    fontSize: '20px',
+    fontSize: '16px',
     fontWeight: 'bold',
     color: '#333',
-    margin: '0 0 10px 0'
+    margin: '0 0 8px 0'
   },
   aiPromptText: {
-    fontSize: '15px',
+    fontSize: '14px',
     color: '#666',
     lineHeight: '1.6',
-    maxWidth: '500px',
     margin: '0 auto'
   },
   stepNumber: {

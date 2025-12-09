@@ -4,6 +4,7 @@ Focused on results interpretation for causal analysis
 """
 
 import os
+import sys
 import json
 import google.generativeai as genai
 from typing import Dict, Any, Optional
@@ -18,15 +19,29 @@ class CausalAIService:
     def __init__(self):
         self.api_key = os.getenv('GOOGLE_API_KEY')
         if not self.api_key:
-            raise ValueError("GOOGLE_API_KEY not found in environment variables")
+            error_msg = "GOOGLE_API_KEY not found in environment variables. Please check backend/.env file."
+            print(f"ERROR: {error_msg}", file=sys.stderr)
+            print(f"Available env vars starting with GOOGLE: {[k for k in os.environ.keys() if 'GOOGLE' in k.upper()]}", file=sys.stderr)
+            raise ValueError(error_msg)
         
         # Configure Gemini
-        genai.configure(api_key=self.api_key)
+        try:
+            genai.configure(api_key=self.api_key)
+        except Exception as e:
+            error_msg = f"Failed to configure Gemini API: {str(e)}"
+            print(f"ERROR: {error_msg}", file=sys.stderr)
+            raise ValueError(error_msg)
         
         # List available models and find one that supports generateContent
+        model_name_to_use = None
+        list_error = None
         try:
             available_models = []
-            for model in genai.list_models():
+            model_list = list(genai.list_models())
+            print(f"DEBUG: Found {len(model_list)} models from API", file=sys.stderr)
+            sys.stderr.flush()
+            
+            for model in model_list:
                 # Safely check supported_generation_methods (handles different SDK versions)
                 try:
                     supported_methods = getattr(model, 'supported_generation_methods', [])
@@ -39,59 +54,96 @@ class CausalAIService:
                         # Model name might be like "models/gemini-pro" - extract the short name
                         model_name = model.name.split('/')[-1] if '/' in model.name else model.name
                         available_models.append((model_name, model.name))
-                except Exception:
+                        print(f"DEBUG: Found model with generateContent: {model_name} ({model.name})", file=sys.stderr)
+                except Exception as e:
                     # If we can't check methods, skip this model
+                    print(f"DEBUG: Error checking model {getattr(model, 'name', 'unknown')}: {e}", file=sys.stderr)
                     continue
             
-            if not available_models:
-                raise ValueError("No Gemini models available with generateContent support. Check your API key and permissions.")
+            print(f"DEBUG: Total models with generateContent: {len(available_models)}", file=sys.stderr)
+            sys.stderr.flush()
             
-            # Use the first available model, or user's preference
-            user_model = os.getenv('AI_MODEL_NAME')
-            if user_model:
-                # User specified a model - try to find it
-                model_found = None
-                for short_name, full_name in available_models:
-                    if short_name == user_model or full_name == user_model:
-                        model_found = full_name
-                        break
-                
-                if model_found:
-                    model_name_to_use = model_found
-                else:
-                    # User model not found, use first available
-                    model_name_to_use = available_models[0][1]
+            if not available_models:
+                list_error = "No Gemini models available with generateContent support. Check your API key and permissions."
+                print(f"WARNING: {list_error}", file=sys.stderr)
+                sys.stderr.flush()
             else:
-                # Use first available model
-                model_name_to_use = available_models[0][1]
+                # Use the first available model, or user's preference
+                user_model = os.getenv('AI_MODEL_NAME')
+                if user_model:
+                    # User specified a model - try to find it
+                    model_found = None
+                    for short_name, full_name in available_models:
+                        if short_name == user_model or full_name == user_model:
+                            model_found = full_name
+                            break
+                    
+                    if model_found:
+                        model_name_to_use = model_found
+                        print(f"DEBUG: Using user-specified model: {model_name_to_use}", file=sys.stderr)
+                    else:
+                        # User model not found, use first available
+                        model_name_to_use = available_models[0][1]
+                        print(f"DEBUG: User model '{user_model}' not found, using first available: {model_name_to_use}", file=sys.stderr)
+                else:
+                    # Use first available model
+                    model_name_to_use = available_models[0][1]
+                    print(f"DEBUG: Using first available model: {model_name_to_use}", file=sys.stderr)
+                sys.stderr.flush()
                 
-        except Exception:
+        except Exception as e:
+            list_error = f"Error listing models: {str(e)}"
+            print(f"WARNING: {list_error}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            sys.stderr.flush()
             model_name_to_use = None  # Will try fallbacks below
         
         # If model listing failed or no model found, try common fallbacks
         if not model_name_to_use:
+            print(f"DEBUG: Trying fallback models...", file=sys.stderr)
+            sys.stderr.flush()
             fallback_models = [
+                'gemini-2.0-flash-exp',
                 'gemini-2.0-flash',
+                'gemini-1.5-flash-latest',
                 'gemini-1.5-flash', 
+                'gemini-1.5-pro-latest',
                 'gemini-1.5-pro',
                 'gemini-pro',
+                'models/gemini-2.0-flash-exp',
                 'models/gemini-2.0-flash',
+                'models/gemini-1.5-flash-latest',
                 'models/gemini-1.5-flash',
+                'models/gemini-1.5-pro-latest',
+                'models/gemini-1.5-pro',
                 'models/gemini-pro',
             ]
             
+            fallback_errors = []
             for fallback in fallback_models:
                 try:
+                    print(f"DEBUG: Trying fallback model: {fallback}", file=sys.stderr)
+                    sys.stderr.flush()
+                    # Just try to create the model - don't test it yet
+                    # The actual call will happen when we use it
                     test_model = genai.GenerativeModel(model_name=fallback)
-                    # Try a simple call to verify it works
-                    test_model.generate_content("test", generation_config={'max_output_tokens': 10})
                     model_name_to_use = fallback
+                    print(f"DEBUG: Successfully initialized model: {fallback}", file=sys.stderr)
+                    sys.stderr.flush()
                     break
-                except Exception:
+                except Exception as e:
+                    error_msg = f"{fallback}: {str(e)}"
+                    fallback_errors.append(error_msg)
+                    print(f"DEBUG: Failed to create model {fallback}: {str(e)}", file=sys.stderr)
+                    sys.stderr.flush()
                     continue
             
             if not model_name_to_use:
-                raise ValueError("No working Gemini model found. Please check your API key permissions.")
+                error_details = f"{list_error or 'Model listing failed'}. Fallback attempts: " + "; ".join(fallback_errors[:3])
+                print(f"ERROR: {error_details}", file=sys.stderr)
+                sys.stderr.flush()
+                raise ValueError(f"No working Gemini model found. Please check your API key permissions. Details: {error_details}")
         
         # Create model instance with adjusted safety settings
         # Lower safety thresholds to allow analysis of statistical results
@@ -189,8 +241,32 @@ PARALLEL TRENDS ASSUMPTION:
                         temperature=float(os.getenv('AI_TEMPERATURE', '0.7')),
                     )
                 )
-            except Exception:
-                raise
+            except Exception as api_error:
+                # Check for quota/rate limit errors
+                error_str = str(api_error)
+                if '429' in error_str or 'quota' in error_str.lower() or 'rate.limit' in error_str.lower():
+                    # Try to extract retry delay from error message
+                    retry_delay = None
+                    if 'retry_delay' in error_str or 'retry in' in error_str.lower():
+                        import re
+                        delay_match = re.search(r'retry.*?(\d+\.?\d*)\s*s', error_str, re.IGNORECASE)
+                        if delay_match:
+                            retry_delay = float(delay_match.group(1))
+                    
+                    # Create a user-friendly error message
+                    if retry_delay:
+                        error_msg = f"API quota exceeded. Please wait {int(retry_delay)} seconds before trying again. You can check your usage at https://ai.dev/usage"
+                    else:
+                        error_msg = "API quota exceeded. Please check your Google Cloud billing and quota limits at https://ai.dev/usage"
+                    
+                    # Create a custom exception that includes the retry delay
+                    quota_error = ValueError(error_msg)
+                    quota_error.retry_delay = retry_delay
+                    quota_error.is_quota_error = True
+                    raise quota_error
+                else:
+                    # Re-raise other errors as-is
+                    raise
             
             # Try multiple approaches to extract text
             response_text = None

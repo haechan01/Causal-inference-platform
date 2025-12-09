@@ -17,6 +17,7 @@ from io import BytesIO
 from scipy.stats import t, norm
 import math
 from models import Dataset
+from utils.did_analysis import check_parallel_trends
 
 # Create blueprint
 datasets_bp = Blueprint('datasets', __name__, url_prefix='/api/datasets')
@@ -596,6 +597,14 @@ def run_did_analysis(dataset_id):
             # Read CSV and perform DiD analysis
             df = pd.read_csv(temp_file_path)
             
+            # Convert outcome variable to numeric (handle large numbers stored as strings)
+            if outcome_var in df.columns:
+                df[outcome_var] = pd.to_numeric(df[outcome_var], errors='coerce')
+                # Check for any NaN values created during conversion
+                nan_count = df[outcome_var].isna().sum()
+                if nan_count > 0:
+                    print(f"Warning: {nan_count} non-numeric values in outcome variable were converted to NaN")
+            
             # Apply treatment and control unit filtering
             print(f"Treatment units: {treatment_units}")
             print(f"Control units: {control_units}")
@@ -639,97 +648,104 @@ def run_did_analysis(dataset_id):
             if df['post_treatment'].sum() == 0:
                 return jsonify({"error": "No post-treatment observations found"}), 400
             
-            # Test parallel trends in pre-treatment period using regression
-            # Tests if group × time interaction is significant in pre-period
-            parallel_trends_test = None
+            # Test parallel trends using improved function
+            # This uses joint F-test and event study analysis
+            parallel_trends_result = None
             try:
-                pre_treatment_data = df[df['post_treatment'] == 0].copy()
+                # Normalize treatment_time to match time column dtype exactly using pandas
+                if pd.api.types.is_datetime64_any_dtype(df[time_var]):
+                    treatment_time_for_test = pd.to_datetime(treatment_start)
+                elif pd.api.types.is_numeric_dtype(df[time_var]):
+                    treatment_time_for_test = pd.to_numeric(treatment_start, errors='coerce')
+                    if pd.isna(treatment_time_for_test):
+                        raise ValueError(f"Could not convert treatment_start {treatment_start} to numeric to match time column type")
+                else:
+                    treatment_time_for_test = str(treatment_start)
                 
-                if len(pre_treatment_data) > 4:  # Need at least 5 observations for regression
-                    # Regression approach: outcome ~ time + treated + time*treated
-                    # If time*treated coefficient is significant, parallel trends violated
-                    
-                    # Create time-treatment interaction
-                    pre_treatment_data['time_treated_interaction'] = (
-                        pre_treatment_data[time_var] * pre_treatment_data['is_treated']
+                # Get unit column if available
+                unit_var = request.json.get('unit') if request.json else None
+                
+                print(f"Running parallel trends check:")
+                print(f"  - treatment_col: is_treated")
+                print(f"  - time_col: {time_var}")
+                print(f"  - outcome_col: {outcome_var}")
+                print(f"  - unit_col: {unit_var}")
+                print(f"  - treatment_time: {treatment_time_for_test} (type: {type(treatment_time_for_test)})")
+                print(f"  - Data shape: {df.shape}")
+                print(f"  - Time column dtype: {df[time_var].dtype}")
+                if unit_var and unit_var in df.columns:
+                    print(f"  - Unit column dtype: {df[unit_var].dtype}")
+                    print(f"  - Unique units: {df[unit_var].nunique()}")
+                print(f"  - Pre-treatment periods: {sorted(df[df[time_var] < treatment_time_for_test][time_var].unique())}")
+                
+                # Use the improved check_parallel_trends function
+                # It expects: df, treatment_col, time_col, outcome_col, treatment_time, unit_col
+                print(f"  Calling check_parallel_trends function...")
+                import sys
+                sys.stdout.flush()
+                sys.stderr.flush()
+                
+                try:
+                    parallel_trends_result = check_parallel_trends(
+                        df=df,
+                        treatment_col='is_treated',
+                        time_col=time_var,
+                        outcome_col=outcome_var,
+                        treatment_time=treatment_time_for_test,
+                        unit_col=unit_var if unit_var and unit_var in df.columns else None
                     )
-                    
-                    # Prepare data for regression
-                    X = pre_treatment_data[[time_var, 'is_treated', 'time_treated_interaction']].values
-                    y = pre_treatment_data[outcome_var].values
-                    
-                    # Add constant term
-                    X_with_const = np.column_stack([np.ones(len(X)), X])
-                    
-                    # OLS estimation: beta = (X'X)^-1 X'y
-                    try:
-                        XtX = X_with_const.T @ X_with_const
-                        Xty = X_with_const.T @ y
-                        beta = np.linalg.solve(XtX, Xty)
-                        
-                        # Calculate residuals and standard errors
-                        y_pred = X_with_const @ beta
-                        residuals = y - y_pred
-                        n = len(y)
-                        k = X_with_const.shape[1]
-                        
-                        # Residual standard error
-                        rse = np.sqrt(np.sum(residuals**2) / (n - k))
-                        
-                        # Variance-covariance matrix
-                        var_covar = rse**2 * np.linalg.inv(XtX)
-                        
-                        # Standard errors
-                        se = np.sqrt(np.diag(var_covar))
-                        
-                        # Test the interaction coefficient (last coefficient)
-                        interaction_coef = beta[-1]
-                        interaction_se = se[-1]
-                        
-                        # t-statistic and p-value for interaction
-                        if interaction_se > 0:
-                            t_stat = interaction_coef / interaction_se
-                            p_value = 2 * (1 - t.cdf(abs(t_stat), n - k))
-                        else:
-                            p_value = 1.0
-                        
-                        # Also calculate simple slopes for interpretation
-                        treated_pre = pre_treatment_data[pre_treatment_data['is_treated'] == 1]
-                        control_pre = pre_treatment_data[pre_treatment_data['is_treated'] == 0]
-                        
-                        treated_slope = np.polyfit(treated_pre[time_var], treated_pre[outcome_var], 1)[0] if len(treated_pre) > 1 else 0
-                        control_slope = np.polyfit(control_pre[time_var], control_pre[outcome_var], 1)[0] if len(control_pre) > 1 else 0
-                        
-                        parallel_trends_test = {
-                            'treated_slope': float(treated_slope),
-                            'control_slope': float(control_slope),
-                            'interaction_coefficient': float(interaction_coef),
-                            'p_value': float(p_value),
-                            'passed': bool(p_value > 0.05),  # non-significant = parallel trends likely hold
-                            'visual_chart': None  # Will be set later
-                        }
-                    except np.linalg.LinAlgError:
-                        # If matrix is singular, fall back to simple comparison
-                        print("Warning: Singular matrix in parallel trends test, using simple slope comparison")
-                        treated_pre = pre_treatment_data[pre_treatment_data['is_treated'] == 1]
-                        control_pre = pre_treatment_data[pre_treatment_data['is_treated'] == 0]
-                        
-                        if len(treated_pre) > 2 and len(control_pre) > 2:
-                            treated_slope = np.polyfit(treated_pre[time_var], treated_pre[outcome_var], 1)[0]
-                            control_slope = np.polyfit(control_pre[time_var], control_pre[outcome_var], 1)[0]
-                            
-                            parallel_trends_test = {
-                                'treated_slope': float(treated_slope),
-                                'control_slope': float(control_slope),
-                                'p_value': None,
-                                'passed': None,
-                                'visual_chart': None
-                            }
+                    print(f"  check_parallel_trends returned successfully")
+                    sys.stdout.flush()
+                except Exception as e:
+                    print(f"  EXCEPTION in check_parallel_trends: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    sys.stdout.flush()
+                    raise
+                
+                print(f"Parallel trends check completed.")
+                sys.stdout.flush()
+                print(f"  - Confidence: {parallel_trends_result.get('confidence_level', 'unknown')}")
+                print(f"  - P-value: {parallel_trends_result.get('p_value', 'None')}")
+                print(f"  - Message: {parallel_trends_result.get('message', 'None')}")
+                print(f"  - Has mean_chart: {parallel_trends_result.get('mean_chart') is not None}")
+                print(f"  - Has event_study_chart: {parallel_trends_result.get('event_study_chart') is not None}")
+                event_coeffs = parallel_trends_result.get('event_study_coefficients', [])
+                print(f"  - Event study coefficients: {len(event_coeffs)} coefficients")
+                print(f"  - Warnings: {parallel_trends_result.get('warnings', [])}")
+                sys.stdout.flush()
+                
+                # Add warning to results if event study failed
+                if not event_coeffs and parallel_trends_result.get('warnings'):
+                    event_warnings = [w for w in parallel_trends_result.get('warnings', []) if 'event study' in w.lower()]
+                    if event_warnings:
+                        print(f"  - Event study warning: {event_warnings[0]}")
+                        sys.stdout.flush()
             except Exception as e:
                 print(f"Error in parallel trends test: {str(e)}")
                 import traceback
                 traceback.print_exc()
                 # Continue without parallel trends test if it fails
+                parallel_trends_result = {
+                    "passed": None,
+                    "p_value": None,
+                    "message": f"Could not perform parallel trends test: {str(e)}",
+                    "confidence_level": "unknown",
+                    "visual_chart": None,
+                    "event_study_chart": None,
+                    "warnings": [f"Error: {str(e)}"]
+                }
+            
+            # For backward compatibility, also create parallel_trends_test
+            # but prefer the new parallel_trends structure
+            parallel_trends_test = None
+            if parallel_trends_result:
+                # Create backward-compatible structure
+                parallel_trends_test = {
+                    'passed': parallel_trends_result.get('passed'),
+                    'p_value': parallel_trends_result.get('p_value'),
+                    'visual_chart': parallel_trends_result.get('visual_chart')
+                }
             
             # Prepare data for analysis
             analysis_cols = [
@@ -738,6 +754,10 @@ def run_did_analysis(dataset_id):
             ] + control_vars
             analysis_data = df[analysis_cols].copy()
             analysis_data = analysis_data.dropna()
+            
+            # Ensure outcome variable is numeric for statistics calculation
+            if outcome_var in analysis_data.columns:
+                analysis_data[outcome_var] = pd.to_numeric(analysis_data[outcome_var], errors='coerce')
             
             # Basic statistics
             basic_stats = {
@@ -748,16 +768,16 @@ def run_did_analysis(dataset_id):
                 'post_treatment_obs': int((analysis_data['post_treatment'] == 1).sum()),
                 'outcome_mean_treated_pre': float(
                     analysis_data[(analysis_data['is_treated'] == 1) & (analysis_data['post_treatment'] == 0)][outcome_var].mean()
-                ),
+                ) if len(analysis_data[(analysis_data['is_treated'] == 1) & (analysis_data['post_treatment'] == 0)]) > 0 else 0.0,
                 'outcome_mean_treated_post': float(
                     analysis_data[(analysis_data['is_treated'] == 1) & (analysis_data['post_treatment'] == 1)][outcome_var].mean()
-                ),
+                ) if len(analysis_data[(analysis_data['is_treated'] == 1) & (analysis_data['post_treatment'] == 1)]) > 0 else 0.0,
                 'outcome_mean_control_pre': float(
                     analysis_data[(analysis_data['is_treated'] == 0) & (analysis_data['post_treatment'] == 0)][outcome_var].mean()
-                ),
+                ) if len(analysis_data[(analysis_data['is_treated'] == 0) & (analysis_data['post_treatment'] == 0)]) > 0 else 0.0,
                 'outcome_mean_control_post': float(
                     analysis_data[(analysis_data['is_treated'] == 0) & (analysis_data['post_treatment'] == 1)][outcome_var].mean()
-                )
+                ) if len(analysis_data[(analysis_data['is_treated'] == 0) & (analysis_data['post_treatment'] == 1)]) > 0 else 0.0
             }
             
             # Calculate period-by-period statistics for detailed breakdown
@@ -954,7 +974,8 @@ def run_did_analysis(dataset_id):
                     'significance': 'significant' if p_value < 0.05 else 'not significant'
                 },
                 'chart': chart_base64 or '',
-                'parallel_trends_test': parallel_trends_test
+                'parallel_trends_test': parallel_trends_test,  # Backward compatibility
+                'parallel_trends': parallel_trends_result  # New improved structure
             }
             print(f"Results object created successfully with keys: {list(results.keys())}")
             
