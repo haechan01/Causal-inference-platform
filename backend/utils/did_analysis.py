@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import base64
 import io
+import sys
 
 def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_time):
     """
@@ -29,8 +30,12 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
     --------
     dict with test results, interpretation, and visualizations
     """
+    print("=" * 80)
+    print(f"[check_parallel_trends] FUNCTION CALLED")
     print(f"[check_parallel_trends] Starting with treatment_time={treatment_time}, type={type(treatment_time)}")
+    sys.stdout.flush()
     print(f"[check_parallel_trends] Data shape: {df.shape}, columns: {list(df.columns)}")
+    sys.stdout.flush()
     
     # =========================================================
     # STEP 1: Validate we have enough data
@@ -71,13 +76,26 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
     # =========================================================
     
     print(f"[check_parallel_trends] Running event study analysis...")
+    sys.stdout.flush()
+    print(f"[check_parallel_trends] Full dataframe shape: {df.shape}")
+    print(f"[check_parallel_trends] Full dataframe columns: {list(df.columns)}")
+    print(f"[check_parallel_trends] Treatment column '{treatment_col}' exists: {treatment_col in df.columns}")
+    print(f"[check_parallel_trends] Time column '{time_col}' exists: {time_col in df.columns}")
+    print(f"[check_parallel_trends] Outcome column '{outcome_col}' exists: {outcome_col in df.columns}")
+    sys.stdout.flush()
+    
     try:
         event_study = _run_event_study(
             df, treatment_col, time_col, outcome_col, treatment_time
         )
         print(f"[check_parallel_trends] Event study returned: {type(event_study)}")
+        sys.stdout.flush()
+        print(f"[check_parallel_trends] Event study keys: {list(event_study.keys()) if isinstance(event_study, dict) else 'Not a dict'}")
+        sys.stdout.flush()
+        
         if event_study.get("error"):
             print(f"[check_parallel_trends] Event study error: {event_study.get('error')}")
+            sys.stdout.flush()
         else:
             coeffs = event_study.get('coefficients', [])
             chart = event_study.get('chart')
@@ -87,6 +105,10 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
             print(f"  - Chart type: {type(chart)}")
             if chart:
                 print(f"  - Chart length: {len(chart) if isinstance(chart, str) else 'N/A'}")
+            else:
+                print(f"  - Chart is None or empty")
+                print(f"  - Event study dict: {event_study}")
+            sys.stdout.flush()
     except Exception as e:
         print(f"[check_parallel_trends] Exception in event study: {str(e)}")
         import traceback
@@ -117,6 +139,13 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
     # STEP 6: Compile and return results
     # =========================================================
     
+    print(f"[check_parallel_trends] Compiling final results...")
+    sys.stdout.flush()
+    print(f"[check_parallel_trends] Event study chart in result: {event_study.get('chart') is not None if event_study else 'event_study is None'}")
+    print(f"[check_parallel_trends] Event study coefficients in result: {len(event_study.get('coefficients', [])) if event_study and event_study.get('coefficients') else 0}")
+    print(f"[check_parallel_trends] Full event_study dict: {event_study}")
+    sys.stdout.flush()
+    
     return {
         # Main results
         "passed": test_result.get("passed"),
@@ -130,11 +159,11 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
         # Visualizations
         "mean_chart": means_chart,  # Primary: Traditional means plot (intuitive for users)
         "visual_chart": means_chart,  # Legacy support - same as mean_chart
-        "event_study_chart": event_study.get("chart"),  # Secondary: Event study plot (for advanced users)
+        "event_study_chart": event_study.get("chart") if event_study else None,  # Secondary: Event study plot (for advanced users)
         
         # Detailed data (for advanced users or AI interpretation)
-        "event_study_coefficients": event_study.get("coefficients"),
-        "all_pre_periods_include_zero": event_study.get("all_pre_periods_include_zero"),
+        "event_study_coefficients": event_study.get("coefficients") if event_study else None,
+        "all_pre_periods_include_zero": event_study.get("all_pre_periods_include_zero") if event_study else None,
         
         # Explanations for users
         "explanations": interpretation.get("explanations", [])
@@ -190,6 +219,19 @@ def _run_statistical_test(pre_data, treatment_col, time_col, outcome_col):
                 "p_value": None, 
                 "error": f"Need at least 2 time periods. Found: {len(unique_times)}"
             }
+        
+        # Ensure outcome column is numeric
+        pre_data = pre_data.copy()
+        if outcome_col in pre_data.columns:
+            pre_data[outcome_col] = pd.to_numeric(pre_data[outcome_col], errors='coerce')
+            # Drop rows with NaN in outcome (from conversion errors)
+            pre_data = pre_data.dropna(subset=[outcome_col])
+            if len(pre_data) == 0:
+                return {
+                    "passed": None,
+                    "p_value": None,
+                    "error": "No valid numeric data in outcome column after conversion"
+                }
         
         # Build the regression formula
         # C() tells statsmodels to treat time as categorical (creates dummies)
@@ -273,12 +315,26 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time):
     """
     try:
         print(f"  Starting event study analysis")
+        sys.stdout.flush()
         print(f"    Data shape: {df.shape}")
         print(f"    Treatment column: {treatment_col}")
         print(f"    Time column: {time_col}")
         print(f"    Treatment time: {treatment_time} (type: {type(treatment_time)})")
+        sys.stdout.flush()
         
         analysis_df = df.copy()
+        
+        # Ensure outcome column is numeric
+        if outcome_col in analysis_df.columns:
+            analysis_df[outcome_col] = pd.to_numeric(analysis_df[outcome_col], errors='coerce')
+            # Drop rows with NaN in outcome
+            analysis_df = analysis_df.dropna(subset=[outcome_col])
+            if len(analysis_df) == 0:
+                return {
+                    "coefficients": None,
+                    "chart": None,
+                    "error": "No valid numeric data in outcome column after conversion"
+                }
         
         # Ensure treatment_time matches the time column type
         if pd.api.types.is_numeric_dtype(analysis_df[time_col]):
@@ -289,10 +345,18 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time):
         # Create relative time: periods before treatment are negative
         # Example: if treatment_time = 2020
         #   2018 → -2, 2019 → -1, 2020 → 0, 2021 → +1
-        analysis_df['relative_time'] = analysis_df[time_col] - treatment_time
+        try:
+            analysis_df['relative_time'] = analysis_df[time_col] - treatment_time
+        except Exception as e:
+            print(f"    Error creating relative_time: {str(e)}")
+            print(f"    Time column type: {analysis_df[time_col].dtype}")
+            print(f"    Treatment time type: {type(treatment_time)}, value: {treatment_time}")
+            sys.stdout.flush()
+            raise
         
         periods = sorted(analysis_df['relative_time'].unique())
         print(f"    Unique relative times: {periods}")
+        sys.stdout.flush()
         
         # Check if we have t = -1 (reference period)
         if -1 not in periods:
@@ -327,11 +391,16 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time):
         print(f"    Created {len(dummy_cols)} dummy variables")
         
         if not dummy_cols:
+            print(f"    ERROR: No dummy columns created for event study")
+            sys.stdout.flush()
             return {
                 "coefficients": None,
                 "chart": None,
                 "error": "No periods available for event study (need at least 2 periods)"
             }
+        
+        print(f"    Created {len(dummy_cols)} dummy variables for event study")
+        sys.stdout.flush()
         
         # Build regression formula
         # Include time fixed effects to control for common shocks
@@ -339,10 +408,23 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time):
         formula = f"{outcome_col} ~ {dummies_str} + C({time_col})"
         
         print(f"    Event study formula: {formula}")
+        sys.stdout.flush()
         
         # Fit the model
-        model = smf.ols(formula, data=analysis_df).fit()
-        print(f"    Model fitted successfully")
+        try:
+            model = smf.ols(formula, data=analysis_df).fit()
+            print(f"    Model fitted successfully")
+            sys.stdout.flush()
+        except Exception as e:
+            print(f"    ERROR fitting model: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            sys.stdout.flush()
+            return {
+                "coefficients": None,
+                "chart": None,
+                "error": f"Failed to fit event study model: {str(e)}"
+            }
         
         # Extract coefficients for each period
         coefficients = []
@@ -372,6 +454,9 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time):
                         'is_reference': False,
                         'is_pre_treatment': t < 0
                     })
+                else:
+                    print(f"    WARNING: Column {col_name} not found in model params. Available params: {list(model.params.index)[:10]}")
+                    sys.stdout.flush()
         
         # Key check: Do all pre-treatment confidence intervals include zero?
         pre_coeffs = [c for c in coefficients if c['relative_time'] < -1]
@@ -380,16 +465,38 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time):
             for c in pre_coeffs
         ) if pre_coeffs else True
         
-        # Generate the event study chart
-        chart = _generate_event_study_chart(coefficients)
+        print(f"    Generated {len(coefficients)} coefficients for event study")
+        print(f"    Pre-treatment coefficients: {len(pre_coeffs)}")
+        sys.stdout.flush()
         
-        return {
+        if len(coefficients) == 0:
+            print(f"    ERROR: No coefficients generated!")
+            sys.stdout.flush()
+            return {
+                "coefficients": None,
+                "chart": None,
+                "error": "No coefficients generated for event study"
+            }
+        
+        # Generate the event study chart
+        print(f"    Calling _generate_event_study_chart with {len(coefficients)} coefficients...")
+        sys.stdout.flush()
+        chart = _generate_event_study_chart(coefficients)
+        print(f"    Event study chart generation result: {chart is not None}, type: {type(chart)}")
+        if chart:
+            print(f"    Chart length: {len(chart) if isinstance(chart, str) else 'N/A'}")
+        sys.stdout.flush()
+        
+        result = {
             "coefficients": coefficients,
             "all_pre_periods_include_zero": all_include_zero,
             "chart": chart,
             "num_pre_periods": len(pre_coeffs),
             "num_post_periods": len([c for c in coefficients if c['relative_time'] >= 0])
         }
+        print(f"    Returning event study result with {len(coefficients)} coefficients and chart={chart is not None}")
+        sys.stdout.flush()
+        return result
         
     except Exception as e:
         print(f"  Error in event study: {str(e)}")
@@ -586,8 +693,17 @@ def _generate_means_chart(df, treatment_col, time_col, outcome_col, treatment_ti
     - The event study plot is more informative
     """
     try:
+        # Ensure outcome column is numeric
+        chart_df = df.copy()
+        if outcome_col in chart_df.columns:
+            chart_df[outcome_col] = pd.to_numeric(chart_df[outcome_col], errors='coerce')
+            chart_df = chart_df.dropna(subset=[outcome_col])
+            if len(chart_df) == 0:
+                print(f"  Means chart: No valid numeric data after conversion")
+                return None
+        
         # Calculate mean outcome by group and time
-        means = df.groupby([time_col, treatment_col])[outcome_col].mean().reset_index()
+        means = chart_df.groupby([time_col, treatment_col])[outcome_col].mean().reset_index()
         pivoted = means.pivot(index=time_col, columns=treatment_col, values=outcome_col)
         
         # Create figure
@@ -765,6 +881,7 @@ def _generate_event_study_chart(coefficients):
         
         chart_base64 = _fig_to_base64(fig)
         print(f"  Event study chart generated successfully, size: {len(chart_base64)} chars")
+        print(f"  Chart base64 type: {type(chart_base64)}, first 50 chars: {chart_base64[:50] if chart_base64 else 'None'}")
         return chart_base64
         
     except Exception as e:

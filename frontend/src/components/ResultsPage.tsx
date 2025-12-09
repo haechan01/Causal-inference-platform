@@ -114,7 +114,6 @@ const ResultsPage: React.FC = () => {
   const [codeLanguage, setCodeLanguage] = useState<'python' | 'r'>('python');
   const [selectedPeriod, setSelectedPeriod] = useState<string | number | null>(null);
   const [showParallelTrendsDetails, setShowParallelTrendsDetails] = useState(false);
-  const [showEventStudy, setShowEventStudy] = useState(false);
     
     // Get project ID and dataset ID from navigation state or saved state
     const [projectId, setProjectId] = useState<number | null>((location.state as any)?.projectId || null);
@@ -244,7 +243,19 @@ const ResultsPage: React.FC = () => {
                 console.error('Error saving AI interpretation to localStorage:', storageError);
             }
             } catch (error: any) {
-                const errorMessage = error.response?.data?.error || error.message || 'Failed to load AI interpretation';
+                const errorData = error.response?.data;
+                let errorMessage = errorData?.error || error.message || 'Failed to load AI interpretation';
+                
+                // Check if it's a quota error
+                if (error.response?.status === 429 || errorData?.error_type === 'quota_exceeded') {
+                    const retryAfter = errorData?.retry_after;
+                    if (retryAfter) {
+                        errorMessage = `API quota exceeded. Please wait ${Math.ceil(retryAfter)} seconds before trying again. You can check your usage at https://ai.dev/usage`;
+                    } else {
+                        errorMessage = 'API quota exceeded. Please check your Google Cloud billing and quota limits at https://ai.dev/usage';
+                    }
+                }
+                
                 setAiError(errorMessage);
             } finally {
                 setLoadingAI(false);
@@ -1152,15 +1163,27 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                             <div style={styles.aiError}>
                                 <p>⚠️ {aiError}</p>
                                 <p style={styles.aiErrorNote}>Your results are still valid. AI interpretation is temporarily unavailable.</p>
-                                <button 
-                                    onClick={() => {
-                                        setAiError(null);
-                                        loadAIInterpretation();
-                                    }}
-                                    style={{...styles.aiButton, marginTop: '10px', backgroundColor: '#6c757d'}}
-                                >
-                                    Try Again
-                                </button>
+                                {!aiError.includes('quota exceeded') && (
+                                    <button 
+                                        onClick={() => {
+                                            setAiError(null);
+                                            loadAIInterpretation();
+                                        }}
+                                        style={{...styles.aiButton, marginTop: '10px', backgroundColor: '#6c757d'}}
+                                    >
+                                        Try Again
+                                    </button>
+                                )}
+                                {aiError.includes('quota exceeded') && (
+                                    <div style={{marginTop: '10px', fontSize: '13px', opacity: 0.9}}>
+                                        <p>💡 <strong>Tip:</strong> Check your Google Cloud Console to:</p>
+                                        <ul style={{marginTop: '8px', paddingLeft: '20px'}}>
+                                            <li>Verify your API key has sufficient quota</li>
+                                            <li>Upgrade your plan if needed</li>
+                                            <li>Check usage limits at <a href="https://ai.dev/usage" target="_blank" rel="noopener noreferrer" style={{color: '#043873'}}>ai.dev/usage</a></li>
+                                        </ul>
+                                    </div>
+                                )}
                             </div>
                         )}
 

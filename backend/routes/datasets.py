@@ -556,6 +556,14 @@ def run_did_analysis(dataset_id):
             # Read CSV and perform DiD analysis
             df = pd.read_csv(temp_file_path)
             
+            # Convert outcome variable to numeric (handle large numbers stored as strings)
+            if outcome_var in df.columns:
+                df[outcome_var] = pd.to_numeric(df[outcome_var], errors='coerce')
+                # Check for any NaN values created during conversion
+                nan_count = df[outcome_var].isna().sum()
+                if nan_count > 0:
+                    print(f"Warning: {nan_count} non-numeric values in outcome variable were converted to NaN")
+            
             # Apply treatment and control unit filtering
             print(f"Treatment units: {treatment_units}")
             print(f"Control units: {control_units}")
@@ -619,27 +627,50 @@ def run_did_analysis(dataset_id):
                 
                 # Use the improved check_parallel_trends function
                 # It expects: df, treatment_col, time_col, outcome_col, treatment_time
-                parallel_trends_result = check_parallel_trends(
-                    df=df,
-                    treatment_col='is_treated',
-                    time_col=time_var,
-                    outcome_col=outcome_var,
-                    treatment_time=treatment_time_for_test
-                )
+                print(f"  Calling check_parallel_trends function...")
+                print(f"  STDOUT flush before call...")
+                import sys
+                sys.stdout.flush()
+                sys.stderr.flush()
+                
+                try:
+                    parallel_trends_result = check_parallel_trends(
+                        df=df,
+                        treatment_col='is_treated',
+                        time_col=time_var,
+                        outcome_col=outcome_var,
+                        treatment_time=treatment_time_for_test
+                    )
+                    print(f"  check_parallel_trends returned successfully")
+                    sys.stdout.flush()
+                except Exception as e:
+                    print(f"  EXCEPTION in check_parallel_trends: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    sys.stdout.flush()
+                    raise
                 
                 print(f"Parallel trends check completed.")
+                sys.stdout.flush()
                 print(f"  - Confidence: {parallel_trends_result.get('confidence_level', 'unknown')}")
                 print(f"  - P-value: {parallel_trends_result.get('p_value', 'None')}")
                 print(f"  - Message: {parallel_trends_result.get('message', 'None')}")
                 print(f"  - Has mean_chart: {parallel_trends_result.get('mean_chart') is not None}")
                 print(f"  - Has event_study_chart: {parallel_trends_result.get('event_study_chart') is not None}")
                 print(f"  - Has event_study_coefficients: {parallel_trends_result.get('event_study_coefficients') is not None}")
+                event_chart = parallel_trends_result.get('event_study_chart')
+                event_coeffs = parallel_trends_result.get('event_study_coefficients')
+                print(f"  - Event study chart type: {type(event_chart)}, value: {str(event_chart)[:50] if event_chart else 'None'}")
+                print(f"  - Event study coefficients type: {type(event_coeffs)}, length: {len(event_coeffs) if event_coeffs else 0}")
+                print(f"  - All keys in result: {list(parallel_trends_result.keys())}")
+                sys.stdout.flush()
                 if parallel_trends_result.get('event_study_coefficients'):
                     print(f"  - Event study coefficients count: {len(parallel_trends_result.get('event_study_coefficients', []))}")
                 if parallel_trends_result.get('warnings'):
                     print(f"  - Warnings: {parallel_trends_result.get('warnings')}")
                 if 'error' in str(parallel_trends_result):
                     print(f"  - Error in result: {parallel_trends_result}")
+                sys.stdout.flush()
             except Exception as e:
                 print(f"Error in parallel trends test: {str(e)}")
                 import traceback
@@ -674,6 +705,10 @@ def run_did_analysis(dataset_id):
             analysis_data = df[analysis_cols].copy()
             analysis_data = analysis_data.dropna()
             
+            # Ensure outcome variable is numeric for statistics calculation
+            if outcome_var in analysis_data.columns:
+                analysis_data[outcome_var] = pd.to_numeric(analysis_data[outcome_var], errors='coerce')
+            
             # Basic statistics
             basic_stats = {
                 'total_observations': int(len(analysis_data)),
@@ -683,16 +718,16 @@ def run_did_analysis(dataset_id):
                 'post_treatment_obs': int((analysis_data['post_treatment'] == 1).sum()),
                 'outcome_mean_treated_pre': float(
                     analysis_data[(analysis_data['is_treated'] == 1) & (analysis_data['post_treatment'] == 0)][outcome_var].mean()
-                ),
+                ) if len(analysis_data[(analysis_data['is_treated'] == 1) & (analysis_data['post_treatment'] == 0)]) > 0 else 0.0,
                 'outcome_mean_treated_post': float(
                     analysis_data[(analysis_data['is_treated'] == 1) & (analysis_data['post_treatment'] == 1)][outcome_var].mean()
-                ),
+                ) if len(analysis_data[(analysis_data['is_treated'] == 1) & (analysis_data['post_treatment'] == 1)]) > 0 else 0.0,
                 'outcome_mean_control_pre': float(
                     analysis_data[(analysis_data['is_treated'] == 0) & (analysis_data['post_treatment'] == 0)][outcome_var].mean()
-                ),
+                ) if len(analysis_data[(analysis_data['is_treated'] == 0) & (analysis_data['post_treatment'] == 0)]) > 0 else 0.0,
                 'outcome_mean_control_post': float(
                     analysis_data[(analysis_data['is_treated'] == 0) & (analysis_data['post_treatment'] == 1)][outcome_var].mean()
-                )
+                ) if len(analysis_data[(analysis_data['is_treated'] == 0) & (analysis_data['post_treatment'] == 1)]) > 0 else 0.0
             }
             
             # Calculate period-by-period statistics for detailed breakdown
