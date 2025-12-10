@@ -127,11 +127,11 @@ const MethodSelectionPage: React.FC = () => {
                 setSelectedMethod(result.method_code);
             }
         } catch (error: any) {
-            console.error('Failed to get AI recommendation:', error);
+            console.error('Failed to get AI interpretation:', error);
             setRecommendationError(
                 error.response?.data?.error || 
                 error.message || 
-                'Failed to get AI recommendation. Please try again.'
+                'Failed to get AI interpretation. Please try again.'
             );
         } finally {
             setLoadingRecommendation(false);

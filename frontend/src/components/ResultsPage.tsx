@@ -325,23 +325,6 @@ const ResultsPage: React.FC = () => {
         );
     }
 
-    // Show loading state while data is being loaded
-    if (loading) {
-        return (
-            <div>
-                <Navbar />
-                <div style={styles.contentContainer}>
-                    <div style={styles.mainContent}>
-                        <div style={styles.resultsCard}>
-                            <h2 style={styles.title}>Loading Results...</h2>
-                            <p style={styles.message}>Please wait while we load your analysis results.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
     // Show no results if data is loaded but missing
     if (!results || !results.results || !results.parameters) {
         return (
@@ -863,8 +846,8 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
               {/* Event Study Chart - Primary Visualization */}
               {isNewFormat && pt && (
                 <div style={styles.chartContainer}>
-                  <div style={styles.chartHeader}>
-
+                  <div style={{...styles.chartHeader, marginTop: '24px'}}>
+                    <h3 style={styles.chartSubtitle}>Event Study: Treatment Effect Over Time</h3>
                     {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' && (
                       <button
                         onClick={() => downloadChartAsPNG(
@@ -878,11 +861,12 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                       </button>
                     )}
                   </div>
-                  {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' ? (
+                  <div style={{width: '100%', overflow: 'hidden'}}>
+                    {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' ? (
                     <img 
                       src={`data:image/png;base64,${pt.event_study_chart}`} 
                       alt="Event study: treatment-control difference over time" 
-                      style={styles.chart}
+                      style={{...styles.chart, maxWidth: '100%', boxSizing: 'border-box'}}
                       onError={(e) => {
                         console.error('Failed to load event study chart. Chart data length:', pt.event_study_chart?.length || 0);
                         console.error('First 100 chars:', pt.event_study_chart?.substring(0, 100));
@@ -934,6 +918,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                       )}
                     </div>
                   )}
+                  </div>
                   
                   {/* Check 2 Show More Details Button - Below Event Study Chart */}
                   {hasEventStudyData && (
@@ -1406,7 +1391,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                                         style={styles.getAiButton}
                                         disabled={loadingAI}
                                     >
-                                        ✨ Get AI Recommendations
+                                        ✨ Get AI Interpretation
                                     </button>
                                 )}
                             </div>
@@ -1554,6 +1539,14 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                     </div>
                 </div>
             </div>
+            <BottomProgressBar
+                currentStep={currentStep}
+                steps={steps}
+                onPrev={goToPreviousStep}
+                onNext={goToNextStep}
+                canGoNext={false}
+                onStepClick={(stepPath) => navigate(stepPath)}
+            />
         </div>
     );
 };
@@ -1563,7 +1556,7 @@ export default ResultsPage;
 const styles = {
   contentContainer: {
     paddingTop: '70px',
-    paddingBottom: '80px',
+    paddingBottom: '120px', // Extra padding for bottom progress bar
     minHeight: 'calc(100vh - 70px)',
     backgroundColor: '#f5f5f5'
   },
@@ -1665,10 +1658,13 @@ const styles = {
     textAlign: 'center' as const
   },
   chartContainer: {
-    width: '100%'
+    width: '100%',
+    overflow: 'hidden'
   },
   chart: {
     width: '100%',
+    maxWidth: '100%',
+    height: 'auto',
     backgroundColor: 'white',
     borderRadius: '8px',
     padding: '20px',
