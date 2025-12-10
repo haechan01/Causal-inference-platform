@@ -83,6 +83,37 @@ def create_did_chart(df, outcome_var, time_var, treatment_start, start_period, e
         treated_data = time_series_data[time_series_data['is_treated'] == 1].sort_values(time_var)
         control_data = time_series_data[time_series_data['is_treated'] == 0].sort_values(time_var)
         
+        # Calculate counterfactual: what would have happened to treatment group without intervention
+        # Counterfactual_t = Treatment_pre_mean + (Control_t - Control_pre_mean)
+        counterfactual_data = None
+        if len(treated_data) > 0 and len(control_data) > 0:
+            # Get pre-treatment means
+            pre_treated = treated_data[treated_data[time_var] < treatment_start]
+            pre_control = control_data[control_data[time_var] < treatment_start]
+            
+            if len(pre_treated) > 0 and len(pre_control) > 0:
+                pre_treatment_mean_treated = pre_treated[outcome_var].mean()
+                pre_treatment_mean_control = pre_control[outcome_var].mean()
+                
+                # Calculate counterfactual for all periods
+                counterfactual_values = []
+                counterfactual_periods = []
+                
+                for period in sorted(time_series_data[time_var].unique()):
+                    control_at_period = control_data[control_data[time_var] == period]
+                    if len(control_at_period) > 0:
+                        control_mean_at_period = control_at_period[outcome_var].iloc[0]
+                        # Counterfactual = treatment pre-mean + (control at period - control pre-mean)
+                        counterfactual = pre_treatment_mean_treated + (control_mean_at_period - pre_treatment_mean_control)
+                        counterfactual_values.append(counterfactual)
+                        counterfactual_periods.append(period)
+                
+                if len(counterfactual_periods) > 0:
+                    counterfactual_data = pd.DataFrame({
+                        time_var: counterfactual_periods,
+                        'counterfactual': counterfactual_values
+                    }).sort_values(time_var)
+        
         # Create the chart with good size and quality
         plt.figure(figsize=(12, 7))
         
@@ -94,6 +125,11 @@ def create_did_chart(df, outcome_var, time_var, treatment_start, start_period, e
         if len(control_data) > 0:
             plt.plot(control_data[time_var], control_data[outcome_var], 'o-', 
                     color='#FF6B6B', linewidth=2, label='Control Group', markersize=6)
+        
+        # Plot counterfactual line (dashed)
+        if counterfactual_data is not None and len(counterfactual_data) > 0:
+            plt.plot(counterfactual_data[time_var], counterfactual_data['counterfactual'], '--', 
+                    color='#9CA3AF', linewidth=2, label='Counterfactual', alpha=0.8)
         
         # Add vertical line for treatment start
         plt.axvline(x=treatment_start, color='red', linestyle='--', alpha=0.7, linewidth=2)

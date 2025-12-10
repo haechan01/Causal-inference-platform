@@ -146,6 +146,8 @@ const ResultsPage: React.FC = () => {
                     if (parsedResults.dataset_id) {
                         loadedDatasetId = parsedResults.dataset_id;
                     }
+                    // Clear AI interpretation when new results are loaded to ensure it matches
+                    setAiInterpretation(null);
                 } catch (error) {
                     console.error('Error parsing stored results:', error);
                 }
@@ -170,6 +172,8 @@ const ResultsPage: React.FC = () => {
                         }
                         // Also cache in localStorage for subsequent page loads
                         localStorage.setItem('didAnalysisResults', JSON.stringify(project.lastResults));
+                        // Clear AI interpretation when new results are loaded to ensure it matches
+                        setAiInterpretation(null);
                     }
                     // Get datasetId from project datasets if still not set
                     if (!loadedDatasetId && project.datasets && project.datasets.length > 0) {
@@ -186,16 +190,44 @@ const ResultsPage: React.FC = () => {
                     const storedInterpretation = localStorage.getItem('aiInterpretation');
                     if (storedInterpretation) {
                         const parsed = JSON.parse(storedInterpretation);
-                        // Create a unique key for this analysis based on parameters
-                        const currentAnalysisKey = `${loadedResults.dataset_id}_${loadedResults.parameters?.outcome}_${loadedResults.parameters?.treatment_start}`;
+                        // Create a comprehensive unique key for this analysis based on all relevant parameters
+                        const params = loadedResults.parameters || {};
+                        const currentAnalysisKey = JSON.stringify({
+                            dataset_id: loadedResults.dataset_id,
+                            outcome: params.outcome,
+                            treatment: params.treatment,
+                            treatment_value: params.treatment_value,
+                            time: params.time,
+                            treatment_start: params.treatment_start,
+                            start_period: params.start_period,
+                            end_period: params.end_period,
+                            unit: params.unit,
+                            controls: params.controls?.sort() || [],
+                            treatment_units: params.treatment_units?.sort() || [],
+                            control_units: params.control_units?.sort() || [],
+                            // Include key results to ensure interpretation matches the actual results
+                            did_estimate: loadedResults.results?.did_estimate,
+                            p_value: loadedResults.results?.p_value,
+                            is_significant: loadedResults.results?.is_significant
+                        });
                         // Check if the interpretation matches the current analysis
                         if (parsed.analysisKey === currentAnalysisKey) {
                             setAiInterpretation(parsed.interpretation);
+                        } else {
+                            // Clear cached interpretation if it doesn't match
+                            setAiInterpretation(null);
+                            localStorage.removeItem('aiInterpretation');
                         }
                     }
                 } catch (error) {
                     console.error('Error loading stored AI interpretation:', error);
+                    // Clear on error
+                    setAiInterpretation(null);
+                    localStorage.removeItem('aiInterpretation');
                 }
+            } else {
+                // Clear AI interpretation if no results
+                setAiInterpretation(null);
             }
             
             // Update state values
@@ -232,9 +264,27 @@ const ResultsPage: React.FC = () => {
                 );
                 setAiInterpretation(interpretation);
             
-            // Store the interpretation in localStorage with a key tied to this analysis
+            // Store the interpretation in localStorage with a comprehensive key tied to this analysis
             try {
-                const analysisKey = `${results.dataset_id}_${results.parameters?.outcome}_${results.parameters?.treatment_start}`;
+                const params = results.parameters || {};
+                const analysisKey = JSON.stringify({
+                    dataset_id: results.dataset_id,
+                    outcome: params.outcome,
+                    treatment: params.treatment,
+                    treatment_value: params.treatment_value,
+                    time: params.time,
+                    treatment_start: params.treatment_start,
+                    start_period: params.start_period,
+                    end_period: params.end_period,
+                    unit: params.unit,
+                    controls: params.controls?.sort() || [],
+                    treatment_units: params.treatment_units?.sort() || [],
+                    control_units: params.control_units?.sort() || [],
+                    // Include key results to ensure interpretation matches the actual results
+                    did_estimate: results.results?.did_estimate,
+                    p_value: results.results?.p_value,
+                    is_significant: results.results?.is_significant
+                });
                 localStorage.setItem('aiInterpretation', JSON.stringify({
                     analysisKey: analysisKey,
                     interpretation: interpretation,
@@ -270,23 +320,6 @@ const ResultsPage: React.FC = () => {
                 <div style={styles.loadingContainer}>
                     <div style={styles.loadingSpinner}></div>
                     <p style={styles.loadingText}>Loading results...</p>
-                </div>
-            </div>
-        );
-    }
-
-    // Show loading state while data is being loaded
-    if (loading) {
-        return (
-            <div>
-                <Navbar />
-                <div style={styles.contentContainer}>
-                    <div style={styles.mainContent}>
-                        <div style={styles.resultsCard}>
-                            <h2 style={styles.title}>Loading Results...</h2>
-                            <p style={styles.message}>Please wait while we load your analysis results.</p>
-                        </div>
-                    </div>
                 </div>
             </div>
         );
@@ -813,8 +846,8 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
               {/* Event Study Chart - Primary Visualization */}
               {isNewFormat && pt && (
                 <div style={styles.chartContainer}>
-                  <div style={styles.chartHeader}>
-
+                  <div style={{...styles.chartHeader, marginTop: '24px'}}>
+                    <h3 style={styles.chartSubtitle}>Event Study: Treatment Effect Over Time</h3>
                     {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' && (
                       <button
                         onClick={() => downloadChartAsPNG(
@@ -828,11 +861,12 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                       </button>
                     )}
                   </div>
-                  {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' ? (
+                  <div style={{width: '100%', overflow: 'hidden'}}>
+                    {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' ? (
                     <img 
                       src={`data:image/png;base64,${pt.event_study_chart}`} 
                       alt="Event study: treatment-control difference over time" 
-                      style={styles.chart}
+                      style={{...styles.chart, maxWidth: '100%', boxSizing: 'border-box'}}
                       onError={(e) => {
                         console.error('Failed to load event study chart. Chart data length:', pt.event_study_chart?.length || 0);
                         console.error('First 100 chars:', pt.event_study_chart?.substring(0, 100));
@@ -884,6 +918,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                       )}
                     </div>
                   )}
+                  </div>
                   
                   {/* Check 2 Show More Details Button - Below Event Study Chart */}
                   {hasEventStudyData && (
@@ -1356,7 +1391,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                                         style={styles.getAiButton}
                                         disabled={loadingAI}
                                     >
-                                        ✨ Get AI Recommendations
+                                        ✨ Get AI Interpretation
                                     </button>
                                 )}
                             </div>
@@ -1504,6 +1539,14 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                     </div>
                 </div>
             </div>
+            <BottomProgressBar
+                currentStep={currentStep}
+                steps={steps}
+                onPrev={goToPreviousStep}
+                onNext={goToNextStep}
+                canGoNext={false}
+                onStepClick={(stepPath) => navigate(stepPath)}
+            />
         </div>
     );
 };
@@ -1513,7 +1556,7 @@ export default ResultsPage;
 const styles = {
   contentContainer: {
     paddingTop: '70px',
-    paddingBottom: '80px',
+    paddingBottom: '120px', // Extra padding for bottom progress bar
     minHeight: 'calc(100vh - 70px)',
     backgroundColor: '#f5f5f5'
   },
@@ -1615,10 +1658,13 @@ const styles = {
     textAlign: 'center' as const
   },
   chartContainer: {
-    width: '100%'
+    width: '100%',
+    overflow: 'hidden'
   },
   chart: {
     width: '100%',
+    maxWidth: '100%',
+    height: 'auto',
     backgroundColor: 'white',
     borderRadius: '8px',
     padding: '20px',

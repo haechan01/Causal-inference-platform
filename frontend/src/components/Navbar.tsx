@@ -11,6 +11,14 @@ const Navbar: React.FC = () => {
       navigate('/');
     };
     
+    const handleDataClick = () => {
+      navigate('/upload-data');
+    };
+    
+    const handleProjectsClick = () => {
+      navigate('/projects');
+    };
+    
     return (
     <nav style={styles.navbar}>
         <div style={styles.navContent}>
@@ -23,7 +31,12 @@ const Navbar: React.FC = () => {
                 <button onClick={handleHomeClick} style={styles.homeButton}>
                   🏠 Home
                 </button>
-                <ProfileButton style={styles.navButton} />
+                <button onClick={handleDataClick} style={styles.navButton}>
+                  📊 Data
+                </button>
+                <button onClick={handleProjectsClick} style={styles.navButton}>
+                  📁 Projects
+                </button>
                 <LogoutButton style={styles.logoutButton} />
               </>
             ) : (
