@@ -1,39 +1,56 @@
 import React, { useState } from 'react';
-import axios from 'axios';
 
 interface HelpTooltipProps {
   concept: string;
   children: React.ReactNode;
 }
 
+// Static explanations for common concepts - no AI calls needed
+const STATIC_EXPLANATIONS: Record<string, {
+  title: string;
+  simple_explanation: string;
+  example?: string;
+  why_it_matters?: string;
+}> = {
+  'outcome variable in causal inference': {
+    title: 'Outcome Variable',
+    simple_explanation: 'The outcome variable is what you want to measure the effect on. It\'s the result or dependent variable that changes in response to the treatment.',
+    example: 'If studying the effect of a training program on employee productivity, "productivity" (measured as sales per hour) would be the outcome variable.',
+    why_it_matters: 'Correctly identifying the outcome variable is crucial because it determines what effect you\'re measuring. It should be measurable and directly related to your research question.'
+  },
+  'treatment variable and control group': {
+    title: 'Treatment Variable & Control Group',
+    simple_explanation: 'The treatment variable indicates which units received the intervention (treatment group) versus those that didn\'t (control group). The control group serves as a comparison baseline.',
+    example: 'In studying a new drug, patients who received the drug are the treatment group, and patients who received a placebo are the control group.',
+    why_it_matters: 'Having a proper control group allows you to isolate the effect of the treatment by comparing outcomes between treated and untreated units, controlling for other factors.'
+  },
+  'time variable in panel data': {
+    title: 'Time Variable',
+    simple_explanation: 'The time variable tracks when observations occurred. In panel data, you need both time periods and units, allowing you to observe changes over time.',
+    example: 'If studying quarterly sales data from 2020-2023, the time variable would be the quarter/year (e.g., "2020-Q1", "2020-Q2", etc.).',
+    why_it_matters: 'Time variables are essential for difference-in-differences analysis, which compares changes over time between treatment and control groups to identify causal effects.'
+  },
+  'unit of analysis': {
+    title: 'Unit of Analysis',
+    simple_explanation: 'The unit of analysis is the entity being observed and measured (e.g., individuals, companies, states, schools). Each unit should be uniquely identifiable.',
+    example: 'If analyzing the effect of a policy on states, each state would be a unit. If analyzing students, each student would be a unit.',
+    why_it_matters: 'Correctly identifying the unit of analysis ensures your data is structured properly and that you\'re measuring effects at the right level of aggregation.'
+  },
+  'control variables': {
+    title: 'Control Variables',
+    simple_explanation: 'Control variables are additional factors that might influence the outcome. Including them helps isolate the true effect of the treatment by accounting for other potential causes.',
+    example: 'When studying the effect of education on income, you might control for age, work experience, and location, as these also affect income.',
+    why_it_matters: 'Control variables improve the accuracy of your causal estimate by reducing omitted variable bias. They help ensure you\'re measuring the treatment effect, not the effect of other factors.'
+  }
+};
+
 const HelpTooltip: React.FC<HelpTooltipProps> = ({ concept, children }) => {
   const [showHelp, setShowHelp] = useState(false);
-  const [explanation, setExplanation] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-
-  const fetchExplanation = async () => {
-    if (explanation) {
-      setShowHelp(true);
-      return;
-    }
-    
-    setLoading(true);
-    setShowHelp(true);
-    
-    try {
-      const response = await axios.post('/ai/explain', {
-        concept,
-        level: 'beginner'
-      });
-      setExplanation(response.data);
-    } catch (error) {
-      setExplanation({ 
-        simple_explanation: 'Unable to load explanation.',
-        error: true 
-      });
-    } finally {
-      setLoading(false);
-    }
+  
+  // Get static explanation - no API call needed
+  const explanation = STATIC_EXPLANATIONS[concept.toLowerCase()] || {
+    title: concept,
+    simple_explanation: 'Explanation not available for this concept.',
   };
 
   return (
@@ -43,7 +60,7 @@ const HelpTooltip: React.FC<HelpTooltipProps> = ({ concept, children }) => {
         style={styles.helpButton}
         onClick={(e) => {
           e.stopPropagation();
-          fetchExplanation();
+          setShowHelp(!showHelp);
         }}
         title={`Learn about ${concept}`}
       >
@@ -54,7 +71,7 @@ const HelpTooltip: React.FC<HelpTooltipProps> = ({ concept, children }) => {
         <div style={styles.tooltip} onClick={(e) => e.stopPropagation()}>
           <div style={styles.tooltipHeader}>
             <h4 style={styles.tooltipTitle}>
-              {explanation?.title || concept}
+              {explanation.title}
             </h4>
             <button 
               onClick={(e) => {
@@ -67,27 +84,23 @@ const HelpTooltip: React.FC<HelpTooltipProps> = ({ concept, children }) => {
             </button>
           </div>
           
-          {loading ? (
-            <div style={styles.loading}>Loading...</div>
-          ) : (
-            <div style={styles.tooltipContent}>
-              <p style={styles.simpleExplanation}>
-                {explanation?.simple_explanation}
-              </p>
-              
-              {explanation?.example && (
-                <div style={styles.example}>
-                  <strong>Example:</strong> {explanation.example}
-                </div>
-              )}
-              
-              {explanation?.why_it_matters && (
-                <div style={styles.whyMatters}>
-                  <strong>Why it matters:</strong> {explanation.why_it_matters}
-                </div>
-              )}
-            </div>
-          )}
+          <div style={styles.tooltipContent}>
+            <p style={styles.simpleExplanation}>
+              {explanation.simple_explanation}
+            </p>
+            
+            {explanation.example && (
+              <div style={styles.example}>
+                <strong>Example:</strong> {explanation.example}
+              </div>
+            )}
+            
+            {explanation.why_it_matters && (
+              <div style={styles.whyMatters}>
+                <strong>Why it matters:</strong> {explanation.why_it_matters}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </span>
@@ -152,11 +165,6 @@ const styles = {
   tooltipContent: {
     padding: '15px',
     textAlign: 'left' as const
-  },
-  loading: {
-    padding: '20px',
-    textAlign: 'center' as const,
-    color: '#666'
   },
   simpleExplanation: {
     margin: '0 0 12px 0',
