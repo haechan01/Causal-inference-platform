@@ -1567,7 +1567,8 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                       top: '90px',
                       right: '0px',
                       overflow: 'visible' as const,
-                      maxHeight: 'calc(100vh - 200px)' // Account for top nav (90px) + bottom nav (~80px) + padding
+                      maxHeight: 'calc(100vh - 200px)', // Account for top nav (90px) + bottom nav (~80px) + padding
+                      marginTop: '90px' // Align with main content white boxes (50px title margin + 40px title bottom margin)
                     }}>
                         {/* Resize Handle */}
                         <div
