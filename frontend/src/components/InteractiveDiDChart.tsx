@@ -380,8 +380,16 @@ const InteractiveDiDChart = forwardRef<HTMLDivElement, InteractiveDiDChartProps>
                     }
                   });
                   
-                  // Calculate effect size if we have treatment and counterfactual
-                  const effectSize = treatmentValue !== undefined && counterfactualValue !== undefined 
+                  // Check if current time point is post-treatment
+                  const treatmentStart = chartData.treatmentStart;
+                  const isPostTreatment = typeof timeValue === 'number' && typeof treatmentStart === 'number'
+                    ? timeValue >= treatmentStart
+                    : typeof timeValue === 'string' && typeof treatmentStart === 'string'
+                    ? timeValue >= treatmentStart
+                    : false;
+                  
+                  // Calculate effect size only for post-treatment periods
+                  const effectSize = isPostTreatment && treatmentValue !== undefined && counterfactualValue !== undefined 
                     ? treatmentValue - counterfactualValue 
                     : null;
                   
