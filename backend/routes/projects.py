@@ -108,9 +108,22 @@ def get_project(project_id):
         if project.user_id != current_user_id:
             return jsonify({"error": "Access denied"}), 403
         
-        # Get datasets with their info
+        # Import Dataset for legacy dataset queries
+        from models import Dataset
+        
+        # Get datasets with their info from many-to-many relationship
+        datasets_from_m2m = project.datasets
+        # Also get legacy datasets linked via project_id
+        legacy_datasets = Dataset.query.filter_by(project_id=project_id).all()
+        
+        # Combine and deduplicate datasets
+        all_datasets = {ds.id: ds for ds in datasets_from_m2m}
+        for ds in legacy_datasets:
+            if ds.id not in all_datasets:
+                all_datasets[ds.id] = ds
+        
         datasets_info = []
-        for dataset in project.datasets:
+        for dataset in all_datasets.values():
             datasets_info.append({
                 'id': dataset.id,
                 'name': dataset.name,
@@ -129,7 +142,7 @@ def get_project(project_id):
                 "analysis_config": project.analysis_config,
                 "last_results": project.last_results,
                 "updated_at": project.updated_at.isoformat() if project.updated_at else None,
-                "datasets_count": len(project.datasets),
+                "datasets_count": len(all_datasets),
                 "datasets": datasets_info,
                 "analyses_count": len(project.analyses)
             }
@@ -195,11 +208,14 @@ def update_project(project_id):
                 if dataset.user_id != current_user_id:
                     return jsonify({"error": "Access denied to this dataset"}), 403
                 
-                # Unlink any existing datasets from this project
+                # Unlink any existing datasets from this project (many-to-many)
+                project.datasets.clear()
+                
+                # Also clear legacy project_id links for this project
                 Dataset.query.filter_by(project_id=project_id).update({'project_id': None})
                 
-                # Link the new dataset
-                dataset.project_id = project_id
+                # Link the new dataset using many-to-many relationship
+                project.datasets.append(dataset)
         
         # Update state fields if provided
         if 'current_step' in data:
@@ -309,6 +325,9 @@ def delete_project(project_id):
             return jsonify({"error": "Access denied"}), 403
         
         # Unlink datasets from this project (don't delete them)
+        # Clear many-to-many relationships
+        project.datasets.clear()
+        # Also clear legacy project_id links for this project
         Dataset.query.filter_by(project_id=project_id).update({'project_id': None})
         
         # Delete the project
@@ -344,13 +363,26 @@ def list_projects():
             Project.updated_at.desc().nullslast()
         ).all()
         
+        # Import Dataset for legacy dataset queries
+        from models import Dataset
+        
         projects_data = []
         for project in projects:
+            # Get datasets from many-to-many relationship
+            datasets_from_m2m = project.datasets
+            # Also get legacy datasets linked via project_id
+            legacy_datasets = Dataset.query.filter_by(project_id=project.id).all()
+            # Combine and deduplicate
+            all_dataset_ids = {ds.id for ds in datasets_from_m2m}
+            for ds in legacy_datasets:
+                if ds.id not in all_dataset_ids:
+                    all_dataset_ids.add(ds.id)
+            
             projects_data.append({
                 "id": project.id,
                 "name": project.name,
                 "description": project.description,
-                "datasets_count": len(project.datasets),
+                "datasets_count": len(all_dataset_ids),
                 "analyses_count": len(project.analyses),
                 "current_step": project.current_step,
                 "selected_method": project.selected_method,
@@ -488,11 +520,19 @@ def list_datasets(project_id):
         if project.user_id != current_user_id:
             return jsonify({"error": "Access denied"}), 403
         
-        # Get datasets for this project
-        datasets = Dataset.query.filter_by(project_id=project_id).all()
+        # Get datasets for this project using many-to-many relationship
+        # Also include legacy datasets linked via project_id for backward compatibility
+        datasets_from_m2m = project.datasets
+        legacy_datasets = Dataset.query.filter_by(project_id=project_id).all()
+        
+        # Combine and deduplicate datasets
+        all_datasets = {ds.id: ds for ds in datasets_from_m2m}
+        for ds in legacy_datasets:
+            if ds.id not in all_datasets:
+                all_datasets[ds.id] = ds
         
         datasets_data = []
-        for dataset in datasets:
+        for dataset in all_datasets.values():
             datasets_data.append(dataset.to_dict())
         
         return jsonify({
@@ -511,6 +551,7 @@ def list_datasets(project_id):
 def link_dataset_to_project(project_id):
     """
     Link an existing user dataset to a project.
+    Multiple projects can share the same dataset.
     
     Expected JSON:
     {
@@ -520,7 +561,7 @@ def link_dataset_to_project(project_id):
     try:
         current_user_id = int(get_jwt_identity())
         
-        from models import Project, Dataset
+        from models import Project, Dataset, project_datasets
         
         # Check if project exists and user has access
         project = Project.query.get(project_id)
@@ -544,8 +585,15 @@ def link_dataset_to_project(project_id):
         if dataset.user_id != current_user_id:
             return jsonify({"error": "Access denied to this dataset"}), 403
         
-        # Link dataset to project
-        dataset.project_id = project_id
+        # Check if dataset is already linked to this project
+        if dataset in project.datasets:
+            return jsonify({
+                "message": "Dataset already linked to this project",
+                "dataset": dataset.to_dict()
+            }), 200
+        
+        # Link dataset to project using many-to-many relationship
+        project.datasets.append(dataset)
         db.session.commit()
         
         return jsonify({

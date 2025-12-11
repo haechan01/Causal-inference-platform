@@ -36,6 +36,13 @@ class User(db.Model):
         return f'<User {self.username}>'
 
 
+# Junction table for many-to-many relationship between projects and datasets
+project_datasets = db.Table('project_datasets',
+    db.Column('project_id', db.Integer, db.ForeignKey('projects.id'), primary_key=True),
+    db.Column('dataset_id', db.Integer, db.ForeignKey('datasets.id'), primary_key=True),
+    db.Column('created_at', db.DateTime, nullable=False, default=datetime.utcnow)
+)
+
 class Project(db.Model):
     __tablename__ = 'projects'
     id = db.Column(db.Integer, primary_key=True)
@@ -52,11 +59,19 @@ class Project(db.Model):
     last_results = db.Column(db.JSON, nullable=True)  # Stores last analysis results
     updated_at = db.Column(db.DateTime, nullable=True, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    datasets = db.relationship('Dataset', backref='project', lazy=True)
+    # Many-to-many relationship with datasets through junction table
+    datasets = db.relationship('Dataset', secondary=project_datasets, lazy='subquery', backref=db.backref('projects', lazy=True))
+    # Keep backward compatibility with old project_id relationship
+    _legacy_datasets = db.relationship('Dataset', backref='project', lazy=True, foreign_keys='[Dataset.project_id]')
     analyses = db.relationship('Analysis', backref='project', lazy=True)
     
     def to_dict(self):
         """Convert project to dictionary for JSON serialization"""
+        # Combine datasets from many-to-many relationship and legacy project_id relationship
+        datasets_from_m2m = {ds.id for ds in self.datasets}
+        legacy_dataset_ids = {ds.id for ds in self._legacy_datasets}
+        all_dataset_ids = datasets_from_m2m | legacy_dataset_ids
+        
         return {
             'id': self.id,
             'name': self.name,
@@ -67,7 +82,7 @@ class Project(db.Model):
             'analysis_config': self.analysis_config,
             'last_results': self.last_results,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'datasets_count': len(self.datasets),
+            'datasets_count': len(all_dataset_ids),
             'analyses_count': len(self.analyses)
         }
 
