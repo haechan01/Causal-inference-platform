@@ -24,15 +24,17 @@ interface ProjectCardProps {
   onCheckboxChange: (project: Project, checked: boolean) => void;
   onEdit?: (project: Project) => void;
   onDelete?: (project: Project) => void;
+  onNavigate?: (project: Project, step: string) => void;
 }
 
-const ProjectCard: React.FC<ProjectCardProps> = ({ 
-  project, 
-  isSelected, 
-  onSelect, 
+const ProjectCard: React.FC<ProjectCardProps> = ({
+  project,
+  isSelected,
+  onSelect,
   onCheckboxChange,
   onEdit,
-  onDelete 
+  onDelete,
+  onNavigate
 }) => {
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const hasDatasets = project.datasets && project.datasets.length > 0;
@@ -42,19 +44,19 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
     if (!project.current_step || project.current_step === 'projects') {
       return null;
     }
-    
+
     const stepLabels: Record<string, string> = {
       'method': 'Method Selected',
       'variables': 'Configuring Variables',
       'results': 'Analysis Complete'
     };
-    
+
     const stepColors: Record<string, string> = {
       'method': '#3498db',
       'variables': '#f39c12',
       'results': '#27ae60'
     };
-    
+
     return {
       label: stepLabels[project.current_step] || 'In Progress',
       color: stepColors[project.current_step] || '#7f8c8d',
@@ -63,6 +65,18 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
   };
 
   const progressStatus = getProgressStatus();
+
+  // Helper to check if a step is available
+  const isStepAvailable = (step: string) => {
+    if (!project.current_step || !hasDatasets) return false;
+
+    const steps = ['projects', 'method', 'variables', 'results'];
+    const currentIndex = steps.indexOf(project.current_step);
+    const targetIndex = steps.indexOf(step);
+
+    // Allow navigation to current or previous steps
+    return targetIndex <= currentIndex && targetIndex > 0;
+  };
 
   // Handle card click - toggle selection if has datasets
   const handleCardClick = () => {
@@ -98,8 +112,13 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
     setShowConfirmDelete(false);
   };
 
+  const handleNavigateClick = (e: React.MouseEvent, step: string) => {
+    e.stopPropagation();
+    onNavigate?.(project, step);
+  };
+
   return (
-    <div 
+    <div
       style={{
         ...styles.card,
         ...(isSelected ? styles.selectedCard : {}),
@@ -122,9 +141,9 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
           {project.dataset_count} files
         </div>
       </div>
-      
+
       <p style={styles.cardDescription}>{project.description}</p>
-      
+
       {/* Show uploaded files */}
       {project.datasets && project.datasets.length > 0 && (
         <div style={styles.datasetsList}>
@@ -143,10 +162,46 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
         </div>
       )}
 
+      {/* Quick Navigation Buttons */}
+      {hasDatasets && onNavigate && (
+        <div style={styles.quickNavContainer}>
+          <h4 style={styles.quickNavTitle}>Quick Navigation:</h4>
+          <div style={styles.quickNavButtons}>
+            <button
+              onClick={(e) => handleNavigateClick(e, 'method')}
+              style={styles.navButton}
+              title="Go to Method Selection"
+            >
+              Method
+            </button>
+
+            {isStepAvailable('variables') && (
+              <button
+                onClick={(e) => handleNavigateClick(e, 'variables')}
+                style={styles.navButton}
+                title="Go to Variable Selection"
+              >
+                Variables
+              </button>
+            )}
+
+            {isStepAvailable('results') && (
+              <button
+                onClick={(e) => handleNavigateClick(e, 'results')}
+                style={styles.navButton}
+                title="Go to Analysis Results"
+              >
+                Results
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Progress Status Badge */}
       {progressStatus && (
         <div style={styles.progressContainer}>
-          <span 
+          <span
             style={{
               ...styles.progressBadge,
               backgroundColor: progressStatus.color
@@ -157,7 +212,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
           </span>
         </div>
       )}
-      
+
       <div style={styles.cardFooter}>
         <span style={styles.cardDate}>
           Created {new Date(project.created_at).toLocaleDateString()}
@@ -412,6 +467,41 @@ const styles = {
     fontSize: '12px',
     color: '#7f8c8d',
     fontStyle: 'italic'
+  },
+  quickNavContainer: {
+    marginTop: '15px',
+    marginBottom: '10px',
+    padding: '10px',
+    backgroundColor: '#f0f7ff',
+    borderRadius: '8px',
+    border: '1px solid #d0e7ff'
+  },
+  quickNavTitle: {
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#043873',
+    margin: '0 0 8px 0',
+    textTransform: 'uppercase' as const
+  },
+  quickNavButtons: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap' as const
+  },
+  navButton: {
+    padding: '6px 12px',
+    fontSize: '12px',
+    fontWeight: '500',
+    color: '#043873',
+    backgroundColor: 'white',
+    border: '1px solid #043873',
+    borderRadius: '16px',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    '&:hover': {
+      backgroundColor: '#043873',
+      color: 'white'
+    }
   }
 };
 

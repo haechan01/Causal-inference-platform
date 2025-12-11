@@ -42,7 +42,7 @@ const ProjectsPage: React.FC = () => {
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [isReadyForNext, setIsReadyForNext] = useState(false);
   const [loading, setLoading] = useState(true);
-  
+
   // Pre-selected dataset from DataUploadPage
   const preSelectedDatasetId = (location.state as any)?.selectedDatasetId || null;
 
@@ -53,7 +53,7 @@ const ProjectsPage: React.FC = () => {
       const response = await axios.get('/projects', {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
-      
+
       // Map backend response to frontend format and load datasets for each project
       const mappedProjects = await Promise.all(
         (response.data.projects || []).map(async (project: any) => {
@@ -62,7 +62,7 @@ const ProjectsPage: React.FC = () => {
             const datasetsResponse = await axios.get(`/projects/${project.id}/datasets`, {
               headers: { Authorization: `Bearer ${accessToken}` }
             });
-            
+
             return {
               id: project.id,
               title: project.name,  // Map 'name' to 'title'
@@ -90,7 +90,7 @@ const ProjectsPage: React.FC = () => {
           }
         })
       );
-      
+
       setProjects(mappedProjects);
     } catch (error) {
       console.error('Error loading projects:', error);
@@ -122,9 +122,9 @@ const ProjectsPage: React.FC = () => {
       }, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
-      
+
       const newProject = response.data.project;
-      
+
       // If a dataset was selected, link it to the project
       if (datasetId) {
         try {
@@ -137,7 +137,7 @@ const ProjectsPage: React.FC = () => {
           console.error('Error linking dataset to project:', linkError);
         }
       }
-      
+
       // Map backend response to frontend format
       const mappedProject = {
         id: newProject.id,
@@ -146,12 +146,12 @@ const ProjectsPage: React.FC = () => {
         created_at: new Date().toISOString(),  // Add timestamp
         dataset_count: datasetId ? 1 : 0
       };
-      
+
       setProjects([...projects, mappedProject]);
       setSelectedProject(mappedProject);
       setCheckedProject(mappedProject);
       setIsReadyForNext(datasetId ? true : false);
-      
+
       // Reload projects to get accurate data
       loadProjects();
     } catch (error) {
@@ -185,10 +185,10 @@ const ProjectsPage: React.FC = () => {
       await axios.delete(`/projects/${project.id}`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
-      
+
       // Remove from local state
       setProjects(projects.filter(p => p.id !== project.id));
-      
+
       // Clear selection if deleted project was selected
       if (checkedProject?.id === project.id) {
         setCheckedProject(null);
@@ -205,20 +205,20 @@ const ProjectsPage: React.FC = () => {
   // Custom next handler that passes project ID - go to saved step or method selection
   const handleNext = async () => {
     if (checkedProject && checkedProject.datasets && checkedProject.datasets.length > 0) {
-      const navState = { 
+      const navState = {
         projectId: checkedProject.id,
         datasetId: checkedProject.datasets[0].id
       };
-      
+
       // Check if project has saved state - navigate to where user left off
       try {
         const project = await projectStateService.loadProject(checkedProject.id, accessToken!);
-        
+
         // Save that we're at project selection step
         await projectStateService.saveState(checkedProject.id, {
           currentStep: 'projects'
         }, accessToken!);
-        
+
         if (project.currentStep && project.currentStep !== 'projects') {
           // Navigate to saved step
           const stepPath = projectStateService.getStepPath(project.currentStep);
@@ -284,7 +284,7 @@ const ProjectsPage: React.FC = () => {
               <div style={styles.emptyIcon}>📁</div>
               <h3 style={styles.emptyTitle}>No projects yet</h3>
               <p style={styles.emptyDescription}>
-                {preSelectedDatasetId 
+                {preSelectedDatasetId
                   ? "Great! Now create a project and link your uploaded dataset."
                   : "Create your first project to organize and analyze your data."
                 }
@@ -300,6 +300,16 @@ const ProjectsPage: React.FC = () => {
                 onCheckboxChange={handleCheckboxChange}
                 onEdit={handleEditProject}
                 onDelete={handleDeleteProject}
+                onNavigate={(project, step) => {
+                  if (project.datasets && project.datasets.length > 0) {
+                    const navState = {
+                      projectId: project.id,
+                      datasetId: project.datasets[0].id
+                    };
+                    const stepPath = projectStateService.getStepPath(step);
+                    navigate(stepPath, { state: navState });
+                  }
+                }}
               />
             ))
           )}
@@ -335,29 +345,29 @@ const ProjectsPage: React.FC = () => {
           project={editProject}
         />
       )}
-       {/* Bottom Progress Bar */}
-       <BottomProgressBar
-         currentStep={currentStep}
-         steps={steps}
-         onPrev={goToPreviousStep}
-         onNext={handleNext}
-         canGoNext={isReadyForNext}
-         onStepClick={(path) => {
-           // Pass project state if a project is selected
-           if (checkedProject && checkedProject.datasets && checkedProject.datasets.length > 0) {
-             navigate(path, { 
-               state: { 
-                 projectId: checkedProject.id,
-                 datasetId: checkedProject.datasets[0].id
-               } 
-             });
-           } else {
-             navigate(path);
-           }
-         }}
-       />
-     </div>
-   );
+      {/* Bottom Progress Bar */}
+      <BottomProgressBar
+        currentStep={currentStep}
+        steps={steps}
+        onPrev={goToPreviousStep}
+        onNext={handleNext}
+        canGoNext={isReadyForNext}
+        onStepClick={(path) => {
+          // Pass project state if a project is selected
+          if (checkedProject && checkedProject.datasets && checkedProject.datasets.length > 0) {
+            navigate(path, {
+              state: {
+                projectId: checkedProject.id,
+                datasetId: checkedProject.datasets[0].id
+              }
+            });
+          } else {
+            navigate(path);
+          }
+        }}
+      />
+    </div>
+  );
 };
 
 // Styles
