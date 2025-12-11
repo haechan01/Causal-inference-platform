@@ -33,7 +33,7 @@ const NextStepsCard: React.FC<NextStepsProps> = ({ analysisResults, interpretati
         <h2 style={styles.title}>📋 What's Next?</h2>
         {!nextSteps && !loading && (
           <button onClick={fetchNextSteps} style={styles.getButton}>
-            Get AI Recommendations
+            Get AI Interpretation
           </button>
         )}
       </div>
