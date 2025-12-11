@@ -194,6 +194,9 @@ def create_did_chart(df, outcome_var, time_var, treatment_start, start_period, e
         plt.close()
         
         print(f"Chart created successfully, size: {len(chart_base64)} characters")
+        # Sanitize chart_data to ensure all numpy types are converted to native Python types
+        if chart_data:
+            chart_data = sanitize_for_json(chart_data)
         return {
             'png': chart_base64,
             'data': chart_data
@@ -1011,6 +1014,9 @@ def run_did_analysis(dataset_id):
                     if isinstance(chart_result, dict):
                         chart_base64 = chart_result.get('png')
                         chart_data = chart_result.get('data')
+                        # Sanitize chart_data if it exists (it should already be sanitized in create_did_chart, but double-check)
+                        if chart_data:
+                            chart_data = sanitize_for_json(chart_data)
                     else:
                         # Backward compatibility: if it's still a string, use it as PNG
                         chart_base64 = chart_result

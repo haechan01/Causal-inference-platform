@@ -1,5 +1,7 @@
 import statsmodels.formula.api as smf
 import pandas as pd
+import numpy as np
+import math
 import matplotlib.pyplot as plt
 import base64
 import io
@@ -8,6 +10,26 @@ import logging
 
 # Set up logger
 logger = logging.getLogger(__name__)
+
+
+def sanitize_for_json(obj):
+    """
+    Recursively convert NaN, infinity values, and numpy types to JSON-serializable types.
+    """
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_for_json(item) for item in obj]
+    elif isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    elif isinstance(obj, (np.integer, np.floating)):
+        if np.isnan(obj) or np.isinf(obj):
+            return None
+        return float(obj) if isinstance(obj, np.floating) else int(obj)
+    else:
+        return obj
 
 def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_time, unit_col=None):
     """
@@ -165,6 +187,11 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
     elif not event_coeffs:
         warnings.append("Event study not computed: too few pre/post periods or insufficient variation in treatment timing.")
     
+    # Sanitize event_study_chart_data to ensure JSON serializability
+    event_study_chart_data = event_study.get("chart_data") if event_study else None
+    if event_study_chart_data:
+        event_study_chart_data = sanitize_for_json(event_study_chart_data)
+    
     return {
         # Main results
         "passed": test_result.get("passed"),
@@ -179,7 +206,7 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
         "mean_chart": means_chart,  # Primary: Traditional means plot (intuitive for users)
         "visual_chart": means_chart,  # Legacy support - same as mean_chart
         "event_study_chart": event_study.get("chart") if event_study else None,  # Secondary: Event study plot (for advanced users)
-        "event_study_chart_data": event_study.get("chart_data") if event_study else None,  # Structured data for interactive chart
+        "event_study_chart_data": event_study_chart_data,  # Structured data for interactive chart (sanitized)
         
         # Detailed data (for advanced users or AI interpretation)
         "event_study_coefficients": event_coeffs,  # Always a list, never None
@@ -1048,6 +1075,9 @@ def _generate_event_study_chart(coefficients):
                 for c in coefficients
             ]
         }
+        
+        # Sanitize chart_data to ensure all numpy types are converted to native Python types
+        chart_data = sanitize_for_json(chart_data)
         
         return {
             'png': chart_base64,
