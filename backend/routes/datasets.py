@@ -44,7 +44,8 @@ def sanitize_for_json(obj):
 
 
 def create_did_chart(df, outcome_var, time_var, treatment_start, start_period, end_period, unit_var, treatment_units, control_units):
-    """Create a matplotlib chart for DiD analysis using unit-based assignment."""
+    """Create a matplotlib chart for DiD analysis using unit-based assignment.
+    Returns both PNG (base64) and structured data for interactive charts."""
     try:
         # Convert parameters to appropriate types
         if pd.api.types.is_numeric_dtype(df[time_var]):
@@ -114,6 +115,43 @@ def create_did_chart(df, outcome_var, time_var, treatment_start, start_period, e
                         'counterfactual': counterfactual_values
                     }).sort_values(time_var)
         
+        # Prepare structured data for interactive chart
+        chart_data = {
+            'xAxisLabel': time_var,
+            'yAxisLabel': outcome_var,
+            'title': 'Difference-in-Differences Analysis Over Time',
+            'treatmentStart': treatment_start,
+            'treatmentStartLabel': 'Treatment Starts',
+            'series': []
+        }
+        
+        # Add treated group data
+        if len(treated_data) > 0:
+            chart_data['series'].append({
+                'name': 'Treatment Group',
+                'data': treated_data[[time_var, outcome_var]].to_dict('records'),
+                'color': '#4F9CF9',
+                'type': 'line'
+            })
+        
+        # Add control group data
+        if len(control_data) > 0:
+            chart_data['series'].append({
+                'name': 'Control Group',
+                'data': control_data[[time_var, outcome_var]].to_dict('records'),
+                'color': '#FF6B6B',
+                'type': 'line'
+            })
+        
+        # Add counterfactual data
+        if counterfactual_data is not None and len(counterfactual_data) > 0:
+            chart_data['series'].append({
+                'name': 'Counterfactual',
+                'data': counterfactual_data[[time_var, 'counterfactual']].rename(columns={'counterfactual': outcome_var}).to_dict('records'),
+                'color': '#9CA3AF',
+                'type': 'dashed'
+            })
+        
         # Create the chart with good size and quality
         plt.figure(figsize=(12, 7))
         
@@ -156,10 +194,15 @@ def create_did_chart(df, outcome_var, time_var, treatment_start, start_period, e
         plt.close()
         
         print(f"Chart created successfully, size: {len(chart_base64)} characters")
-        return chart_base64
+        return {
+            'png': chart_base64,
+            'data': chart_data
+        }
         
     except Exception as e:
         print(f"Error creating chart: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -958,16 +1001,25 @@ def run_did_analysis(dataset_id):
             
             # Generate chart
             chart_base64 = None
+            chart_data = None
             print("Starting chart generation...")
             try:
-                chart_base64 = create_did_chart(
+                chart_result = create_did_chart(
                     df, outcome_var, time_var, treatment_start, start_period, end_period, unit_var, treatment_units, control_units
                 )
-                print(f"Chart generation result: {type(chart_base64)}, length: {len(chart_base64) if chart_base64 else 'None'}")
-                # Allow charts up to 200KB (base64 encoded) for high quality
-                if chart_base64 and len(chart_base64) > 200000:
-                    print(f"Chart too large ({len(chart_base64)} chars), skipping chart")
-                    chart_base64 = None
+                if chart_result:
+                    if isinstance(chart_result, dict):
+                        chart_base64 = chart_result.get('png')
+                        chart_data = chart_result.get('data')
+                    else:
+                        # Backward compatibility: if it's still a string, use it as PNG
+                        chart_base64 = chart_result
+                    
+                    print(f"Chart generation result: PNG length: {len(chart_base64) if chart_base64 else 'None'}, Data: {bool(chart_data)}")
+                    # Allow charts up to 200KB (base64 encoded) for high quality
+                    if chart_base64 and len(chart_base64) > 200000:
+                        print(f"Chart too large ({len(chart_base64)} chars), skipping chart")
+                        chart_base64 = None
             except Exception as e:
                 print(f"Error creating main chart: {str(e)}")
                 import traceback
@@ -1010,6 +1062,7 @@ def run_did_analysis(dataset_id):
                     'significance': 'significant' if p_value < 0.05 else 'not significant'
                 },
                 'chart': chart_base64 or '',
+                'chart_data': chart_data,
                 'parallel_trends_test': parallel_trends_test,  # Backward compatibility
                 'parallel_trends': parallel_trends_result  # New improved structure
             }

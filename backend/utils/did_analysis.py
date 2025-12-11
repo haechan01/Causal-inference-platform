@@ -179,6 +179,7 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
         "mean_chart": means_chart,  # Primary: Traditional means plot (intuitive for users)
         "visual_chart": means_chart,  # Legacy support - same as mean_chart
         "event_study_chart": event_study.get("chart") if event_study else None,  # Secondary: Event study plot (for advanced users)
+        "event_study_chart_data": event_study.get("chart_data") if event_study else None,  # Structured data for interactive chart
         
         # Detailed data (for advanced users or AI interpretation)
         "event_study_coefficients": event_coeffs,  # Always a list, never None
@@ -581,7 +582,9 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time, u
         
         # Generate the event study chart
         logger.debug(f"    Calling _generate_event_study_chart with {len(coefficients)} coefficients...")
-        chart = _generate_event_study_chart(coefficients)
+        chart_result = _generate_event_study_chart(coefficients)
+        chart = chart_result.get('png') if isinstance(chart_result, dict) else chart_result
+        chart_data = chart_result.get('data') if isinstance(chart_result, dict) else None
         logger.debug(f"    Event study chart generation result: {chart is not None}, type: {type(chart)}")
         if chart:
             logger.debug(f"    Chart length: {len(chart) if isinstance(chart, str) else 'N/A'}")
@@ -590,6 +593,7 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time, u
             "coefficients": coefficients,
             "all_pre_periods_include_zero": all_include_zero,
             "chart": chart,
+            "chart_data": chart_data,
             "num_pre_periods": len(pre_coeffs),
             "num_post_periods": len([c for c in coefficients if c['relative_time'] >= 0])
         }
@@ -1020,7 +1024,35 @@ def _generate_event_study_chart(coefficients):
         chart_base64 = _fig_to_base64(fig)
         print(f"  Event study chart generated successfully, size: {len(chart_base64)} chars")
         print(f"  Chart base64 type: {type(chart_base64)}, first 50 chars: {chart_base64[:50] if chart_base64 else 'None'}")
-        return chart_base64
+        
+        # Prepare structured data for interactive chart
+        chart_data = {
+            'xAxisLabel': 'Time Relative to Treatment',
+            'yAxisLabel': 'Estimated Difference (Treatment − Control)',
+            'title': 'Event Study: Treatment Effect Over Time',
+            'treatmentStart': -0.5,
+            'treatmentStartLabel': 'Treatment Starts',
+            'referencePeriod': -1,
+            'referenceLabel': 'Reference (t = -1)',
+            'preTreatmentLabel': 'Pre-Treatment',
+            'postTreatmentLabel': 'Post-Treatment',
+            'dataPoints': [
+                {
+                    'relativeTime': c['relative_time'],
+                    'coefficient': c['coefficient'],
+                    'ciLower': c['ci_lower'],
+                    'ciUpper': c['ci_upper'],
+                    'isReference': c.get('is_reference', False),
+                    'isPreTreatment': c.get('is_pre_treatment', False)
+                }
+                for c in coefficients
+            ]
+        }
+        
+        return {
+            'png': chart_base64,
+            'data': chart_data
+        }
         
     except Exception as e:
         print(f"  Event study chart error: {e}")

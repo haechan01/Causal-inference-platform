@@ -6,6 +6,7 @@ import { useProgressStep } from '../hooks/useProgressStep';
 import { aiService, ResultsInterpretation } from '../services/aiService';
 import { useAuth } from '../contexts/AuthContext';
 import { projectStateService } from '../services/projectStateService';
+import InteractiveDiDChart from './InteractiveDiDChart';
 
 // Download chart as PNG helper function
 const downloadChartAsPNG = (base64Data: string, filename: string) => {
@@ -70,6 +71,7 @@ interface DiDResults {
       significance: string;
     };
     chart: string;
+    chart_data?: any; // Structured data for interactive chart
     parallel_trends_test?: {
       passed: boolean | null;
       p_value: number | null;
@@ -115,6 +117,7 @@ const ResultsPage: React.FC = () => {
   const [selectedPeriod, setSelectedPeriod] = useState<string | number | null>(null);
   const [showCheck1Details, setShowCheck1Details] = useState(false);
   const [showCheck2Details, setShowCheck2Details] = useState(false);
+  const [showDidCalculationDetails, setShowDidCalculationDetails] = useState(false);
     
     // Get project ID and dataset ID from navigation state or saved state
     const [projectId, setProjectId] = useState<number | null>((location.state as any)?.projectId || null);
@@ -598,28 +601,26 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                         )}
                         
                         {/* DiD Visualization Chart - Moved here from separate section */}
-                        {(results.results as any)?.chart && (
+                        {((results.results as any)?.chart || (results.results as any)?.chart_data) && (
                             <div style={{...styles.visualizationSection, marginTop: '30px'}}>
                                 <div style={styles.chartHeader}>
                                     <h2 style={styles.sectionTitle}>What Happened Over Time</h2>
-                                    <button
-                                        onClick={() => downloadChartAsPNG(
-                                            (results.results as any).chart,
-                                            'did_analysis_chart.png'
-                                        )}
-                                        style={styles.downloadButton}
-                                        title="Download chart as PNG"
-                                    >
-                                        ⬇️ Download Chart
-                                    </button>
                                 </div>
                                 <div style={styles.chartContainer}>
                                     <div style={styles.realChartContainer}>
-                                        <img 
-                                            src={`data:image/png;base64,${(results.results as any).chart}`} 
-                                            alt="Difference-in-Differences Analysis Chart"
-                                            style={styles.realChart}
-                                        />
+                                        {(results.results as any)?.chart_data ? (
+                                            <InteractiveDiDChart
+                                                key="did-chart"
+                                                chartData={(results.results as any).chart_data}
+                                                fallbackPng={(results.results as any).chart}
+                                            />
+                                        ) : (
+                                            <img 
+                                                src={`data:image/png;base64,${(results.results as any).chart}`} 
+                                                alt="Difference-in-Differences Analysis Chart"
+                                                style={styles.realChart}
+                                            />
+                                        )}
                                         <div style={styles.chartNote}>
                                             The blue line represents the treatment group, 
                                             the red line represents the control group, and the dashed line shows what would have happened 
@@ -629,6 +630,222 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                                 </div>
                             </div>
                         )}
+
+                        {/* Effect Size by Period - Combined section */}
+                        {(() => {
+                            const pt = (results.results as any)?.parallel_trends || (results.results as any)?.parallel_trends_test;
+                            const postTreatmentCoeffs = pt?.event_study_coefficients?.filter((coef: any) => 
+                                !coef.is_pre_treatment && !coef.is_reference && coef.relative_time >= 0
+                            ) || [];
+                            
+                            // Get period statistics for post-treatment periods
+                            const postPeriodStats = (results.results?.period_statistics || []).filter((p: any) => 
+                                p.is_post_treatment && !p.is_treatment_start
+                            );
+                            
+                            // Get treatment start time to convert relative_time to actual periods
+                            const treatmentStart = results.parameters?.treatment_start;
+                            const timeVar = results.parameters?.time;
+                            
+                            // Helper to convert relative_time to actual period
+                            const getPeriodFromRelativeTime = (relativeTime: number): string | number => {
+                                if (typeof treatmentStart === 'string' || typeof treatmentStart === 'number') {
+                                    const startNum = typeof treatmentStart === 'string' ? parseFloat(treatmentStart) : treatmentStart;
+                                    if (!isNaN(startNum)) {
+                                        return startNum + relativeTime;
+                                    }
+                                }
+                                return `t = ${relativeTime}`;
+                            };
+                            
+                            // Combine data: prefer period_statistics if available, otherwise use event_study_coefficients
+                            // For period_statistics, try to get CI from event_study_coefficients if available
+                            const combinedData = postPeriodStats.length > 0 
+                                ? postPeriodStats.map((period: any) => {
+                                    // Try to find matching event study coefficient for CI
+                                    const matchingCoeff = postTreatmentCoeffs.find((coef: any) => {
+                                        const periodFromRelative = getPeriodFromRelativeTime(coef.relative_time);
+                                        return periodFromRelative === period.period || 
+                                               (typeof periodFromRelative === 'number' && typeof period.period === 'number' && 
+                                                Math.abs(periodFromRelative - period.period) < 0.01);
+                                    });
+                                    return {
+                                        period: period.period,
+                                        effectSize: period.period_effect,
+                                        ciLower: matchingCoeff?.ci_lower ?? null,
+                                        ciUpper: matchingCoeff?.ci_upper ?? null,
+                                        isSignificant: matchingCoeff ? (matchingCoeff.p_value !== null && matchingCoeff.p_value < 0.05) : null,
+                                        treatmentMean: period.treatment_mean,
+                                        controlMean: period.control_mean,
+                                        counterfactual: period.counterfactual
+                                    };
+                                })
+                                : postTreatmentCoeffs.map((coef: any) => ({
+                                    period: getPeriodFromRelativeTime(coef.relative_time),
+                                    effectSize: coef.coefficient,
+                                    ciLower: coef.ci_lower,
+                                    ciUpper: coef.ci_upper,
+                                    isSignificant: coef.p_value !== null && coef.p_value < 0.05,
+                                    treatmentMean: null,
+                                    controlMean: null,
+                                    counterfactual: null
+                                }));
+                            
+                            // Check if any row has CI data
+                            const hasCIData = combinedData.some((item: any) => item.ciLower !== null);
+                            
+                            if (combinedData.length > 0) {
+                                // Calculate overall average
+                                const overallAverage = results.results?.did_estimate;
+                                const stats = results.results?.statistics;
+                                
+                                return (
+                                    <div style={{...styles.visualizationSection, marginTop: '30px'}}>
+                                        <div style={styles.chartHeader}>
+                                            <h2 style={styles.sectionTitle}>Effect Size</h2>
+                                        </div>
+                                        <div style={{padding: '20px'}}>
+                                            <p style={{marginBottom: '20px', color: '#666', fontSize: '14px'}}>
+                                                Treatment effects for each post-treatment period:
+                                            </p>
+                                            <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '14px'}}>
+                                                <thead>
+                                                    <tr style={{backgroundColor: '#f8f9fa', borderBottom: '2px solid #dee2e6'}}>
+                                                        <th style={{padding: '12px', textAlign: 'left', fontWeight: '600', color: '#212529'}}>Period</th>
+                                                        <th style={{padding: '12px', textAlign: 'right', fontWeight: '600', color: '#212529'}}>Effect Size</th>
+                                                        <th style={{padding: '12px', textAlign: 'right', fontWeight: '600', color: '#212529'}}>95% CI Lower</th>
+                                                        <th style={{padding: '12px', textAlign: 'right', fontWeight: '600', color: '#212529'}}>95% CI Upper</th>
+                                                        <th style={{padding: '12px', textAlign: 'center', fontWeight: '600', color: '#212529'}}>Significant</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {combinedData.map((item: any, idx: number) => (
+                                                        <tr key={idx} style={{borderBottom: '1px solid #e9ecef'}}>
+                                                            <td style={{padding: '12px', fontWeight: '500', color: '#212529'}}>
+                                                                {item.period}
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'right', color: '#212529', fontWeight: '500'}}>
+                                                                {formatNumber(item.effectSize, 4)}
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'right', color: '#212529'}}>
+                                                                {item.ciLower !== null ? formatNumber(item.ciLower, 4) : 'N/A'}
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'right', color: '#212529'}}>
+                                                                {item.ciUpper !== null ? formatNumber(item.ciUpper, 4) : 'N/A'}
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'center'}}>
+                                                                {item.isSignificant !== null ? (
+                                                                    item.isSignificant ? (
+                                                                        <span style={{color: '#28a745', fontWeight: '600'}}>✓ Yes</span>
+                                                                    ) : (
+                                                                        <span style={{color: '#6c757d'}}>No</span>
+                                                                    )
+                                                                ) : (
+                                                                    <span style={{color: '#6c757d'}}>N/A</span>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                    {/* Overall Average Row */}
+                                                    {overallAverage !== null && overallAverage !== undefined && (
+                                                        <tr style={{borderTop: '2px solid #dee2e6', backgroundColor: '#f8f9fa'}}>
+                                                            <td style={{padding: '12px', fontWeight: '700', color: '#043873'}}>
+                                                                Overall Average (DiD Estimate)
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'right', fontWeight: '700', color: '#043873', fontSize: '16px'}}>
+                                                                {(overallAverage >= 0 ? '+' : '')}{formatNumber(overallAverage, 4)}
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'right', fontWeight: '600', color: '#043873'}}>
+                                                                {formatNumber(results.results?.confidence_interval?.lower, 4)}
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'right', fontWeight: '600', color: '#043873'}}>
+                                                                {formatNumber(results.results?.confidence_interval?.upper, 4)}
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'center', fontWeight: '600', color: '#043873'}}>
+                                                                {results.results?.is_significant ? (
+                                                                    <span style={{color: '#28a745'}}>✓ Yes</span>
+                                                                ) : (
+                                                                    <span style={{color: '#6c757d'}}>No</span>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                            
+                                            {/* How DiD was calculated - Collapsible */}
+                                            {stats && overallAverage !== null && overallAverage !== undefined && (
+                                                <div style={{marginTop: '24px'}}>
+                                                    <button
+                                                        onClick={() => setShowDidCalculationDetails(!showDidCalculationDetails)}
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '12px 16px',
+                                                            backgroundColor: '#f8f9fa',
+                                                            border: '1px solid #dee2e6',
+                                                            borderRadius: '8px',
+                                                            cursor: 'pointer',
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between',
+                                                            alignItems: 'center',
+                                                            fontSize: '16px',
+                                                            fontWeight: '600',
+                                                            color: '#043873',
+                                                            transition: 'background-color 0.2s'
+                                                        }}
+                                                        onMouseEnter={(e) => {
+                                                            e.currentTarget.style.backgroundColor = '#e9ecef';
+                                                        }}
+                                                        onMouseLeave={(e) => {
+                                                            e.currentTarget.style.backgroundColor = '#f8f9fa';
+                                                        }}
+                                                        type="button"
+                                                    >
+                                                        <span>How the DiD Estimate was Calculated</span>
+                                                        <span>{showDidCalculationDetails ? '▲' : '▼'}</span>
+                                                    </button>
+                                                    {showDidCalculationDetails && (
+                                                        <div style={{
+                                                            marginTop: '0',
+                                                            padding: '16px',
+                                                            backgroundColor: '#ffffff',
+                                                            borderRadius: '0 0 8px 8px',
+                                                            border: '1px solid #dee2e6',
+                                                            borderTop: 'none'
+                                                        }}>
+                                                            <div style={{fontSize: '14px', color: '#212529', lineHeight: '1.8'}}>
+                                                                <p style={{margin: '0 0 8px 0'}}>
+                                                                    <strong>Step 1:</strong> Calculate change in Treatment Group
+                                                                </p>
+                                                                <div style={{marginLeft: '20px', marginBottom: '12px'}}>
+                                                                    Treatment Post - Treatment Pre = {formatNumber(stats.outcome_mean_treated_post, 2)} - {formatNumber(stats.outcome_mean_treated_pre, 2)} = <strong>{formatNumber(stats.outcome_mean_treated_post - stats.outcome_mean_treated_pre, 2)}</strong>
+                                                                </div>
+                                                                <p style={{margin: '0 0 8px 0'}}>
+                                                                    <strong>Step 2:</strong> Calculate change in Control Group
+                                                                </p>
+                                                                <div style={{marginLeft: '20px', marginBottom: '12px'}}>
+                                                                    Control Post - Control Pre = {formatNumber(stats.outcome_mean_control_post, 2)} - {formatNumber(stats.outcome_mean_control_pre, 2)} = <strong>{formatNumber(stats.outcome_mean_control_post - stats.outcome_mean_control_pre, 2)}</strong>
+                                                                </div>
+                                                                <p style={{margin: '0 0 8px 0'}}>
+                                                                    <strong>Step 3:</strong> DiD Estimate = Treatment Change - Control Change
+                                                                </p>
+                                                                <div style={{marginLeft: '20px', marginBottom: '8px', padding: '8px', backgroundColor: '#f8f9fa', borderRadius: '4px', border: '1px solid #dee2e6'}}>
+                                                                    DiD = {formatNumber(stats.outcome_mean_treated_post - stats.outcome_mean_treated_pre, 2)} - {formatNumber(stats.outcome_mean_control_post - stats.outcome_mean_control_pre, 2)} = <strong style={{color: '#043873', fontSize: '16px'}}>{(overallAverage >= 0 ? '+' : '')}{formatNumber(overallAverage, 4)}</strong>
+                                                                </div>
+                                                                <p style={{margin: '8px 0 0 0', fontSize: '13px', color: '#666', fontStyle: 'italic'}}>
+                                                                    This represents the average treatment effect across all post-treatment periods, accounting for the control group's natural trend.
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            }
+                            return null;
+                        })()}
                     </div>
 
         {/* NEW: Parallel Trends Assessment Section */}
@@ -1061,257 +1278,6 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
               </>
             );
           })()}
-        </div>
-
-        {/* EFFECT SIZE BREAKDOWN - Period by Period */}
-        <div style={styles.effectBreakdownSection}>
-            <h2 style={styles.sectionTitle}>📊 Effect Size by Period</h2>
-            
-            {/* Period Selector */}
-            {results.results?.period_statistics && results.results.period_statistics.length > 0 ? (
-                <>
-                <div style={styles.periodSelectorContainer}>
-                    <label style={styles.periodSelectorLabel}>Select a period to see effect size:</label>
-                    <div style={styles.periodTabs}>
-                        {results.results.period_statistics.map((period, index) => (
-                            <button
-                                key={index}
-                                onClick={() => setSelectedPeriod(period.period)}
-                                style={{
-                                    ...styles.periodTab,
-                                    ...(selectedPeriod === period.period || (selectedPeriod === null && period.is_post_treatment && !period.is_treatment_start && 
-                                        results.results?.period_statistics?.filter(p => p.is_post_treatment && !p.is_treatment_start)[0]?.period === period.period) 
-                                        ? styles.periodTabActive : {}),
-                                    ...(period.is_post_treatment ? {} : styles.periodTabPre),
-                                    ...(period.is_treatment_start ? styles.periodTabTransition : {})
-                                }}
-                            >
-                                <span style={styles.periodTabLabel}>{period.period}</span>
-                                {period.is_treatment_start ? (
-                                    <span style={{...styles.periodTabBadge, backgroundColor: 'rgba(255, 193, 7, 0.3)', color: '#856404'}}>Start</span>
-                                ) : period.is_post_treatment ? (
-                                    <span style={styles.periodTabBadge}>Post</span>
-                                ) : null}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Period Detail Card */}
-                {(() => {
-                    const periodStats = results.results?.period_statistics || [];
-                    // Default to first post-treatment period that's not the transition year
-                    const postTreatmentPeriods = periodStats.filter(p => p.is_post_treatment && !p.is_treatment_start);
-                    const currentPeriod = selectedPeriod 
-                        ? periodStats.find(p => p.period === selectedPeriod) 
-                        : postTreatmentPeriods[0];
-                    
-                    if (!currentPeriod) return null;
-                    
-                    return (
-                        <div style={styles.periodDetailContainer}>
-                            {/* Period Header */}
-                            <div style={styles.periodHeader}>
-                                <h3 style={styles.periodTitle}>
-                                    {currentPeriod.is_treatment_start 
-                                        ? `⚡ Treatment Start: ${currentPeriod.period}`
-                                        : currentPeriod.is_post_treatment 
-                                            ? `📅 Period: ${currentPeriod.period}` 
-                                            : `📅 Pre-Treatment: ${currentPeriod.period}`}
-                                </h3>
-                                <span style={{
-                                    ...styles.periodTypeBadge,
-                                    backgroundColor: currentPeriod.is_treatment_start 
-                                        ? '#ffc107' 
-                                        : currentPeriod.is_post_treatment ? '#28a745' : '#6c757d'
-                                }}>
-                                    {currentPeriod.is_treatment_start 
-                                        ? 'Transition Year' 
-                                        : currentPeriod.is_post_treatment ? 'After Treatment' : 'Before Treatment'}
-                                </span>
-                            </div>
-
-                            {/* Transition Year Warning */}
-                            {currentPeriod.is_treatment_start && (
-                                <div style={styles.transitionWarning}>
-                                    <p><strong>⚠️ Transition Year</strong></p>
-                                    <p>This is the year when treatment began. Effect sizes are not calculated for the treatment start year because:</p>
-                                    <ul>
-                                        <li>Treatment may not be fully implemented</li>
-                                        <li>Effects may be partial or delayed</li>
-                                        <li>Including it could bias the estimates</li>
-                                    </ul>
-                                </div>
-                            )}
-
-                            {/* Values Comparison */}
-                            <div style={styles.periodValuesGrid}>
-                                <div style={styles.periodValueCard}>
-                                    <div style={styles.periodValueHeader}>
-                                        <span style={{...styles.groupDot, backgroundColor: '#4F9CF9'}}></span>
-                                        Treatment Group
-                                    </div>
-                                    <div style={{...styles.periodValueNumber, color: '#4F9CF9'}}>
-                                        {formatNumber(currentPeriod.treatment_mean, 2)}
-                                    </div>
-                                </div>
-                                
-                                <div style={styles.periodValueCard}>
-                                    <div style={styles.periodValueHeader}>
-                                        <span style={{...styles.groupDot, backgroundColor: '#FF6B6B'}}></span>
-                                        Control Group
-                                    </div>
-                                    <div style={{...styles.periodValueNumber, color: '#FF6B6B'}}>
-                                        {formatNumber(currentPeriod.control_mean, 2)}
-                                    </div>
-                                </div>
-
-                                {currentPeriod.is_post_treatment && !currentPeriod.is_treatment_start && currentPeriod.counterfactual && (
-                                    <div style={{...styles.periodValueCard, borderStyle: 'dashed'}}>
-                                        <div style={styles.periodValueHeader}>
-                                            <span style={{...styles.groupDot, backgroundColor: '#9CA3AF'}}></span>
-                                            Counterfactual
-                                        </div>
-                                        <div style={{...styles.periodValueNumber, color: '#9CA3AF'}}>
-                                            {formatNumber(currentPeriod.counterfactual, 2)}
-                                        </div>
-                                        <div style={styles.counterfactualNote}>
-                                            = Pre-treatment mean + Control's change from baseline
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Effect Size for this Period */}
-                            {currentPeriod.is_post_treatment && !currentPeriod.is_treatment_start && currentPeriod.period_effect !== null && (
-                                <div style={styles.periodEffectCard}>
-                                    <div style={styles.periodEffectHeader}>
-                                        <span style={styles.periodEffectLabel}>🎯 Causal Effect in {currentPeriod.period}</span>
-                                    </div>
-                                    <div style={styles.periodEffectValue}>
-                                        {currentPeriod.period_effect >= 0 ? '+' : ''}
-                                        {formatNumber(currentPeriod.period_effect, 2)}
-                                    </div>
-                                    <div style={styles.periodEffectFormula}>
-                                        = Actual ({formatNumber(currentPeriod.treatment_mean, 2)}) − Counterfactual ({formatNumber(currentPeriod.counterfactual, 2)})
-                                    </div>
-                                </div>
-                            )}
-
-                            {!currentPeriod.is_post_treatment && (
-                                <div style={styles.preTreatmentNote}>
-                                    <p>📋 This is a <strong>pre-treatment period</strong>. Effect sizes are only calculated for post-treatment periods (excluding the treatment start year).</p>
-                                    <p>Treatment: {formatNumber(currentPeriod.treatment_mean, 2)} | Control: {formatNumber(currentPeriod.control_mean, 2)} | Diff: {formatNumber((currentPeriod.treatment_mean || 0) - (currentPeriod.control_mean || 0), 2)}</p>
-                                </div>
-                            )}
-                        </div>
-                    );
-                })()}
-
-                {/* All Post-Treatment Effects Summary */}
-                {(() => {
-                    // Filter to post-treatment periods with effects, excluding the treatment start year
-                    const postPeriods = (results.results?.period_statistics || []).filter(
-                        p => p.is_post_treatment && !p.is_treatment_start && p.period_effect !== null
-                    );
-                    if (postPeriods.length === 0) return null;
-                    
-                    const maxEffect = Math.max(...postPeriods.map(p => Math.abs(p.period_effect || 0)), 0.1);
-                    
-                    return (
-                        <div style={styles.allEffectsContainer}>
-                            <h3 style={styles.allEffectsTitle}>📈 Causal Effect by Year (Excluding Treatment Start Year)</h3>
-                            <div style={styles.effectBarsContainer}>
-                                {postPeriods.map((period, index) => (
-                                    <div key={index} style={styles.effectBarGroup}>
-                                        <div style={styles.barLabel}>
-                                            <span style={{fontWeight: 'bold', color: '#333'}}>{period.period}</span>
-                                            <span style={{
-                                                ...styles.changeValue, 
-                                                color: (period.period_effect || 0) >= 0 ? '#28a745' : '#dc3545'
-                                            }}>
-                                                {(period.period_effect || 0) >= 0 ? '+' : ''}
-                                                {formatNumber(period.period_effect, 2)}
-                                            </span>
-                                        </div>
-                                        <div style={styles.barContainer}>
-                                            <div style={{
-                                                ...styles.bar,
-                                                width: `${Math.min(100, Math.abs((period.period_effect || 0) / maxEffect * 100))}%`,
-                                                backgroundColor: (period.period_effect || 0) >= 0 ? '#28a745' : '#dc3545'
-                                            }}></div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                            
-                            {/* Overall DiD */}
-                            <div style={{...styles.effectBarGroup, marginTop: '20px', paddingTop: '20px', borderTop: '2px solid #e9ecef'}}>
-                                <div style={styles.barLabel}>
-                                    <span style={{fontWeight: 'bold', color: '#043873'}}>📊 Overall Average (DiD Estimate)</span>
-                                    <span style={{...styles.changeValue, fontSize: '18px', color: '#043873'}}>
-                                        {(results.results?.did_estimate || 0) >= 0 ? '+' : ''}
-                                        {formatNumber(results.results?.did_estimate, 2)}
-                                    </span>
-                                </div>
-                            </div>
-                            
-                            <div style={styles.methodologyNote}>
-                                <p><strong>Methodology:</strong> Each period's effect = Actual treatment value − Counterfactual</p>
-                                <p>Counterfactual = Pre-treatment treatment mean + (Current control − Pre-treatment control mean)</p>
-                                <p>This assumes parallel trends: without intervention, treatment would follow control's trajectory.</p>
-                            </div>
-                        </div>
-                    );
-                })()}
-                </>
-            ) : (
-                /* Fallback to aggregate display if no period data */
-                <div style={styles.effectCardsContainer}>
-                    <div style={styles.effectCard}>
-                        <div style={styles.effectCardHeader}>
-                            <span style={styles.effectCardLabel}>Pre-Treatment Average</span>
-                            <span style={styles.periodBadge}>Baseline</span>
-                        </div>
-                        <div style={styles.effectComparison}>
-                            <div style={styles.groupValue}>
-                                <span style={styles.groupLabel}>Treatment</span>
-                                <span style={{...styles.groupNumber, color: '#4F9CF9'}}>
-                                    {formatNumber(results.results?.statistics?.outcome_mean_treated_pre, 1)}
-                                </span>
-                            </div>
-                            <div style={styles.vsIndicator}>vs</div>
-                            <div style={styles.groupValue}>
-                                <span style={styles.groupLabel}>Control</span>
-                                <span style={{...styles.groupNumber, color: '#FF6B6B'}}>
-                                    {formatNumber(results.results?.statistics?.outcome_mean_control_pre, 1)}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                    <div style={{...styles.effectCard, borderColor: '#28a745'}}>
-                        <div style={styles.effectCardHeader}>
-                            <span style={styles.effectCardLabel}>Post-Treatment Average</span>
-                            <span style={{...styles.periodBadge, backgroundColor: '#28a745'}}>After</span>
-                        </div>
-                        <div style={styles.effectComparison}>
-                            <div style={styles.groupValue}>
-                                <span style={styles.groupLabel}>Treatment</span>
-                                <span style={{...styles.groupNumber, color: '#4F9CF9'}}>
-                                    {formatNumber(results.results?.statistics?.outcome_mean_treated_post, 1)}
-                                </span>
-                            </div>
-                            <div style={styles.vsIndicator}>vs</div>
-                            <div style={styles.groupValue}>
-                                <span style={styles.groupLabel}>Control</span>
-                                <span style={{...styles.groupNumber, color: '#FF6B6B'}}>
-                                    {formatNumber(results.results?.statistics?.outcome_mean_control_post, 1)}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
 
         {/* CODE SECTION - Reproducible Analysis */}
