@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 export const useProgressStep = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  
+
   // Flow: Upload Data → Create Project → Method → Variables → Results
   const steps = [
     { id: 'upload', label: 'Upload Data', path: '/upload-data' },
@@ -12,7 +12,31 @@ export const useProgressStep = () => {
     { id: 'variables', label: 'Variables', path: '/variable-selection' },
     { id: 'results', label: 'Results', path: '/results' }
   ];
-  
+
+  // Helper to build path with preserved query params (projectId, datasetId)
+  const buildPathWithParams = (basePath: string): string => {
+    const params = new URLSearchParams(location.search);
+    const projectId = params.get('projectId');
+    const datasetId = params.get('datasetId');
+
+    // Also check location state for projectId/datasetId if not in URL
+    const stateProjectId = (location.state as any)?.projectId;
+    const stateDatasetId = (location.state as any)?.datasetId;
+
+    const finalProjectId = projectId || stateProjectId;
+    const finalDatasetId = datasetId || stateDatasetId;
+
+    if (finalProjectId) {
+      const newParams = new URLSearchParams();
+      newParams.set('projectId', String(finalProjectId));
+      if (finalDatasetId) {
+        newParams.set('datasetId', String(finalDatasetId));
+      }
+      return `${basePath}?${newParams.toString()}`;
+    }
+    return basePath;
+  };
+
   const getCurrentStep = (): string => {
     switch (location.pathname) {
       case '/':
@@ -32,25 +56,69 @@ export const useProgressStep = () => {
         return 'upload';
     }
   };
-  
+
   const goToPreviousStep = () => {
     const currentIndex = steps.findIndex(step => step.id === getCurrentStep());
     if (currentIndex > 0) {
-      navigate(steps[currentIndex - 1].path);
+      const targetPath = buildPathWithParams(steps[currentIndex - 1].path);
+      // Also pass state for backwards compatibility
+      const params = new URLSearchParams(location.search);
+      const stateProjectId = (location.state as any)?.projectId;
+      const stateDatasetId = (location.state as any)?.datasetId;
+      const projectId = params.get('projectId') || stateProjectId;
+      const datasetId = params.get('datasetId') || stateDatasetId;
+
+      navigate(targetPath, {
+        state: {
+          projectId: projectId ? parseInt(String(projectId)) : undefined,
+          datasetId: datasetId ? parseInt(String(datasetId)) : undefined
+        }
+      });
     }
   };
-  
+
   const goToNextStep = () => {
     const currentIndex = steps.findIndex(step => step.id === getCurrentStep());
     if (currentIndex < steps.length - 1) {
-      navigate(steps[currentIndex + 1].path);
+      const targetPath = buildPathWithParams(steps[currentIndex + 1].path);
+      // Also pass state for backwards compatibility
+      const params = new URLSearchParams(location.search);
+      const stateProjectId = (location.state as any)?.projectId;
+      const stateDatasetId = (location.state as any)?.datasetId;
+      const projectId = params.get('projectId') || stateProjectId;
+      const datasetId = params.get('datasetId') || stateDatasetId;
+
+      navigate(targetPath, {
+        state: {
+          projectId: projectId ? parseInt(String(projectId)) : undefined,
+          datasetId: datasetId ? parseInt(String(datasetId)) : undefined
+        }
+      });
     }
   };
-  
+
+  // Helper function for onStepClick - preserves projectId in step navigation
+  const navigateToStep = (stepPath: string) => {
+    const targetPath = buildPathWithParams(stepPath);
+    const params = new URLSearchParams(location.search);
+    const stateProjectId = (location.state as any)?.projectId;
+    const stateDatasetId = (location.state as any)?.datasetId;
+    const projectId = params.get('projectId') || stateProjectId;
+    const datasetId = params.get('datasetId') || stateDatasetId;
+
+    navigate(targetPath, {
+      state: {
+        projectId: projectId ? parseInt(String(projectId)) : undefined,
+        datasetId: datasetId ? parseInt(String(datasetId)) : undefined
+      }
+    });
+  };
+
   return {
     currentStep: getCurrentStep(),
     steps,
     goToPreviousStep,
-    goToNextStep
+    goToNextStep,
+    navigateToStep  // New helper for step clicks
   };
 };
