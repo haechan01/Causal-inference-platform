@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Navbar from './Navbar';
 import BottomProgressBar from './BottomProgressBar';
@@ -6,6 +6,7 @@ import { useProgressStep } from '../hooks/useProgressStep';
 import { aiService, ResultsInterpretation } from '../services/aiService';
 import { useAuth } from '../contexts/AuthContext';
 import { projectStateService } from '../services/projectStateService';
+import InteractiveDiDChart from './InteractiveDiDChart';
 
 // Download chart as PNG helper function
 const downloadChartAsPNG = (base64Data: string, filename: string) => {
@@ -70,6 +71,7 @@ interface DiDResults {
       significance: string;
     };
     chart: string;
+    chart_data?: any; // Structured data for interactive chart
     parallel_trends_test?: {
       passed: boolean | null;
       p_value: number | null;
@@ -112,9 +114,28 @@ const ResultsPage: React.FC = () => {
     const [aiError, setAiError] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
   const [codeLanguage, setCodeLanguage] = useState<'python' | 'r'>('python');
-  const [selectedPeriod, setSelectedPeriod] = useState<string | number | null>(null);
+  // const [selectedPeriod, setSelectedPeriod] = useState<string | number | null>(null); // Removed - no longer used
   const [showCheck1Details, setShowCheck1Details] = useState(false);
   const [showCheck2Details, setShowCheck2Details] = useState(false);
+  const [showDidCalculationDetails, setShowDidCalculationDetails] = useState(false);
+  const [aiSidebarWidth, setAiSidebarWidth] = useState(480); // Default width in pixels
+  const [isResizing, setIsResizing] = useState(false);
+  const [isAiSidebarCollapsed, setIsAiSidebarCollapsed] = useState(false);
+  const COLLAPSE_THRESHOLD = 200; // Width threshold below which sidebar auto-collapses
+  
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; timestamp?: string }>>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [recommendedQuestions, setRecommendedQuestions] = useState<string[]>([
+    "What is the parallel trends assumption?",
+    "How do I interpret my DiD estimate?",
+    "What are the limitations of this analysis?"
+  ]);
+  const [datasetInfo, setDatasetInfo] = useState<any>(null);
+  const MAX_MESSAGE_LENGTH = 2000;
+  const chatMessagesEndRef = useRef<HTMLDivElement>(null);
     
     // Get project ID and dataset ID from navigation state or saved state
     const [projectId, setProjectId] = useState<number | null>((location.state as any)?.projectId || null);
@@ -245,6 +266,50 @@ const ResultsPage: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectId, accessToken, location.search]);
 
+    // Load dataset info when datasetId is available
+    useEffect(() => {
+        const loadDatasetInfo = async () => {
+            if (!datasetId || !accessToken) return;
+            
+            try {
+                const axios = (await import('axios')).default;
+                // Try to get dataset info from project datasets
+                if (projectId) {
+                    const projectResponse = await axios.get(`/projects/${projectId}/datasets`, {
+                        headers: { Authorization: `Bearer ${accessToken}` }
+                    });
+                    const datasets = projectResponse.data.datasets || [];
+                    const dataset = datasets.find((d: any) => d.id === datasetId);
+                    
+                    if (dataset) {
+                        // Load dataset preview to get columns and summary
+                        try {
+                            const previewResponse = await axios.get(`/datasets/${datasetId}/preview`, {
+                                headers: { Authorization: `Bearer ${accessToken}` }
+                            });
+                            setDatasetInfo({
+                                name: dataset.name,
+                                columns: previewResponse.data.columns || [],
+                                summary: previewResponse.data.summary || {}
+                            });
+                        } catch (previewError) {
+                            // If preview fails, just use basic dataset info
+                            setDatasetInfo({
+                                name: dataset.name,
+                                columns: [],
+                                summary: {}
+                            });
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading dataset info:', error);
+            }
+        };
+        
+        loadDatasetInfo();
+    }, [datasetId, projectId, accessToken]);
+
     // Function to load AI interpretation - only called when user clicks the button
         const loadAIInterpretation = async () => {
             if (!results?.results || !results?.parameters) {
@@ -313,6 +378,139 @@ const ResultsPage: React.FC = () => {
             }
         };
 
+    // Resize handlers for AI sidebar
+    useEffect(() => {
+        let lastWidth = aiSidebarWidth;
+        
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!isResizing) return;
+            
+            const container = document.querySelector('[data-main-layout]') as HTMLElement;
+            if (!container) return;
+            
+            const containerRect = container.getBoundingClientRect();
+            // Calculate width from the right edge of the container to the mouse position
+            const newWidth = containerRect.right - e.clientX;
+            
+            // Constrain width between threshold and 800px
+            const minWidth = COLLAPSE_THRESHOLD;
+            const maxWidth = 800;
+            const constrainedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+            
+            lastWidth = constrainedWidth;
+            
+            // Auto-collapse if width goes below threshold
+            if (constrainedWidth <= COLLAPSE_THRESHOLD) {
+                setIsAiSidebarCollapsed(true);
+            } else {
+                setIsAiSidebarCollapsed(false);
+                setAiSidebarWidth(constrainedWidth);
+            }
+        };
+
+        const handleMouseUp = () => {
+            setIsResizing(false);
+            // If collapsed after resize, ensure it stays collapsed
+            if (lastWidth <= COLLAPSE_THRESHOLD) {
+                setIsAiSidebarCollapsed(true);
+            }
+        };
+
+        if (isResizing) {
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+        }
+
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        };
+    }, [isResizing, aiSidebarWidth]);
+
+    const handleResizeStart = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsResizing(true);
+    };
+
+    const handleOpenAiSection = () => {
+        setIsAiSidebarCollapsed(false);
+        // Restore to default width if it was collapsed
+        if (aiSidebarWidth <= COLLAPSE_THRESHOLD) {
+            setAiSidebarWidth(480);
+        }
+    };
+
+    // Chat handlers
+    const handleSendMessage = async () => {
+        const message = chatInput.trim();
+        if (!message || chatLoading) return;
+        
+        if (message.length > MAX_MESSAGE_LENGTH) {
+            setChatError(`Message too long. Maximum ${MAX_MESSAGE_LENGTH} characters allowed.`);
+            return;
+        }
+
+        setChatError(null);
+        setChatLoading(true);
+        
+        // Add user message to chat
+        const userMessage = { role: 'user' as const, content: message, timestamp: new Date().toISOString() };
+        setChatMessages(prev => [...prev, userMessage]);
+        setChatInput('');
+
+        try {
+            // Prepare conversation history (exclude timestamps for API)
+            const conversationHistory = chatMessages.map(msg => ({
+                role: msg.role,
+                content: msg.content
+            }));
+
+            // Prepare analysis context with full results and AI interpretation
+            const analysisContext = results ? {
+                parameters: results.parameters,
+                results: results.results,
+                ai_interpretation: aiInterpretation || undefined  // Include AI interpretation if available
+            } : undefined;
+
+            // Call chat API
+            const response = await aiService.chat(
+                message,
+                conversationHistory,
+                analysisContext,
+                datasetInfo
+            );
+
+            // Add assistant response to chat
+            const assistantMessage = {
+                role: 'assistant' as const,
+                content: response.response,
+                timestamp: response.timestamp
+            };
+            setChatMessages(prev => [...prev, assistantMessage]);
+        } catch (error: any) {
+            console.error('Chat error:', error);
+            const errorMessage = error.response?.data?.error || error.message || 'Failed to send message';
+            setChatError(errorMessage);
+            
+            // Remove user message if error occurred
+            setChatMessages(prev => prev.slice(0, -1));
+        } finally {
+            setChatLoading(false);
+        }
+    };
+
+    const handleChatInputKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSendMessage();
+        }
+    };
+
     if (loading) {
         return (
             <div>
@@ -379,7 +577,7 @@ const ResultsPage: React.FC = () => {
             <span>
                 <strong style={{color: '#043873'}}>{treatment}</strong> effect on <strong style={{color: '#043873'}}>{outcome}</strong>: {' '}
                 <strong style={{color: effectColor, fontSize: '18px'}}>
-                    {(effect > 0 ? '+' : '')}{formatNumber(effect, 0)} units
+                    {(effect > 0 ? '+' : '')}{formatNumber(effect, 4)} units
                 </strong>
                 {' '}
                 <span style={{
@@ -528,13 +726,30 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
         <div>
             <Navbar />
             <div style={styles.contentContainer}>
-                <div style={styles.mainLayout}>
-                    <div style={styles.mainContent}>
+                <div 
+                  data-main-layout
+                  style={{
+                    ...styles.mainLayout,
+                    justifyContent: isAiSidebarCollapsed ? 'center' : 'flex-start',
+                    gap: isAiSidebarCollapsed ? '24px' : '48px',
+                    position: 'relative' as const // Positioning context
+                  }}>
+                    <div style={{
+                      ...styles.mainContent,
+                      flex: isAiSidebarCollapsed ? '1 1 auto' : '1 1 60%',
+                      minWidth: isAiSidebarCollapsed ? 'auto' : '60%',
+                      maxWidth: isAiSidebarCollapsed ? '1200px' : 'none',
+                      margin: isAiSidebarCollapsed ? '0 auto' : '0'
+                    }}>
+                    
+                    {/* Analysis Results Section */}
+                    <div style={{marginBottom: '50px'}}>
+                        <h1 style={styles.mainSectionTitle}>Analysis Results</h1>
+                    </div>
                     
                     {/* Summary Header */}
                     <div style={styles.summaryHeader}>
                         <div style={styles.summaryHeaderTop}>
-                            <h1 style={styles.pageTitle}>Analysis Results</h1>
                             
                         </div>
                         <div style={styles.summaryCard}>
@@ -598,28 +813,27 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                         )}
                         
                         {/* DiD Visualization Chart - Moved here from separate section */}
-                        {(results.results as any)?.chart && (
+                        {((results.results as any)?.chart || (results.results as any)?.chart_data) && (
                             <div style={{...styles.visualizationSection, marginTop: '30px'}}>
                                 <div style={styles.chartHeader}>
-                                    <h2 style={styles.sectionTitle}>What Happened Over Time</h2>
-                                    <button
-                                        onClick={() => downloadChartAsPNG(
-                                            (results.results as any).chart,
-                                            'did_analysis_chart.png'
-                                        )}
-                                        style={styles.downloadButton}
-                                        title="Download chart as PNG"
-                                    >
-                                        ⬇️ Download Chart
-                                    </button>
+                                    <h2 style={styles.subsectionTitle}>Outcome Over Time</h2>
                                 </div>
                                 <div style={styles.chartContainer}>
                                     <div style={styles.realChartContainer}>
-                                        <img 
-                                            src={`data:image/png;base64,${(results.results as any).chart}`} 
-                                            alt="Difference-in-Differences Analysis Chart"
-                                            style={styles.realChart}
-                                        />
+                                {(results.results as any)?.chart_data ? (
+                                    <InteractiveDiDChart
+                                        key="did-chart"
+                                        chartData={(results.results as any).chart_data}
+                                        fallbackPng={(results.results as any).chart}
+                                        didEstimate={results.results?.did_estimate}
+                                    />
+                                ) : (
+                                            <img 
+                                                src={`data:image/png;base64,${(results.results as any).chart}`} 
+                                                alt="Difference-in-Differences Analysis Chart"
+                                                style={styles.realChart}
+                                            />
+                                        )}
                                         <div style={styles.chartNote}>
                                             The blue line represents the treatment group, 
                                             the red line represents the control group, and the dashed line shows what would have happened 
@@ -629,11 +843,228 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                                 </div>
                             </div>
                         )}
+
+                        {/* Effect Size by Period - Combined section */}
+                        {(() => {
+                            const pt = (results.results as any)?.parallel_trends || (results.results as any)?.parallel_trends_test;
+                            const postTreatmentCoeffs = pt?.event_study_coefficients?.filter((coef: any) => 
+                                !coef.is_pre_treatment && !coef.is_reference && coef.relative_time >= 0
+                            ) || [];
+                            
+                            // Get period statistics for post-treatment periods
+                            const postPeriodStats = (results.results?.period_statistics || []).filter((p: any) => 
+                                p.is_post_treatment && !p.is_treatment_start
+                            );
+                            
+                            // Get treatment start time to convert relative_time to actual periods
+                            const treatmentStart = results.parameters?.treatment_start;
+                            
+                            // Helper to convert relative_time to actual period
+                            const getPeriodFromRelativeTime = (relativeTime: number): string | number => {
+                                if (typeof treatmentStart === 'string' || typeof treatmentStart === 'number') {
+                                    const startNum = typeof treatmentStart === 'string' ? parseFloat(treatmentStart) : treatmentStart;
+                                    if (!isNaN(startNum)) {
+                                        return startNum + relativeTime;
+                                    }
+                                }
+                                return `t = ${relativeTime}`;
+                            };
+                            
+                            // Combine data: prefer period_statistics if available, otherwise use event_study_coefficients
+                            // For period_statistics, try to get CI from event_study_coefficients if available
+                            const combinedData = postPeriodStats.length > 0 
+                                ? postPeriodStats.map((period: any) => {
+                                    // Try to find matching event study coefficient for CI
+                                    const matchingCoeff = postTreatmentCoeffs.find((coef: any) => {
+                                        const periodFromRelative = getPeriodFromRelativeTime(coef.relative_time);
+                                        return periodFromRelative === period.period || 
+                                               (typeof periodFromRelative === 'number' && typeof period.period === 'number' && 
+                                                Math.abs(periodFromRelative - period.period) < 0.01);
+                                    });
+                                    return {
+                                        period: period.period,
+                                        effectSize: period.period_effect,
+                                        ciLower: matchingCoeff?.ci_lower ?? null,
+                                        ciUpper: matchingCoeff?.ci_upper ?? null,
+                                        isSignificant: matchingCoeff ? (matchingCoeff.p_value !== null && matchingCoeff.p_value < 0.05) : null,
+                                        treatmentMean: period.treatment_mean,
+                                        controlMean: period.control_mean,
+                                        counterfactual: period.counterfactual
+                                    };
+                                })
+                                : postTreatmentCoeffs.map((coef: any) => ({
+                                    period: getPeriodFromRelativeTime(coef.relative_time),
+                                    effectSize: coef.coefficient,
+                                    ciLower: coef.ci_lower,
+                                    ciUpper: coef.ci_upper,
+                                    isSignificant: coef.p_value !== null && coef.p_value < 0.05,
+                                    treatmentMean: null,
+                                    controlMean: null,
+                                    counterfactual: null
+                                }));
+                            
+                            if (combinedData.length > 0) {
+                                // Calculate overall average
+                                const overallAverage = results.results?.did_estimate;
+                                const stats = results.results?.statistics;
+                                
+                                return (
+                                    <div style={{...styles.visualizationSection, marginTop: '30px'}}>
+                                        <div style={styles.chartHeader}>
+                                            <h2 style={styles.sectionTitle}>Effect Size by Period</h2>
+                                        </div>
+                                        <div style={{padding: '20px'}}>
+                                            <p style={{marginBottom: '20px', color: '#666', fontSize: '14px'}}>
+                                                Treatment effects for each post-treatment period:
+                                            </p>
+                                            <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '14px'}}>
+                                                <thead>
+                                                    <tr style={{backgroundColor: '#f8f9fa', borderBottom: '2px solid #dee2e6'}}>
+                                                        <th style={{padding: '12px', textAlign: 'left', fontWeight: '600', color: '#212529'}}>Period</th>
+                                                        <th style={{padding: '12px', textAlign: 'right', fontWeight: '600', color: '#212529'}}>Effect Size</th>
+                                                        <th style={{padding: '12px', textAlign: 'right', fontWeight: '600', color: '#212529'}}>95% CI Lower</th>
+                                                        <th style={{padding: '12px', textAlign: 'right', fontWeight: '600', color: '#212529'}}>95% CI Upper</th>
+                                                        <th style={{padding: '12px', textAlign: 'center', fontWeight: '600', color: '#212529'}}>Significant</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {combinedData.map((item: any, idx: number) => (
+                                                        <tr key={idx} style={{borderBottom: '1px solid #e9ecef'}}>
+                                                            <td style={{padding: '12px', fontWeight: '500', color: '#212529'}}>
+                                                                {item.period}
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'right', color: '#212529', fontWeight: '500'}}>
+                                                                {formatNumber(item.effectSize, 4)}
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'right', color: '#212529'}}>
+                                                                {item.ciLower !== null ? formatNumber(item.ciLower, 4) : 'N/A'}
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'right', color: '#212529'}}>
+                                                                {item.ciUpper !== null ? formatNumber(item.ciUpper, 4) : 'N/A'}
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'center'}}>
+                                                                {item.isSignificant !== null ? (
+                                                                    item.isSignificant ? (
+                                                                        <span style={{color: '#28a745', fontWeight: '600'}}>✓ Yes</span>
+                                                                    ) : (
+                                                                        <span style={{color: '#6c757d'}}>No</span>
+                                                                    )
+                                                                ) : (
+                                                                    <span style={{color: '#6c757d'}}>N/A</span>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                    {/* Overall Average Row */}
+                                                    {overallAverage !== null && overallAverage !== undefined && (
+                                                        <tr style={{borderTop: '2px solid #dee2e6', backgroundColor: '#f8f9fa'}}>
+                                                            <td style={{padding: '12px', fontWeight: '700', color: '#043873'}}>
+                                                                Overall Average (DiD Estimate)
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'right', fontWeight: '700', color: '#043873', fontSize: '16px'}}>
+                                                                {(overallAverage >= 0 ? '+' : '')}{formatNumber(overallAverage, 4)}
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'right', fontWeight: '600', color: '#043873'}}>
+                                                                {formatNumber(results.results?.confidence_interval?.lower, 4)}
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'right', fontWeight: '600', color: '#043873'}}>
+                                                                {formatNumber(results.results?.confidence_interval?.upper, 4)}
+                                                            </td>
+                                                            <td style={{padding: '12px', textAlign: 'center', fontWeight: '600', color: '#043873'}}>
+                                                                {results.results?.is_significant ? (
+                                                                    <span style={{color: '#28a745'}}>✓ Yes</span>
+                                                                ) : (
+                                                                    <span style={{color: '#6c757d'}}>No</span>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                            
+                                            {/* How DiD was calculated - Collapsible */}
+                                            {stats && overallAverage !== null && overallAverage !== undefined && (
+                                                <div style={{marginTop: '24px'}}>
+                                                    <button
+                                                        onClick={() => setShowDidCalculationDetails(!showDidCalculationDetails)}
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '12px 16px',
+                                                            backgroundColor: '#f8f9fa',
+                                                            border: '1px solid #dee2e6',
+                                                            borderRadius: '8px',
+                                                            cursor: 'pointer',
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between',
+                                                            alignItems: 'center',
+                                                            fontSize: '16px',
+                                                            fontWeight: '600',
+                                                            color: '#043873',
+                                                            transition: 'background-color 0.2s'
+                                                        }}
+                                                        onMouseEnter={(e) => {
+                                                            e.currentTarget.style.backgroundColor = '#e9ecef';
+                                                        }}
+                                                        onMouseLeave={(e) => {
+                                                            e.currentTarget.style.backgroundColor = '#f8f9fa';
+                                                        }}
+                                                        type="button"
+                                                    >
+                                                        <span>How the DiD Estimate was Calculated</span>
+                                                        <span>{showDidCalculationDetails ? '▲' : '▼'}</span>
+                                                    </button>
+                                                    {showDidCalculationDetails && (
+                                                        <div style={{
+                                                            marginTop: '0',
+                                                            padding: '16px',
+                                                            backgroundColor: '#ffffff',
+                                                            borderRadius: '0 0 8px 8px',
+                                                            border: '1px solid #dee2e6',
+                                                            borderTop: 'none'
+                                                        }}>
+                                                            <div style={{fontSize: '14px', color: '#212529', lineHeight: '1.8'}}>
+                                                                <p style={{margin: '0 0 8px 0'}}>
+                                                                    <strong>Step 1:</strong> Calculate change in Treatment Group
+                                                                </p>
+                                                                <div style={{marginLeft: '20px', marginBottom: '12px'}}>
+                                                                    Treatment Post - Treatment Pre = {formatNumber(stats.outcome_mean_treated_post, 2)} - {formatNumber(stats.outcome_mean_treated_pre, 2)} = <strong>{formatNumber(stats.outcome_mean_treated_post - stats.outcome_mean_treated_pre, 2)}</strong>
+                                                                </div>
+                                                                <p style={{margin: '0 0 8px 0'}}>
+                                                                    <strong>Step 2:</strong> Calculate change in Control Group
+                                                                </p>
+                                                                <div style={{marginLeft: '20px', marginBottom: '12px'}}>
+                                                                    Control Post - Control Pre = {formatNumber(stats.outcome_mean_control_post, 2)} - {formatNumber(stats.outcome_mean_control_pre, 2)} = <strong>{formatNumber(stats.outcome_mean_control_post - stats.outcome_mean_control_pre, 2)}</strong>
+                                                                </div>
+                                                                <p style={{margin: '0 0 8px 0'}}>
+                                                                    <strong>Step 3:</strong> DiD Estimate = Treatment Change - Control Change
+                                                                </p>
+                                                                <div style={{marginLeft: '20px', marginBottom: '8px', padding: '8px', backgroundColor: '#f8f9fa', borderRadius: '4px', border: '1px solid #dee2e6'}}>
+                                                                    DiD = {formatNumber(stats.outcome_mean_treated_post - stats.outcome_mean_treated_pre, 2)} - {formatNumber(stats.outcome_mean_control_post - stats.outcome_mean_control_pre, 2)} = <strong style={{color: '#043873', fontSize: '16px'}}>{(overallAverage >= 0 ? '+' : '')}{formatNumber(overallAverage, 4)}</strong>
+                                                                </div>
+                                                                <p style={{margin: '8px 0 0 0', fontSize: '13px', color: '#666', fontStyle: 'italic'}}>
+                                                                    This represents the average treatment effect across all post-treatment periods, accounting for the control group's natural trend.
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            }
+                            return null;
+                        })()}
                     </div>
 
+        {/* Assumptions Check Section */}
+        <div style={{marginTop: '60px', marginBottom: '50px'}}>
+          <h1 style={styles.mainSectionTitle}>Assumptions Check</h1>
+        </div>
+        
         {/* NEW: Parallel Trends Assessment Section */}
         <div style={styles.parallelTrendsSection}>
-          <h2 style={styles.sectionTitle}>Did the Groups Start Out Similar?</h2>
+          <h2 style={styles.subsectionTitle}>Parallel Trend Assumption Check</h2>
           <p style={styles.explanation}>
             Before we can trust our results, we need to check if the treatment and control groups were changing at similar rates before treatment started. 
             If they were already diverging, we can't be sure that differences after treatment are caused by the treatment itself.
@@ -823,10 +1254,54 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                           }
                         </p>
                       </div>
-                      <p style={{margin: '0 0 0 0', fontSize: '14px', color: '#212529', lineHeight: '1.5'}}>
+                      <p style={{margin: '0 0 20px 0', fontSize: '14px', color: '#212529', lineHeight: '1.5'}}>
                         <strong>What this means:</strong> We examined the difference between treatment and control groups at each time point before treatment. 
                         If pre-treatment differences hover around zero, parallel trends likely holds.
                       </p>
+                      
+                      {/* Event Study Chart - Inside Check 2 Box */}
+                      {isNewFormat && pt && pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' && (
+                        <div style={{marginTop: '20px'}}>
+                          <div style={{...styles.chartHeader, marginBottom: '10px'}}>
+                            <h3 style={styles.chartSubtitle}>Event Study: Treatment Effect Over Time</h3>
+                            <button
+                              onClick={() => downloadChartAsPNG(
+                                pt.event_study_chart!,
+                                'event_study_chart.png'
+                              )}
+                              style={styles.downloadButton}
+                              title="Download chart as PNG"
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#032d5a';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = '#043873';
+                              }}
+                            >
+                              <i className="fa fa-download"></i> Download Chart
+                            </button>
+                          </div>
+                          <div style={{width: '100%', overflow: 'hidden'}}>
+                            <img 
+                              src={`data:image/png;base64,${pt.event_study_chart}`} 
+                              alt="Event study: treatment-control difference over time" 
+                              style={{...styles.chart, maxWidth: '100%', boxSizing: 'border-box'}}
+                              onError={(e) => {
+                                console.error('Failed to load event study chart. Chart data length:', pt.event_study_chart?.length || 0);
+                                console.error('First 100 chars:', pt.event_study_chart?.substring(0, 100));
+                                (e.target as HTMLImageElement).style.display = 'none';
+                                const errorDiv = document.createElement('div');
+                                errorDiv.style.padding = '20px';
+                                errorDiv.style.backgroundColor = '#f8d7da';
+                                errorDiv.style.borderRadius = '6px';
+                                errorDiv.style.border = '1px solid #dc3545';
+                                errorDiv.innerHTML = '<p style="margin: 0; color: #721c24;">⚠️ Failed to load event study chart image.</p>';
+                                (e.target as HTMLImageElement).parentElement?.appendChild(errorDiv);
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div style={{
@@ -841,86 +1316,8 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                       </p>
                     </div>
                   )}
-                </div>
-              
-              {/* Event Study Chart - Primary Visualization */}
-              {isNewFormat && pt && (
-                <div style={styles.chartContainer}>
-                  <div style={{...styles.chartHeader, marginTop: '24px'}}>
-                    <h3 style={styles.chartSubtitle}>Event Study: Treatment Effect Over Time</h3>
-                    {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' && (
-                      <button
-                        onClick={() => downloadChartAsPNG(
-                          pt.event_study_chart!,
-                          'event_study_chart.png'
-                        )}
-                        style={styles.downloadButton}
-                        title="Download chart as PNG"
-                      >
-                        ⬇️ Download Chart
-                      </button>
-                    )}
-                  </div>
-                  <div style={{width: '100%', overflow: 'hidden'}}>
-                    {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' ? (
-                    <img 
-                      src={`data:image/png;base64,${pt.event_study_chart}`} 
-                      alt="Event study: treatment-control difference over time" 
-                      style={{...styles.chart, maxWidth: '100%', boxSizing: 'border-box'}}
-                      onError={(e) => {
-                        console.error('Failed to load event study chart. Chart data length:', pt.event_study_chart?.length || 0);
-                        console.error('First 100 chars:', pt.event_study_chart?.substring(0, 100));
-                        (e.target as HTMLImageElement).style.display = 'none';
-                        const errorDiv = document.createElement('div');
-                        errorDiv.style.padding = '20px';
-                        errorDiv.style.backgroundColor = '#f8d7da';
-                        errorDiv.style.borderRadius = '6px';
-                        errorDiv.style.border = '1px solid #dc3545';
-                        errorDiv.innerHTML = '<p style="margin: 0; color: #721c24;">⚠️ Failed to load event study chart image.</p>';
-                        (e.target as HTMLImageElement).parentElement?.appendChild(errorDiv);
-                      }}
-                    />
-                  ) : (
-                    <div style={{padding: '20px', backgroundColor: '#fff3cd', borderRadius: '6px', border: '1px solid #ffc107'}}>
-                      <p style={{margin: 0, color: '#856404', fontWeight: '500'}}>
-                        ⚠️ Event study chart is not available.
-                      </p>
-                      {pt?.event_study_coefficients && pt.event_study_coefficients.length > 0 ? (
-                        <p style={{margin: '10px 0 0 0', color: '#856404'}}>
-                          You can see the coefficients in the table below.
-                        </p>
-                      ) : (
-                        <div style={{marginTop: '12px'}}>
-                          <p style={{margin: '0 0 8px 0', color: '#856404'}}>
-                            <strong>Why isn't the event study available?</strong>
-                          </p>
-                          {pt?.warnings && pt.warnings.length > 0 ? (
-                            <ul style={{margin: '0', paddingLeft: '20px', color: '#856404'}}>
-                              {pt.warnings.filter((w: string) => w.toLowerCase().includes('event study')).map((warning: string, idx: number) => (
-                                <li key={idx} style={{marginBottom: '4px'}}>{warning}</li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p style={{margin: 0, color: '#856404', fontSize: '14px'}}>
-                              Event study requires multiple pre-treatment and post-treatment periods, 
-                              and variation in treatment timing across units (or sufficient data variation).
-                              Your data may not meet these requirements.
-                            </p>
-                          )}
-                        </div>
-                      )}
-                      {process.env.NODE_ENV === 'development' && (
-                        <p style={{margin: '10px 0 0 0', fontSize: '12px', color: '#666'}}>
-                          Debug: event_study_chart type = {typeof pt?.event_study_chart},
-                          value = {pt?.event_study_chart ? (pt.event_study_chart.toString().substring(0, 50) + '...') : 'null/undefined'},
-                          event_study_coefficients = {pt?.event_study_coefficients ? pt.event_study_coefficients.length : 'missing'}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  </div>
                   
-                  {/* Check 2 Show More Details Button - Below Event Study Chart */}
+                  {/* Check 2 Show More Details Button */}
                   {hasEventStudyData && (
                     <div style={{marginTop: '20px'}}>
                       <button
@@ -1057,261 +1454,41 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                     </div>
                   )}
                 </div>
-              )}
               </>
             );
           })()}
         </div>
 
-        {/* EFFECT SIZE BREAKDOWN - Period by Period */}
-        <div style={styles.effectBreakdownSection}>
-            <h2 style={styles.sectionTitle}>📊 Effect Size by Period</h2>
-            
-            {/* Period Selector */}
-            {results.results?.period_statistics && results.results.period_statistics.length > 0 ? (
-                <>
-                <div style={styles.periodSelectorContainer}>
-                    <label style={styles.periodSelectorLabel}>Select a period to see effect size:</label>
-                    <div style={styles.periodTabs}>
-                        {results.results.period_statistics.map((period, index) => (
-                            <button
-                                key={index}
-                                onClick={() => setSelectedPeriod(period.period)}
-                                style={{
-                                    ...styles.periodTab,
-                                    ...(selectedPeriod === period.period || (selectedPeriod === null && period.is_post_treatment && !period.is_treatment_start && 
-                                        results.results?.period_statistics?.filter(p => p.is_post_treatment && !p.is_treatment_start)[0]?.period === period.period) 
-                                        ? styles.periodTabActive : {}),
-                                    ...(period.is_post_treatment ? {} : styles.periodTabPre),
-                                    ...(period.is_treatment_start ? styles.periodTabTransition : {})
-                                }}
-                            >
-                                <span style={styles.periodTabLabel}>{period.period}</span>
-                                {period.is_treatment_start ? (
-                                    <span style={{...styles.periodTabBadge, backgroundColor: 'rgba(255, 193, 7, 0.3)', color: '#856404'}}>Start</span>
-                                ) : period.is_post_treatment ? (
-                                    <span style={styles.periodTabBadge}>Post</span>
-                                ) : null}
-                            </button>
-                        ))}
-                    </div>
-                </div>
+        {/* Additional Assumption Checks */}
+        <div style={styles.parallelTrendsSection}>
+          <h2 style={styles.subsectionTitle}>Additional Assumption Checks</h2>
+          
+          <div style={{marginBottom: '30px'}}>
+            <h3 style={{fontSize: '18px', fontWeight: 'bold', color: '#043873', marginBottom: '12px'}}>
+              No Anticipation Effects
+            </h3>
+            <p style={{fontSize: '15px', color: '#212529', lineHeight: '1.6', marginBottom: '20px'}}>
+              Units shouldn't change their behavior before treatment actually occurs. If firms start adjusting before a policy is announced or implemented, your treatment timing is effectively wrong and estimates will be biased.
+            </p>
+          </div>
 
-                {/* Period Detail Card */}
-                {(() => {
-                    const periodStats = results.results?.period_statistics || [];
-                    // Default to first post-treatment period that's not the transition year
-                    const postTreatmentPeriods = periodStats.filter(p => p.is_post_treatment && !p.is_treatment_start);
-                    const currentPeriod = selectedPeriod 
-                        ? periodStats.find(p => p.period === selectedPeriod) 
-                        : postTreatmentPeriods[0];
-                    
-                    if (!currentPeriod) return null;
-                    
-                    return (
-                        <div style={styles.periodDetailContainer}>
-                            {/* Period Header */}
-                            <div style={styles.periodHeader}>
-                                <h3 style={styles.periodTitle}>
-                                    {currentPeriod.is_treatment_start 
-                                        ? `⚡ Treatment Start: ${currentPeriod.period}`
-                                        : currentPeriod.is_post_treatment 
-                                            ? `📅 Period: ${currentPeriod.period}` 
-                                            : `📅 Pre-Treatment: ${currentPeriod.period}`}
-                                </h3>
-                                <span style={{
-                                    ...styles.periodTypeBadge,
-                                    backgroundColor: currentPeriod.is_treatment_start 
-                                        ? '#ffc107' 
-                                        : currentPeriod.is_post_treatment ? '#28a745' : '#6c757d'
-                                }}>
-                                    {currentPeriod.is_treatment_start 
-                                        ? 'Transition Year' 
-                                        : currentPeriod.is_post_treatment ? 'After Treatment' : 'Before Treatment'}
-                                </span>
-                            </div>
+          <div style={{marginBottom: '30px'}}>
+            <h3 style={{fontSize: '18px', fontWeight: 'bold', color: '#043873', marginBottom: '12px'}}>
+              Stable Unit Treatment Value (SUTVA)
+            </h3>
+            <p style={{fontSize: '15px', color: '#212529', lineHeight: '1.6', marginBottom: '20px'}}>
+              Requires that one unit's treatment status doesn't affect another unit's outcomes. This rules out spillovers—for instance, if a minimum wage increase in one state causes workers to commute from neighboring states, SUTVA is violated.
+            </p>
+          </div>
 
-                            {/* Transition Year Warning */}
-                            {currentPeriod.is_treatment_start && (
-                                <div style={styles.transitionWarning}>
-                                    <p><strong>⚠️ Transition Year</strong></p>
-                                    <p>This is the year when treatment began. Effect sizes are not calculated for the treatment start year because:</p>
-                                    <ul>
-                                        <li>Treatment may not be fully implemented</li>
-                                        <li>Effects may be partial or delayed</li>
-                                        <li>Including it could bias the estimates</li>
-                                    </ul>
-                                </div>
-                            )}
-
-                            {/* Values Comparison */}
-                            <div style={styles.periodValuesGrid}>
-                                <div style={styles.periodValueCard}>
-                                    <div style={styles.periodValueHeader}>
-                                        <span style={{...styles.groupDot, backgroundColor: '#4F9CF9'}}></span>
-                                        Treatment Group
-                                    </div>
-                                    <div style={{...styles.periodValueNumber, color: '#4F9CF9'}}>
-                                        {formatNumber(currentPeriod.treatment_mean, 2)}
-                                    </div>
-                                </div>
-                                
-                                <div style={styles.periodValueCard}>
-                                    <div style={styles.periodValueHeader}>
-                                        <span style={{...styles.groupDot, backgroundColor: '#FF6B6B'}}></span>
-                                        Control Group
-                                    </div>
-                                    <div style={{...styles.periodValueNumber, color: '#FF6B6B'}}>
-                                        {formatNumber(currentPeriod.control_mean, 2)}
-                                    </div>
-                                </div>
-
-                                {currentPeriod.is_post_treatment && !currentPeriod.is_treatment_start && currentPeriod.counterfactual && (
-                                    <div style={{...styles.periodValueCard, borderStyle: 'dashed'}}>
-                                        <div style={styles.periodValueHeader}>
-                                            <span style={{...styles.groupDot, backgroundColor: '#9CA3AF'}}></span>
-                                            Counterfactual
-                                        </div>
-                                        <div style={{...styles.periodValueNumber, color: '#9CA3AF'}}>
-                                            {formatNumber(currentPeriod.counterfactual, 2)}
-                                        </div>
-                                        <div style={styles.counterfactualNote}>
-                                            = Pre-treatment mean + Control's change from baseline
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Effect Size for this Period */}
-                            {currentPeriod.is_post_treatment && !currentPeriod.is_treatment_start && currentPeriod.period_effect !== null && (
-                                <div style={styles.periodEffectCard}>
-                                    <div style={styles.periodEffectHeader}>
-                                        <span style={styles.periodEffectLabel}>🎯 Causal Effect in {currentPeriod.period}</span>
-                                    </div>
-                                    <div style={styles.periodEffectValue}>
-                                        {currentPeriod.period_effect >= 0 ? '+' : ''}
-                                        {formatNumber(currentPeriod.period_effect, 2)}
-                                    </div>
-                                    <div style={styles.periodEffectFormula}>
-                                        = Actual ({formatNumber(currentPeriod.treatment_mean, 2)}) − Counterfactual ({formatNumber(currentPeriod.counterfactual, 2)})
-                                    </div>
-                                </div>
-                            )}
-
-                            {!currentPeriod.is_post_treatment && (
-                                <div style={styles.preTreatmentNote}>
-                                    <p>📋 This is a <strong>pre-treatment period</strong>. Effect sizes are only calculated for post-treatment periods (excluding the treatment start year).</p>
-                                    <p>Treatment: {formatNumber(currentPeriod.treatment_mean, 2)} | Control: {formatNumber(currentPeriod.control_mean, 2)} | Diff: {formatNumber((currentPeriod.treatment_mean || 0) - (currentPeriod.control_mean || 0), 2)}</p>
-                                </div>
-                            )}
-                        </div>
-                    );
-                })()}
-
-                {/* All Post-Treatment Effects Summary */}
-                {(() => {
-                    // Filter to post-treatment periods with effects, excluding the treatment start year
-                    const postPeriods = (results.results?.period_statistics || []).filter(
-                        p => p.is_post_treatment && !p.is_treatment_start && p.period_effect !== null
-                    );
-                    if (postPeriods.length === 0) return null;
-                    
-                    const maxEffect = Math.max(...postPeriods.map(p => Math.abs(p.period_effect || 0)), 0.1);
-                    
-                    return (
-                        <div style={styles.allEffectsContainer}>
-                            <h3 style={styles.allEffectsTitle}>📈 Causal Effect by Year (Excluding Treatment Start Year)</h3>
-                            <div style={styles.effectBarsContainer}>
-                                {postPeriods.map((period, index) => (
-                                    <div key={index} style={styles.effectBarGroup}>
-                                        <div style={styles.barLabel}>
-                                            <span style={{fontWeight: 'bold', color: '#333'}}>{period.period}</span>
-                                            <span style={{
-                                                ...styles.changeValue, 
-                                                color: (period.period_effect || 0) >= 0 ? '#28a745' : '#dc3545'
-                                            }}>
-                                                {(period.period_effect || 0) >= 0 ? '+' : ''}
-                                                {formatNumber(period.period_effect, 2)}
-                                            </span>
-                                        </div>
-                                        <div style={styles.barContainer}>
-                                            <div style={{
-                                                ...styles.bar,
-                                                width: `${Math.min(100, Math.abs((period.period_effect || 0) / maxEffect * 100))}%`,
-                                                backgroundColor: (period.period_effect || 0) >= 0 ? '#28a745' : '#dc3545'
-                                            }}></div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                            
-                            {/* Overall DiD */}
-                            <div style={{...styles.effectBarGroup, marginTop: '20px', paddingTop: '20px', borderTop: '2px solid #e9ecef'}}>
-                                <div style={styles.barLabel}>
-                                    <span style={{fontWeight: 'bold', color: '#043873'}}>📊 Overall Average (DiD Estimate)</span>
-                                    <span style={{...styles.changeValue, fontSize: '18px', color: '#043873'}}>
-                                        {(results.results?.did_estimate || 0) >= 0 ? '+' : ''}
-                                        {formatNumber(results.results?.did_estimate, 2)}
-                                    </span>
-                                </div>
-                            </div>
-                            
-                            <div style={styles.methodologyNote}>
-                                <p><strong>Methodology:</strong> Each period's effect = Actual treatment value − Counterfactual</p>
-                                <p>Counterfactual = Pre-treatment treatment mean + (Current control − Pre-treatment control mean)</p>
-                                <p>This assumes parallel trends: without intervention, treatment would follow control's trajectory.</p>
-                            </div>
-                        </div>
-                    );
-                })()}
-                </>
-            ) : (
-                /* Fallback to aggregate display if no period data */
-                <div style={styles.effectCardsContainer}>
-                    <div style={styles.effectCard}>
-                        <div style={styles.effectCardHeader}>
-                            <span style={styles.effectCardLabel}>Pre-Treatment Average</span>
-                            <span style={styles.periodBadge}>Baseline</span>
-                        </div>
-                        <div style={styles.effectComparison}>
-                            <div style={styles.groupValue}>
-                                <span style={styles.groupLabel}>Treatment</span>
-                                <span style={{...styles.groupNumber, color: '#4F9CF9'}}>
-                                    {formatNumber(results.results?.statistics?.outcome_mean_treated_pre, 1)}
-                                </span>
-                            </div>
-                            <div style={styles.vsIndicator}>vs</div>
-                            <div style={styles.groupValue}>
-                                <span style={styles.groupLabel}>Control</span>
-                                <span style={{...styles.groupNumber, color: '#FF6B6B'}}>
-                                    {formatNumber(results.results?.statistics?.outcome_mean_control_pre, 1)}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                    <div style={{...styles.effectCard, borderColor: '#28a745'}}>
-                        <div style={styles.effectCardHeader}>
-                            <span style={styles.effectCardLabel}>Post-Treatment Average</span>
-                            <span style={{...styles.periodBadge, backgroundColor: '#28a745'}}>After</span>
-                        </div>
-                        <div style={styles.effectComparison}>
-                            <div style={styles.groupValue}>
-                                <span style={styles.groupLabel}>Treatment</span>
-                                <span style={{...styles.groupNumber, color: '#4F9CF9'}}>
-                                    {formatNumber(results.results?.statistics?.outcome_mean_treated_post, 1)}
-                                </span>
-                            </div>
-                            <div style={styles.vsIndicator}>vs</div>
-                            <div style={styles.groupValue}>
-                                <span style={styles.groupLabel}>Control</span>
-                                <span style={{...styles.groupNumber, color: '#FF6B6B'}}>
-                                    {formatNumber(results.results?.statistics?.outcome_mean_control_post, 1)}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
+          <div style={{marginBottom: '20px'}}>
+            <h3 style={{fontSize: '18px', fontWeight: 'bold', color: '#043873', marginBottom: '12px'}}>
+              No Compositional Changes
+            </h3>
+            <p style={{fontSize: '15px', color: '#212529', lineHeight: '1.6'}}>
+              Assumes the makeup of your treatment and control groups remains stable over time. If different types of units are entering or exiting the groups differentially, this can masquerade as a treatment effect.
+            </p>
+          </div>
         </div>
 
         {/* CODE SECTION - Reproducible Analysis */}
@@ -1381,8 +1558,55 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                     </div>
 
                     {/* AI INTERPRETATION SECTION - Right Sidebar */}
-                    <div style={styles.aiSidebar}>
-                        <div style={styles.aiSection}>
+                    {!isAiSidebarCollapsed && (
+                    <div style={{
+                      ...styles.aiSidebar,
+                      width: `${aiSidebarWidth}px`,
+                      flex: `0 0 ${aiSidebarWidth}px`,
+                      position: 'sticky' as const,
+                      top: '90px',
+                      right: '0px',
+                      overflow: 'visible' as const,
+                      maxHeight: 'calc(100vh - 200px)', // Account for top nav (90px) + bottom nav (~80px) + padding
+                      marginTop: '90px' // Align with main content white boxes (50px title margin + 40px title bottom margin)
+                    }}>
+                        {/* Resize Handle */}
+                        <div
+                          onMouseDown={handleResizeStart}
+                          style={{
+                            position: 'absolute',
+                            left: '-4px',
+                            top: 0,
+                            bottom: 0,
+                            width: '8px',
+                            cursor: 'col-resize',
+                            zIndex: 10,
+                            backgroundColor: isResizing ? 'rgba(79, 156, 249, 0.3)' : 'transparent',
+                            borderLeft: isResizing ? '2px solid #4F9CF9' : 'none',
+                            transition: isResizing ? 'none' : 'background-color 0.2s ease, border-left 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isResizing) {
+                              e.currentTarget.style.backgroundColor = 'rgba(79, 156, 249, 0.2)';
+                              e.currentTarget.style.borderLeft = '2px solid #4F9CF9';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isResizing) {
+                              e.currentTarget.style.backgroundColor = 'transparent';
+                              e.currentTarget.style.borderLeft = 'none';
+                            }
+                          }}
+                          title="Drag to resize"
+                        />
+                        <div style={{
+                          ...styles.aiSection,
+                          maxHeight: 'calc(100vh - 200px)',
+                          overflowY: 'auto' as const,
+                          overflowX: 'hidden' as const,
+                          boxSizing: 'border-box' as const,
+                          position: 'relative' as const
+                        }}>
                             <div style={styles.aiSectionHeader}>
                                 <h2 style={styles.sectionTitle}>🤖 AI-Powered Interpretation</h2>
                                 {!aiInterpretation && !loadingAI && (
@@ -1535,8 +1759,324 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                             )}
                             </>
                         )}
+
+                        {/* AI Chat Section */}
+                        <div style={{
+                          marginTop: '24px',
+                          borderTop: '2px solid #e9ecef',
+                          paddingTop: '20px'
+                        }}>
+                          <h3 style={{
+                            fontSize: '18px',
+                            fontWeight: 'bold',
+                            color: '#043873',
+                            margin: '0 0 16px 0'
+                          }}>
+                            💬 Ask AI
+                          </h3>
+                          <p style={{
+                            fontSize: '13px',
+                            color: '#666',
+                            marginBottom: '16px',
+                            lineHeight: '1.5'
+                          }}>
+                            Ask questions about your study, dataset, or causal inference concepts.
+                          </p>
+
+                          {/* Chat Messages */}
+                          <div style={{
+                            maxHeight: '400px',
+                            overflowY: 'auto' as const,
+                            marginBottom: '16px',
+                            padding: '12px',
+                            backgroundColor: '#f8f9fa',
+                            borderRadius: '8px',
+                            border: '1px solid #e9ecef',
+                            minHeight: '200px'
+                          }}>
+                            {chatMessages.length === 0 ? (
+                              <div style={{
+                                textAlign: 'center' as const,
+                                color: '#999',
+                                padding: '40px 20px',
+                                fontSize: '14px'
+                              }}>
+                                Start a conversation by asking a question below.
+                              </div>
+                            ) : (
+                              chatMessages.map((msg, idx) => (
+                                <div
+                                  key={idx}
+                                  style={{
+                                    marginBottom: '16px',
+                                    display: 'flex',
+                                    flexDirection: 'column' as const,
+                                    alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                                  }}
+                                >
+                                  <div style={{
+                                    maxWidth: '85%',
+                                    padding: '10px 14px',
+                                    borderRadius: '12px',
+                                    backgroundColor: msg.role === 'user' ? '#4F9CF9' : '#ffffff',
+                                    color: msg.role === 'user' ? '#ffffff' : '#333',
+                                    fontSize: '14px',
+                                    lineHeight: '1.5',
+                                    boxShadow: msg.role === 'user' ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
+                                    border: msg.role === 'user' ? 'none' : '1px solid #e9ecef',
+                                    whiteSpace: 'pre-wrap' as const,
+                                    wordBreak: 'break-word' as const
+                                  }}>
+                                    {msg.content}
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                            {chatLoading && (
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                marginBottom: '16px'
+                              }}>
+                                <div style={{
+                                  padding: '10px 14px',
+                                  borderRadius: '12px',
+                                  backgroundColor: '#ffffff',
+                                  border: '1px solid #e9ecef',
+                                  fontSize: '14px',
+                                  color: '#666',
+                                  display: 'flex',
+                                  alignItems: 'center'
+                                }}>
+                                  <div style={{
+                                    width: '16px',
+                                    height: '16px',
+                                    border: '2px solid #f3f3f3',
+                                    borderTop: '2px solid #4F9CF9',
+                                    borderRadius: '50%',
+                                    animation: 'spin 1s linear infinite',
+                                    marginRight: '8px'
+                                  }}></div>
+                                  <span>AI is thinking...</span>
+                                </div>
+                              </div>
+                            )}
+                            <div ref={chatMessagesEndRef} />
+                          </div>
+
+                          {/* Chat Error */}
+                          {chatError && (
+                            <div style={{
+                              padding: '10px',
+                              marginBottom: '12px',
+                              backgroundColor: '#f8d7da',
+                              color: '#721c24',
+                              borderRadius: '6px',
+                              fontSize: '13px',
+                              border: '1px solid #f5c6cb'
+                            }}>
+                              ⚠️ {chatError}
+                            </div>
+                          )}
+
+                          {/* Chat Input */}
+                          <div style={{
+                            display: 'flex',
+                            gap: '8px',
+                            alignItems: 'flex-end'
+                          }}>
+                            <textarea
+                              value={chatInput}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                if (value.length <= MAX_MESSAGE_LENGTH) {
+                                  setChatInput(value);
+                                  setChatError(null);
+                                }
+                              }}
+                              onKeyPress={handleChatInputKeyPress}
+                              placeholder="Ask a question about your analysis..."
+                              disabled={chatLoading}
+                              style={{
+                                flex: 1,
+                                minHeight: '60px',
+                                maxHeight: '120px',
+                                padding: '10px 12px',
+                                borderRadius: '8px',
+                                border: '1px solid #dee2e6',
+                                fontSize: '14px',
+                                fontFamily: 'inherit',
+                                resize: 'vertical' as const,
+                                outline: 'none',
+                                boxSizing: 'border-box' as const
+                              }}
+                              onFocus={(e) => {
+                                e.target.style.borderColor = '#4F9CF9';
+                              }}
+                              onBlur={(e) => {
+                                e.target.style.borderColor = '#dee2e6';
+                              }}
+                            />
+                            <button
+                              onClick={handleSendMessage}
+                              disabled={!chatInput.trim() || chatLoading || chatInput.length > MAX_MESSAGE_LENGTH}
+                              style={{
+                                padding: '10px 20px',
+                                backgroundColor: chatInput.trim() && !chatLoading && chatInput.length <= MAX_MESSAGE_LENGTH ? '#4F9CF9' : '#ccc',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: chatInput.trim() && !chatLoading && chatInput.length <= MAX_MESSAGE_LENGTH ? 'pointer' : 'not-allowed',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                transition: 'background-color 0.2s',
+                                height: '60px',
+                                minWidth: '80px'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (chatInput.trim() && !chatLoading && chatInput.length <= MAX_MESSAGE_LENGTH) {
+                                  e.currentTarget.style.backgroundColor = '#3d7dd6';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (chatInput.trim() && !chatLoading && chatInput.length <= MAX_MESSAGE_LENGTH) {
+                                  e.currentTarget.style.backgroundColor = '#4F9CF9';
+                                }
+                              }}
+                            >
+                              {chatLoading ? '...' : 'Send'}
+                            </button>
+                          </div>
+                          <div style={{
+                            fontSize: '12px',
+                            color: '#999',
+                            marginTop: '6px',
+                            textAlign: 'right' as const
+                          }}>
+                            {chatInput.length}/{MAX_MESSAGE_LENGTH} characters
+                          </div>
+
+                          {/* Recommended Questions */}
+                          {recommendedQuestions.length > 0 && (
+                            <div style={{
+                              marginTop: '16px',
+                              paddingTop: '16px',
+                              borderTop: '1px solid #e9ecef'
+                            }}>
+                              <div style={{
+                                fontSize: '13px',
+                                color: '#666',
+                                marginBottom: '10px',
+                                fontWeight: '500'
+                              }}>
+                                💡 Suggested questions:
+                              </div>
+                              <div style={{
+                                display: 'flex',
+                                flexDirection: 'column' as const,
+                                gap: '8px'
+                              }}>
+                                {recommendedQuestions.map((question, idx) => (
+                                  <button
+                                    key={idx}
+                                    onClick={() => {
+                                      setChatInput(question);
+                                      setChatError(null);
+                                      // Focus the textarea
+                                      setTimeout(() => {
+                                        const textarea = document.querySelector('textarea[placeholder*="Ask a question"]') as HTMLTextAreaElement;
+                                        if (textarea) {
+                                          textarea.focus();
+                                          textarea.setSelectionRange(question.length, question.length);
+                                        }
+                                      }, 0);
+                                    }}
+                                    disabled={chatLoading}
+                                    style={{
+                                      padding: '10px 14px',
+                                      backgroundColor: '#f8f9fa',
+                                      border: '1px solid #dee2e6',
+                                      borderRadius: '8px',
+                                      fontSize: '13px',
+                                      color: '#043873',
+                                      cursor: chatLoading ? 'not-allowed' : 'pointer',
+                                      textAlign: 'left' as const,
+                                      transition: 'all 0.2s',
+                                      opacity: chatLoading ? 0.6 : 1
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      if (!chatLoading) {
+                                        e.currentTarget.style.backgroundColor = '#e9ecef';
+                                        e.currentTarget.style.borderColor = '#4F9CF9';
+                                      }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      if (!chatLoading) {
+                                        e.currentTarget.style.backgroundColor = '#f8f9fa';
+                                        e.currentTarget.style.borderColor = '#dee2e6';
+                                      }
+                                    }}
+                                  >
+                                    {question}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                         </div>
                     </div>
+                    )}
+                    
+                    {/* Collapsed AI Sidebar Toggle - Show when sidebar is collapsed */}
+                    {isAiSidebarCollapsed && (
+                      <button
+                        onClick={handleOpenAiSection}
+                        style={{
+                          position: 'fixed',
+                          right: '0px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          width: '60px',
+                          height: '220px',
+                          backgroundColor: '#4F9CF9',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '8px 0 0 8px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '12px',
+                          boxShadow: '-4px 0 12px rgba(79, 156, 249, 0.3)',
+                          zIndex: 1000,
+                          transition: 'all 0.3s ease',
+                          padding: '20px 10px'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#3d7dd6';
+                          e.currentTarget.style.transform = 'translateY(-50%) translateX(-4px)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#4F9CF9';
+                          e.currentTarget.style.transform = 'translateY(-50%)';
+                        }}
+                        title="Show AI Interpretation"
+                        type="button"
+                      >
+                        <span style={{ 
+                          fontSize: '14px', 
+                          fontWeight: '600', 
+                          writingMode: 'vertical-rl',
+                          textOrientation: 'mixed',
+                          letterSpacing: '1px',
+                          lineHeight: '1.4'
+                        }}>
+                          Open AI section
+                        </span>
+                      </button>
+                    )}
                 </div>
             </div>
             <BottomProgressBar
@@ -1568,7 +2108,8 @@ const styles = {
     padding: '20px 10px',
     width: '100%',
     boxSizing: 'border-box' as const,
-    alignItems: 'flex-start'
+    alignItems: 'flex-start',
+    position: 'relative' as const // Make it a positioning context for absolute AI sidebar
   },
   mainContent: {
     flex: '1 1 0',
@@ -1650,12 +2191,26 @@ const styles = {
     marginBottom: '30px',
     boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)'
   },
+  mainSectionTitle: {
+    fontSize: '36px',
+    fontWeight: 'bold',
+    color: '#043873',
+    margin: '0 0 40px 0',
+    textAlign: 'center' as const
+  },
   sectionTitle: {
     fontSize: '24px',
     fontWeight: 'bold',
     color: '#043873',
     margin: '0 0 30px 0',
     textAlign: 'center' as const
+  },
+  subsectionTitle: {
+    fontSize: '20px',
+    fontWeight: 'bold',
+    color: '#043873',
+    margin: '0 0 20px 0',
+    textAlign: 'left' as const
   },
   chartContainer: {
     width: '100%',
@@ -2124,20 +2679,23 @@ const styles = {
 
   // AI INTERPRETATION SECTION
   aiSidebar: {
-    flex: '0 0 420px',
-    position: 'sticky' as const,
-    top: '90px',
+    width: '420px',
+    position: 'absolute' as const,
+    top: '0px',
     maxHeight: 'calc(100vh - 110px)',
     overflowY: 'auto' as const,
+    overflowX: 'hidden' as const,
     boxSizing: 'border-box' as const,
-    alignSelf: 'flex-start'
+    transition: 'all 0.3s ease'
   },
   aiSection: {
     backgroundColor: 'white',
     borderRadius: '12px',
     padding: '24px',
     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-    border: '1px solid #e0e0e0'
+    border: '1px solid #e0e0e0',
+    width: '100%',
+    boxSizing: 'border-box' as const
   },
   aiCard: {
     backgroundColor: '#f8f9fa',
@@ -2237,7 +2795,7 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: '20px',
+    marginBottom: '10px',
     flexWrap: 'wrap' as const,
     gap: '15px'
   },

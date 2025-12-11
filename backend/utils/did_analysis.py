@@ -1,5 +1,7 @@
 import statsmodels.formula.api as smf
 import pandas as pd
+import numpy as np
+import math
 import matplotlib.pyplot as plt
 import base64
 import io
@@ -8,6 +10,26 @@ import logging
 
 # Set up logger
 logger = logging.getLogger(__name__)
+
+
+def sanitize_for_json(obj):
+    """
+    Recursively convert NaN, infinity values, and numpy types to JSON-serializable types.
+    """
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_for_json(item) for item in obj]
+    elif isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    elif isinstance(obj, (np.integer, np.floating)):
+        if np.isnan(obj) or np.isinf(obj):
+            return None
+        return float(obj) if isinstance(obj, np.floating) else int(obj)
+    else:
+        return obj
 
 def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_time, unit_col=None):
     """
@@ -165,6 +187,11 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
     elif not event_coeffs:
         warnings.append("Event study not computed: too few pre/post periods or insufficient variation in treatment timing.")
     
+    # Sanitize event_study_chart_data to ensure JSON serializability
+    event_study_chart_data = event_study.get("chart_data") if event_study else None
+    if event_study_chart_data:
+        event_study_chart_data = sanitize_for_json(event_study_chart_data)
+    
     return {
         # Main results
         "passed": test_result.get("passed"),
@@ -179,6 +206,7 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
         "mean_chart": means_chart,  # Primary: Traditional means plot (intuitive for users)
         "visual_chart": means_chart,  # Legacy support - same as mean_chart
         "event_study_chart": event_study.get("chart") if event_study else None,  # Secondary: Event study plot (for advanced users)
+        "event_study_chart_data": event_study_chart_data,  # Structured data for interactive chart (sanitized)
         
         # Detailed data (for advanced users or AI interpretation)
         "event_study_coefficients": event_coeffs,  # Always a list, never None
@@ -581,7 +609,9 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time, u
         
         # Generate the event study chart
         logger.debug(f"    Calling _generate_event_study_chart with {len(coefficients)} coefficients...")
-        chart = _generate_event_study_chart(coefficients)
+        chart_result = _generate_event_study_chart(coefficients)
+        chart = chart_result.get('png') if isinstance(chart_result, dict) else chart_result
+        chart_data = chart_result.get('data') if isinstance(chart_result, dict) else None
         logger.debug(f"    Event study chart generation result: {chart is not None}, type: {type(chart)}")
         if chart:
             logger.debug(f"    Chart length: {len(chart) if isinstance(chart, str) else 'N/A'}")
@@ -590,6 +620,7 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time, u
             "coefficients": coefficients,
             "all_pre_periods_include_zero": all_include_zero,
             "chart": chart,
+            "chart_data": chart_data,
             "num_pre_periods": len(pre_coeffs),
             "num_post_periods": len([c for c in coefficients if c['relative_time'] >= 0])
         }
@@ -1020,7 +1051,38 @@ def _generate_event_study_chart(coefficients):
         chart_base64 = _fig_to_base64(fig)
         print(f"  Event study chart generated successfully, size: {len(chart_base64)} chars")
         print(f"  Chart base64 type: {type(chart_base64)}, first 50 chars: {chart_base64[:50] if chart_base64 else 'None'}")
-        return chart_base64
+        
+        # Prepare structured data for interactive chart
+        chart_data = {
+            'xAxisLabel': 'Time Relative to Treatment',
+            'yAxisLabel': 'Estimated Difference (Treatment − Control)',
+            'title': 'Event Study: Treatment Effect Over Time',
+            'treatmentStart': -0.5,
+            'treatmentStartLabel': 'Treatment Starts',
+            'referencePeriod': -1,
+            'referenceLabel': 'Reference (t = -1)',
+            'preTreatmentLabel': 'Pre-Treatment',
+            'postTreatmentLabel': 'Post-Treatment',
+            'dataPoints': [
+                {
+                    'relativeTime': c['relative_time'],
+                    'coefficient': c['coefficient'],
+                    'ciLower': c['ci_lower'],
+                    'ciUpper': c['ci_upper'],
+                    'isReference': c.get('is_reference', False),
+                    'isPreTreatment': c.get('is_pre_treatment', False)
+                }
+                for c in coefficients
+            ]
+        }
+        
+        # Sanitize chart_data to ensure all numpy types are converted to native Python types
+        chart_data = sanitize_for_json(chart_data)
+        
+        return {
+            'png': chart_base64,
+            'data': chart_data
+        }
         
     except Exception as e:
         print(f"  Event study chart error: {e}")

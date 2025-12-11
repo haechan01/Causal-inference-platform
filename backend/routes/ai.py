@@ -7,8 +7,16 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from services.ai_service import get_ai_service
 from services.ai_assistant import get_ai_assistant
+from datetime import datetime, timedelta
+from collections import defaultdict
 
 ai_bp = Blueprint('ai', __name__, url_prefix='/api/ai')
+
+# Simple in-memory rate limiter for chat
+# Format: {user_id: [list of timestamps]}
+_chat_rate_limiter = defaultdict(list)
+CHAT_RATE_LIMIT = 20  # Max requests per window
+CHAT_RATE_WINDOW = 60  # Time window in seconds
 
 
 @ai_bp.route('/interpret-results', methods=['POST'])
@@ -133,7 +141,7 @@ def interpret_results():
 @jwt_required()
 def recommend_method():
     """
-    AI recommendation for causal inference method based on study characteristics.
+    AI Interpretation for causal inference method based on study characteristics.
     
     Expected request body:
     {
@@ -338,3 +346,126 @@ def data_quality_check():
         print(f"ERROR: AI data quality check failed: {str(e)}")
         traceback.print_exc()
         return jsonify({"error": f"AI data quality check failed: {str(e)}"}), 500
+
+
+@ai_bp.route('/chat', methods=['POST'])
+@jwt_required()
+def chat():
+    """
+    Chat with AI about the study, dataset, or causal inference concepts.
+    
+    Expected request body:
+    {
+        "message": "What is the parallel trends assumption?",
+        "conversation_history": [
+            {"role": "user", "content": "..."},
+            {"role": "assistant", "content": "..."}
+        ],
+        "analysis_context": {
+            "parameters": {...},
+            "results": {...}
+        }
+    }
+    
+    Rate limit: 20 requests per minute per user
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        message = data.get('message', '').strip()
+        if not message:
+            return jsonify({"error": "Message is required"}), 400
+        
+        # Check message length (max 2000 characters)
+        MAX_MESSAGE_LENGTH = 2000
+        if len(message) > MAX_MESSAGE_LENGTH:
+            return jsonify({
+                "error": f"Message too long. Maximum {MAX_MESSAGE_LENGTH} characters allowed."
+            }), 400
+        
+        # Rate limiting check
+        now = datetime.now()
+        user_requests = _chat_rate_limiter[user_id]
+        
+        # Remove requests outside the time window
+        user_requests[:] = [req_time for req_time in user_requests 
+                           if (now - req_time).total_seconds() < CHAT_RATE_WINDOW]
+        
+        # Check if user has exceeded rate limit
+        if len(user_requests) >= CHAT_RATE_LIMIT:
+            return jsonify({
+                "error": f"Rate limit exceeded. Maximum {CHAT_RATE_LIMIT} requests per {CHAT_RATE_WINDOW} seconds.",
+                "error_type": "rate_limit_exceeded",
+                "retry_after": CHAT_RATE_WINDOW
+            }), 429
+        
+        # Add current request to rate limiter
+        user_requests.append(now)
+        
+        # Get conversation history, context, and dataset info
+        conversation_history = data.get('conversation_history', [])
+        analysis_context = data.get('analysis_context', {})
+        dataset_info = data.get('dataset_info', {})
+        
+        # Validate conversation history format and limit length
+        if conversation_history:
+            # Limit to last 20 messages
+            conversation_history = conversation_history[-20:]
+            # Validate format
+            validated_history = []
+            for msg in conversation_history:
+                if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                    role = msg.get('role')
+                    content = str(msg.get('content', ''))
+                    # Limit individual message length
+                    if len(content) > 2000:
+                        content = content[:2000] + "..."
+                    if role in ['user', 'assistant'] and content:
+                        validated_history.append({
+                            'role': role,
+                            'content': content
+                        })
+            conversation_history = validated_history
+        
+        # Get AI assistant
+        try:
+            assistant = get_ai_assistant()
+        except Exception as e:
+            return jsonify({"error": f"AI service error: {str(e)}"}), 500
+        
+        # Call chat method
+        try:
+            result = assistant.chat(
+                user_message=message,
+                conversation_history=conversation_history,
+                analysis_context=analysis_context,
+                dataset_info=dataset_info
+            )
+            
+            # Limit response length (max 4000 characters)
+            MAX_RESPONSE_LENGTH = 4000
+            response_text = result.get('response', '')
+            if len(response_text) > MAX_RESPONSE_LENGTH:
+                response_text = response_text[:MAX_RESPONSE_LENGTH] + "...\n\n[Response truncated due to length limit]"
+            
+            return jsonify({
+                "response": response_text,
+                "followup_questions": result.get('followup_questions', []),
+                "timestamp": now.isoformat()
+            }), 200
+            
+        except Exception as e:
+            import traceback
+            print(f"ERROR: Chat failed: {str(e)}")
+            traceback.print_exc()
+            return jsonify({"error": f"Chat failed: {str(e)}"}), 500
+            
+    except Exception as e:
+        import traceback
+        print(f"ERROR: Chat endpoint error: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": f"Chat endpoint error: {str(e)}"}), 500
