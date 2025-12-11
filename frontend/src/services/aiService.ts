@@ -155,6 +155,31 @@ class AIService {
     );
     return response.data;
   }
+
+  async chat(
+    message: string,
+    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+    analysisContext?: {
+      parameters?: any;
+      results?: any;
+    },
+    datasetInfo?: {
+      name?: string;
+      columns?: any[];
+      summary?: any;
+    }
+  ): Promise<{ response: string; followup_questions: string[]; timestamp: string }> {
+    const response = await axios.post<{ response: string; followup_questions: string[]; timestamp: string }>(
+      '/ai/chat',
+      {
+        message,
+        conversation_history: conversationHistory,
+        analysis_context: analysisContext,
+        dataset_info: datasetInfo
+      }
+    );
+    return response.data;
+  }
 }
 
 export const aiService = new AIService();

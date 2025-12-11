@@ -339,6 +339,305 @@ Respond with JSON only:
         response = self._call_gemini(prompt)
         return self._parse_json_response(response)
     
+    def chat(
+        self,
+        user_message: str,
+        conversation_history: List[Dict[str, str]] = None,
+        analysis_context: Dict[str, Any] = None,
+        dataset_info: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
+        """
+        Chat with AI about the study, dataset, or causal inference concepts.
+        
+        Args:
+            user_message: The user's question/message
+            conversation_history: List of previous messages in format [{"role": "user|assistant", "content": "..."}]
+            analysis_context: Optional context about the current analysis (results, parameters, etc.)
+            dataset_info: Optional information about the dataset (columns, summary, etc.)
+        
+        Returns:
+            Dictionary with "response" (str) and "followup_questions" (list of 3 strings)
+        """
+        if not self.model:
+            raise Exception("AI service is not initialized (missing API key?)")
+        
+        # Build context prompt
+        context_prompt = ""
+        if analysis_context:
+            context_parts = []
+            if analysis_context.get('parameters'):
+                params = analysis_context['parameters']
+                context_parts.append(f"Current Analysis Parameters:")
+                context_parts.append(f"- Outcome: {params.get('outcome', 'N/A')}")
+                context_parts.append(f"- Treatment: {params.get('treatment', 'N/A')}")
+                context_parts.append(f"- Time variable: {params.get('time', 'N/A')}")
+                if params.get('treatment_start'):
+                    context_parts.append(f"- Treatment start: {params.get('treatment_start', 'N/A')}")
+                if params.get('unit'):
+                    context_parts.append(f"- Unit variable: {params.get('unit', 'N/A')}")
+                if params.get('controls'):
+                    context_parts.append(f"- Control variables: {', '.join(params.get('controls', []))}")
+            
+            if analysis_context.get('results'):
+                results = analysis_context['results']
+                context_parts.append(f"\nAnalysis Results:")
+                if 'did_estimate' in results:
+                    context_parts.append(f"- DiD Estimate: {results.get('did_estimate', 'N/A')}")
+                if 'standard_error' in results:
+                    context_parts.append(f"- Standard Error: {results.get('standard_error', 'N/A')}")
+                if 'p_value' in results:
+                    context_parts.append(f"- P-value: {results.get('p_value', 'N/A')}")
+                if 'is_significant' in results:
+                    context_parts.append(f"- Significant: {results.get('is_significant', 'N/A')}")
+                if 'confidence_interval' in results:
+                    ci = results.get('confidence_interval', {})
+                    context_parts.append(f"- 95% Confidence Interval: [{ci.get('lower', 'N/A')}, {ci.get('upper', 'N/A')}]")
+                if 'statistics' in results:
+                    stats = results.get('statistics', {})
+                    context_parts.append(f"\nStatistical Summary:")
+                    if 'total_observations' in stats:
+                        context_parts.append(f"- Total Observations: {stats.get('total_observations', 'N/A')}")
+                    if 'treated_units' in stats:
+                        context_parts.append(f"- Treated Units: {stats.get('treated_units', 'N/A')}")
+                    if 'control_units' in stats:
+                        context_parts.append(f"- Control Units: {stats.get('control_units', 'N/A')}")
+                    if 'pre_treatment_obs' in stats:
+                        context_parts.append(f"- Pre-treatment Observations: {stats.get('pre_treatment_obs', 'N/A')}")
+                    if 'post_treatment_obs' in stats:
+                        context_parts.append(f"- Post-treatment Observations: {stats.get('post_treatment_obs', 'N/A')}")
+                    if 'outcome_mean_treated_pre' in stats:
+                        context_parts.append(f"- Outcome Mean (Treated, Pre): {stats.get('outcome_mean_treated_pre', 'N/A')}")
+                    if 'outcome_mean_treated_post' in stats:
+                        context_parts.append(f"- Outcome Mean (Treated, Post): {stats.get('outcome_mean_treated_post', 'N/A')}")
+                    if 'outcome_mean_control_pre' in stats:
+                        context_parts.append(f"- Outcome Mean (Control, Pre): {stats.get('outcome_mean_control_pre', 'N/A')}")
+                    if 'outcome_mean_control_post' in stats:
+                        context_parts.append(f"- Outcome Mean (Control, Post): {stats.get('outcome_mean_control_post', 'N/A')}")
+                if 'parallel_trends' in results:
+                    pt = results.get('parallel_trends', {})
+                    context_parts.append(f"\nParallel Trends Test:")
+                    if 'passed' in pt:
+                        context_parts.append(f"- Test Passed: {pt.get('passed', 'N/A')}")
+                    if 'p_value' in pt:
+                        context_parts.append(f"- P-value: {pt.get('p_value', 'N/A')}")
+                    if 'confidence_level' in pt:
+                        context_parts.append(f"- Confidence Level: {pt.get('confidence_level', 'N/A')}")
+                    if 'message' in pt:
+                        context_parts.append(f"- Assessment: {pt.get('message', 'N/A')}")
+                    if 'warnings' in pt and pt.get('warnings'):
+                        context_parts.append(f"- Warnings: {', '.join(pt.get('warnings', []))}")
+                if 'interpretation' in results:
+                    interp = results.get('interpretation', {})
+                    context_parts.append(f"\nResult Interpretation:")
+                    if 'effect_size' in interp:
+                        context_parts.append(f"- Effect Size: {interp.get('effect_size', 'N/A')}")
+                    if 'effect_direction' in interp:
+                        context_parts.append(f"- Effect Direction: {interp.get('effect_direction', 'N/A')}")
+                    if 'significance' in interp:
+                        context_parts.append(f"- Significance: {interp.get('significance', 'N/A')}")
+            
+            if context_parts:
+                context_prompt = "\n".join(context_parts) + "\n\n"
+        
+        # Add AI interpretation if available (to avoid repetition)
+        interpretation_prompt = ""
+        if analysis_context and analysis_context.get('ai_interpretation'):
+            ai_interp = analysis_context.get('ai_interpretation', {})
+            interp_parts = []
+            interp_parts.append("\nPrevious AI Interpretation (DO NOT REPEAT THIS INFORMATION):")
+            if ai_interp.get('executive_summary'):
+                interp_parts.append(f"Executive Summary: {ai_interp.get('executive_summary')}")
+            if ai_interp.get('parallel_trends_interpretation'):
+                interp_parts.append(f"Parallel Trends: {ai_interp.get('parallel_trends_interpretation')}")
+            if ai_interp.get('effect_size_interpretation'):
+                interp_parts.append(f"Effect Size: {ai_interp.get('effect_size_interpretation')}")
+            if ai_interp.get('statistical_interpretation'):
+                interp_parts.append(f"Statistical Significance: {ai_interp.get('statistical_interpretation')}")
+            if ai_interp.get('limitations'):
+                interp_parts.append(f"Limitations: {', '.join(ai_interp.get('limitations', []))}")
+            if ai_interp.get('implications'):
+                interp_parts.append(f"Implications: {', '.join(ai_interp.get('implications', []))}")
+            if ai_interp.get('recommendation'):
+                interp_parts.append(f"Recommendation: {ai_interp.get('recommendation')}")
+            if ai_interp.get('confidence_level'):
+                interp_parts.append(f"Confidence Level: {ai_interp.get('confidence_level')}")
+            
+            if interp_parts:
+                interpretation_prompt = "\n".join(interp_parts) + "\n\n"
+        
+        # Add dataset information if available
+        dataset_prompt = ""
+        if dataset_info:
+            dataset_parts = []
+            if dataset_info.get('name'):
+                dataset_parts.append(f"Dataset: {dataset_info.get('name')}")
+            if dataset_info.get('columns'):
+                columns = dataset_info.get('columns', [])
+                column_names = [col.get('name', col) if isinstance(col, dict) else col for col in columns]
+                dataset_parts.append(f"Available columns: {', '.join(column_names[:20])}")  # Limit to first 20
+            if dataset_info.get('summary'):
+                summary = dataset_info.get('summary', {})
+                if summary.get('total_rows'):
+                    dataset_parts.append(f"Total rows: {summary.get('total_rows')}")
+                if summary.get('total_columns'):
+                    dataset_parts.append(f"Total columns: {summary.get('total_columns')}")
+            
+            if dataset_parts:
+                dataset_prompt = "\nDataset Information:\n" + "\n".join(dataset_parts) + "\n\n"
+        
+        # Build system prompt
+        system_prompt = """You are a helpful AI assistant specializing in causal inference and econometrics. 
+You help users understand their analysis results, datasets, and causal inference concepts.
+
+Guidelines:
+- Provide clear, concise, and accurate explanations
+- Use appropriate technical language but remain accessible
+- Reference the user's specific analysis when relevant
+- If asked about concepts, provide practical examples when possible
+- Keep responses focused and under 2000 words unless the user asks for more detail
+- DO NOT use markdown formatting like **bold** or *italic* - use plain text only
+- After your response, suggest 3 relevant follow-up questions the user might want to ask
+- IMPORTANT: The user has already received an AI interpretation of their results. Do not repeat information that has already been provided. Instead, provide nuanced, context-specific responses that build upon or clarify what they already know.
+
+IMPORTANT: At the end of your response, include exactly 3 follow-up questions in this format:
+<FOLLOWUP_QUESTIONS>
+1. [First question]
+2. [Second question]
+3. [Third question]
+</FOLLOWUP_QUESTIONS>
+
+"""
+        
+        # Build conversation
+        messages = []
+        
+        # Add system message (if supported) or as first user message
+        messages.append({
+            "role": "user",
+            "content": system_prompt + context_prompt + "User question: " + user_message
+        })
+        
+        # Add conversation history if provided
+        if conversation_history:
+            # Prepend history (oldest first)
+            for msg in conversation_history[-10:]:  # Limit to last 10 messages for context
+                if msg.get('role') in ['user', 'assistant'] and msg.get('content'):
+                    messages.insert(-1, {
+                        "role": msg['role'],
+                        "content": msg['content']
+                    })
+        
+        # For Gemini, we need to format as a single prompt with history
+        # Build full prompt with history
+        full_prompt_parts = [system_prompt]
+        if dataset_prompt:
+            full_prompt_parts.append(dataset_prompt)
+        if context_prompt:
+            full_prompt_parts.append(context_prompt)
+        if interpretation_prompt:
+            full_prompt_parts.append(interpretation_prompt)
+        
+        if conversation_history:
+            full_prompt_parts.append("Previous conversation:")
+            for msg in conversation_history[-10:]:
+                role = msg.get('role', 'user')
+                content = msg.get('content', '')
+                if role == 'user':
+                    full_prompt_parts.append(f"User: {content}")
+                elif role == 'assistant':
+                    full_prompt_parts.append(f"Assistant: {content}")
+            full_prompt_parts.append("")
+        
+        full_prompt_parts.append(f"Current user question: {user_message}")
+        full_prompt_parts.append("\nPlease provide a helpful response:")
+        
+        full_prompt = "\n".join(full_prompt_parts)
+        
+        # Call Gemini
+        try:
+            response = self.model.generate_content(
+                full_prompt,
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=2000,  # Limit response length
+                    temperature=0.7,  # Slightly higher for more conversational tone
+                )
+            )
+            
+            # Extract response text
+            response_text = None
+            try:
+                response_text = response.text
+            except Exception:
+                candidates = getattr(response, 'candidates', None)
+                if candidates and len(candidates) > 0:
+                    candidate = candidates[0]
+                    content = getattr(candidate, 'content', None)
+                    if content:
+                        parts = getattr(content, 'parts', None)
+                        if parts:
+                            parts_text = []
+                            for part in parts:
+                                text = getattr(part, 'text', '')
+                                if text:
+                                    parts_text.append(str(text))
+                            if parts_text:
+                                response_text = ''.join(parts_text)
+            
+            if response_text and response_text.strip():
+                # Extract follow-up questions
+                followup_questions = []
+                response_without_followups = response_text.strip()
+                
+                # Look for follow-up questions section
+                import re
+                followup_match = re.search(
+                    r'<FOLLOWUP_QUESTIONS>(.*?)</FOLLOWUP_QUESTIONS>',
+                    response_text,
+                    re.DOTALL | re.IGNORECASE
+                )
+                
+                if followup_match:
+                    followup_text = followup_match.group(1).strip()
+                    # Extract numbered questions
+                    question_matches = re.findall(r'\d+\.\s*(.+?)(?=\d+\.|$)', followup_text, re.DOTALL)
+                    followup_questions = [q.strip() for q in question_matches[:3]]  # Limit to 3
+                    
+                    # Remove follow-up section from response
+                    response_without_followups = re.sub(
+                        r'<FOLLOWUP_QUESTIONS>.*?</FOLLOWUP_QUESTIONS>',
+                        '',
+                        response_text,
+                        flags=re.DOTALL | re.IGNORECASE
+                    ).strip()
+                
+                # If no follow-ups found, generate default ones
+                if not followup_questions or len(followup_questions) < 3:
+                    # Generate default follow-up questions based on context
+                    default_questions = [
+                        "Can you explain this result in simpler terms?",
+                        "What are the limitations of this analysis?",
+                        "What should I check next in my data?"
+                    ]
+                    # Try to customize based on conversation
+                    if analysis_context and analysis_context.get('parameters'):
+                        params = analysis_context['parameters']
+                        default_questions = [
+                            f"What does the {params.get('outcome', 'outcome')} variable represent?",
+                            f"How does the {params.get('treatment', 'treatment')} variable work?",
+                            "What assumptions should I verify for this analysis?"
+                        ]
+                    followup_questions = default_questions[:3]
+                
+                return {
+                    "response": response_without_followups,
+                    "followup_questions": followup_questions[:3]
+                }
+            else:
+                raise Exception("Empty response from AI")
+                
+        except Exception as e:
+            raise Exception(f"Chat error: {str(e)}")
+    
     def _call_gemini(self, prompt: str) -> str:
         """
         Simple wrapper for Gemini API calls.

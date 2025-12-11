@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Navbar from './Navbar';
 import BottomProgressBar from './BottomProgressBar';
@@ -122,6 +122,20 @@ const ResultsPage: React.FC = () => {
   const [isResizing, setIsResizing] = useState(false);
   const [isAiSidebarCollapsed, setIsAiSidebarCollapsed] = useState(false);
   const COLLAPSE_THRESHOLD = 200; // Width threshold below which sidebar auto-collapses
+  
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; timestamp?: string }>>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [recommendedQuestions, setRecommendedQuestions] = useState<string[]>([
+    "What is the parallel trends assumption?",
+    "How do I interpret my DiD estimate?",
+    "What are the limitations of this analysis?"
+  ]);
+  const [datasetInfo, setDatasetInfo] = useState<any>(null);
+  const MAX_MESSAGE_LENGTH = 2000;
+  const chatMessagesEndRef = useRef<HTMLDivElement>(null);
     
     // Get project ID and dataset ID from navigation state or saved state
     const [projectId, setProjectId] = useState<number | null>((location.state as any)?.projectId || null);
@@ -251,6 +265,50 @@ const ResultsPage: React.FC = () => {
         loadResults();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectId, accessToken, location.search]);
+
+    // Load dataset info when datasetId is available
+    useEffect(() => {
+        const loadDatasetInfo = async () => {
+            if (!datasetId || !accessToken) return;
+            
+            try {
+                const axios = (await import('axios')).default;
+                // Try to get dataset info from project datasets
+                if (projectId) {
+                    const projectResponse = await axios.get(`/projects/${projectId}/datasets`, {
+                        headers: { Authorization: `Bearer ${accessToken}` }
+                    });
+                    const datasets = projectResponse.data.datasets || [];
+                    const dataset = datasets.find((d: any) => d.id === datasetId);
+                    
+                    if (dataset) {
+                        // Load dataset preview to get columns and summary
+                        try {
+                            const previewResponse = await axios.get(`/datasets/${datasetId}/preview`, {
+                                headers: { Authorization: `Bearer ${accessToken}` }
+                            });
+                            setDatasetInfo({
+                                name: dataset.name,
+                                columns: previewResponse.data.columns || [],
+                                summary: previewResponse.data.summary || {}
+                            });
+                        } catch (previewError) {
+                            // If preview fails, just use basic dataset info
+                            setDatasetInfo({
+                                name: dataset.name,
+                                columns: [],
+                                summary: {}
+                            });
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading dataset info:', error);
+            }
+        };
+        
+        loadDatasetInfo();
+    }, [datasetId, projectId, accessToken]);
 
     // Function to load AI interpretation - only called when user clicks the button
         const loadAIInterpretation = async () => {
@@ -387,6 +445,72 @@ const ResultsPage: React.FC = () => {
         }
     };
 
+    // Chat handlers
+    const handleSendMessage = async () => {
+        const message = chatInput.trim();
+        if (!message || chatLoading) return;
+        
+        if (message.length > MAX_MESSAGE_LENGTH) {
+            setChatError(`Message too long. Maximum ${MAX_MESSAGE_LENGTH} characters allowed.`);
+            return;
+        }
+
+        setChatError(null);
+        setChatLoading(true);
+        
+        // Add user message to chat
+        const userMessage = { role: 'user' as const, content: message, timestamp: new Date().toISOString() };
+        setChatMessages(prev => [...prev, userMessage]);
+        setChatInput('');
+
+        try {
+            // Prepare conversation history (exclude timestamps for API)
+            const conversationHistory = chatMessages.map(msg => ({
+                role: msg.role,
+                content: msg.content
+            }));
+
+            // Prepare analysis context with full results and AI interpretation
+            const analysisContext = results ? {
+                parameters: results.parameters,
+                results: results.results,
+                ai_interpretation: aiInterpretation || undefined  // Include AI interpretation if available
+            } : undefined;
+
+            // Call chat API
+            const response = await aiService.chat(
+                message,
+                conversationHistory,
+                analysisContext,
+                datasetInfo
+            );
+
+            // Add assistant response to chat
+            const assistantMessage = {
+                role: 'assistant' as const,
+                content: response.response,
+                timestamp: response.timestamp
+            };
+            setChatMessages(prev => [...prev, assistantMessage]);
+        } catch (error: any) {
+            console.error('Chat error:', error);
+            const errorMessage = error.response?.data?.error || error.message || 'Failed to send message';
+            setChatError(errorMessage);
+            
+            // Remove user message if error occurred
+            setChatMessages(prev => prev.slice(0, -1));
+        } finally {
+            setChatLoading(false);
+        }
+    };
+
+    const handleChatInputKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSendMessage();
+        }
+    };
+
     if (loading) {
         return (
             <div>
@@ -453,7 +577,7 @@ const ResultsPage: React.FC = () => {
             <span>
                 <strong style={{color: '#043873'}}>{treatment}</strong> effect on <strong style={{color: '#043873'}}>{outcome}</strong>: {' '}
                 <strong style={{color: effectColor, fontSize: '18px'}}>
-                    {(effect > 0 ? '+' : '')}{formatNumber(effect, 0)} units
+                    {(effect > 0 ? '+' : '')}{formatNumber(effect, 4)} units
                 </strong>
                 {' '}
                 <span style={{
@@ -618,10 +742,14 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                       margin: isAiSidebarCollapsed ? '0 auto' : '0'
                     }}>
                     
+                    {/* Analysis Results Section */}
+                    <div style={{marginBottom: '50px'}}>
+                        <h1 style={styles.mainSectionTitle}>Analysis Results</h1>
+                    </div>
+                    
                     {/* Summary Header */}
                     <div style={styles.summaryHeader}>
                         <div style={styles.summaryHeaderTop}>
-                            <h1 style={styles.pageTitle}>Analysis Results</h1>
                             
                         </div>
                         <div style={styles.summaryCard}>
@@ -688,7 +816,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                         {((results.results as any)?.chart || (results.results as any)?.chart_data) && (
                             <div style={{...styles.visualizationSection, marginTop: '30px'}}>
                                 <div style={styles.chartHeader}>
-                                    <h2 style={styles.sectionTitle}>What Happened Over Time</h2>
+                                    <h2 style={styles.subsectionTitle}>Outcome Over Time</h2>
                                 </div>
                                 <div style={styles.chartContainer}>
                                     <div style={styles.realChartContainer}>
@@ -929,9 +1057,14 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                         })()}
                     </div>
 
+        {/* Assumptions Check Section */}
+        <div style={{marginTop: '60px', marginBottom: '50px'}}>
+          <h1 style={styles.mainSectionTitle}>Assumptions Check</h1>
+        </div>
+        
         {/* NEW: Parallel Trends Assessment Section */}
         <div style={styles.parallelTrendsSection}>
-          <h2 style={styles.sectionTitle}>Did the Groups Start Out Similar?</h2>
+          <h2 style={styles.subsectionTitle}>Parallel Trend Assumption Check</h2>
           <p style={styles.explanation}>
             Before we can trust our results, we need to check if the treatment and control groups were changing at similar rates before treatment started. 
             If they were already diverging, we can't be sure that differences after treatment are caused by the treatment itself.
@@ -1121,10 +1254,54 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                           }
                         </p>
                       </div>
-                      <p style={{margin: '0 0 0 0', fontSize: '14px', color: '#212529', lineHeight: '1.5'}}>
+                      <p style={{margin: '0 0 20px 0', fontSize: '14px', color: '#212529', lineHeight: '1.5'}}>
                         <strong>What this means:</strong> We examined the difference between treatment and control groups at each time point before treatment. 
                         If pre-treatment differences hover around zero, parallel trends likely holds.
                       </p>
+                      
+                      {/* Event Study Chart - Inside Check 2 Box */}
+                      {isNewFormat && pt && pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' && (
+                        <div style={{marginTop: '20px'}}>
+                          <div style={{...styles.chartHeader, marginBottom: '10px'}}>
+                            <h3 style={styles.chartSubtitle}>Event Study: Treatment Effect Over Time</h3>
+                            <button
+                              onClick={() => downloadChartAsPNG(
+                                pt.event_study_chart!,
+                                'event_study_chart.png'
+                              )}
+                              style={styles.downloadButton}
+                              title="Download chart as PNG"
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#032d5a';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = '#043873';
+                              }}
+                            >
+                              <i className="fa fa-download"></i> Download Chart
+                            </button>
+                          </div>
+                          <div style={{width: '100%', overflow: 'hidden'}}>
+                            <img 
+                              src={`data:image/png;base64,${pt.event_study_chart}`} 
+                              alt="Event study: treatment-control difference over time" 
+                              style={{...styles.chart, maxWidth: '100%', boxSizing: 'border-box'}}
+                              onError={(e) => {
+                                console.error('Failed to load event study chart. Chart data length:', pt.event_study_chart?.length || 0);
+                                console.error('First 100 chars:', pt.event_study_chart?.substring(0, 100));
+                                (e.target as HTMLImageElement).style.display = 'none';
+                                const errorDiv = document.createElement('div');
+                                errorDiv.style.padding = '20px';
+                                errorDiv.style.backgroundColor = '#f8d7da';
+                                errorDiv.style.borderRadius = '6px';
+                                errorDiv.style.border = '1px solid #dc3545';
+                                errorDiv.innerHTML = '<p style="margin: 0; color: #721c24;">⚠️ Failed to load event study chart image.</p>';
+                                (e.target as HTMLImageElement).parentElement?.appendChild(errorDiv);
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div style={{
@@ -1139,86 +1316,8 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                       </p>
                     </div>
                   )}
-                </div>
-              
-              {/* Event Study Chart - Primary Visualization */}
-              {isNewFormat && pt && (
-                <div style={styles.chartContainer}>
-                  <div style={{...styles.chartHeader, marginTop: '24px'}}>
-                    <h3 style={styles.chartSubtitle}>Event Study: Treatment Effect Over Time</h3>
-                    {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' && (
-                      <button
-                        onClick={() => downloadChartAsPNG(
-                          pt.event_study_chart!,
-                          'event_study_chart.png'
-                        )}
-                        style={styles.downloadButton}
-                        title="Download chart as PNG"
-                      >
-                        ⬇️ Download Chart
-                      </button>
-                    )}
-                  </div>
-                  <div style={{width: '100%', overflow: 'hidden'}}>
-                    {pt?.event_study_chart && pt.event_study_chart !== null && pt.event_study_chart !== '' && typeof pt.event_study_chart === 'string' ? (
-                    <img 
-                      src={`data:image/png;base64,${pt.event_study_chart}`} 
-                      alt="Event study: treatment-control difference over time" 
-                      style={{...styles.chart, maxWidth: '100%', boxSizing: 'border-box'}}
-                      onError={(e) => {
-                        console.error('Failed to load event study chart. Chart data length:', pt.event_study_chart?.length || 0);
-                        console.error('First 100 chars:', pt.event_study_chart?.substring(0, 100));
-                        (e.target as HTMLImageElement).style.display = 'none';
-                        const errorDiv = document.createElement('div');
-                        errorDiv.style.padding = '20px';
-                        errorDiv.style.backgroundColor = '#f8d7da';
-                        errorDiv.style.borderRadius = '6px';
-                        errorDiv.style.border = '1px solid #dc3545';
-                        errorDiv.innerHTML = '<p style="margin: 0; color: #721c24;">⚠️ Failed to load event study chart image.</p>';
-                        (e.target as HTMLImageElement).parentElement?.appendChild(errorDiv);
-                      }}
-                    />
-                  ) : (
-                    <div style={{padding: '20px', backgroundColor: '#fff3cd', borderRadius: '6px', border: '1px solid #ffc107'}}>
-                      <p style={{margin: 0, color: '#856404', fontWeight: '500'}}>
-                        ⚠️ Event study chart is not available.
-                      </p>
-                      {pt?.event_study_coefficients && pt.event_study_coefficients.length > 0 ? (
-                        <p style={{margin: '10px 0 0 0', color: '#856404'}}>
-                          You can see the coefficients in the table below.
-                        </p>
-                      ) : (
-                        <div style={{marginTop: '12px'}}>
-                          <p style={{margin: '0 0 8px 0', color: '#856404'}}>
-                            <strong>Why isn't the event study available?</strong>
-                          </p>
-                          {pt?.warnings && pt.warnings.length > 0 ? (
-                            <ul style={{margin: '0', paddingLeft: '20px', color: '#856404'}}>
-                              {pt.warnings.filter((w: string) => w.toLowerCase().includes('event study')).map((warning: string, idx: number) => (
-                                <li key={idx} style={{marginBottom: '4px'}}>{warning}</li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p style={{margin: 0, color: '#856404', fontSize: '14px'}}>
-                              Event study requires multiple pre-treatment and post-treatment periods, 
-                              and variation in treatment timing across units (or sufficient data variation).
-                              Your data may not meet these requirements.
-                            </p>
-                          )}
-                        </div>
-                      )}
-                      {process.env.NODE_ENV === 'development' && (
-                        <p style={{margin: '10px 0 0 0', fontSize: '12px', color: '#666'}}>
-                          Debug: event_study_chart type = {typeof pt?.event_study_chart},
-                          value = {pt?.event_study_chart ? (pt.event_study_chart.toString().substring(0, 50) + '...') : 'null/undefined'},
-                          event_study_coefficients = {pt?.event_study_coefficients ? pt.event_study_coefficients.length : 'missing'}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  </div>
                   
-                  {/* Check 2 Show More Details Button - Below Event Study Chart */}
+                  {/* Check 2 Show More Details Button */}
                   {hasEventStudyData && (
                     <div style={{marginTop: '20px'}}>
                       <button
@@ -1355,10 +1454,41 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                     </div>
                   )}
                 </div>
-              )}
               </>
             );
           })()}
+        </div>
+
+        {/* Additional Assumption Checks */}
+        <div style={styles.parallelTrendsSection}>
+          <h2 style={styles.subsectionTitle}>Additional Assumption Checks</h2>
+          
+          <div style={{marginBottom: '30px'}}>
+            <h3 style={{fontSize: '18px', fontWeight: 'bold', color: '#043873', marginBottom: '12px'}}>
+              No Anticipation Effects
+            </h3>
+            <p style={{fontSize: '15px', color: '#212529', lineHeight: '1.6', marginBottom: '20px'}}>
+              Units shouldn't change their behavior before treatment actually occurs. If firms start adjusting before a policy is announced or implemented, your treatment timing is effectively wrong and estimates will be biased.
+            </p>
+          </div>
+
+          <div style={{marginBottom: '30px'}}>
+            <h3 style={{fontSize: '18px', fontWeight: 'bold', color: '#043873', marginBottom: '12px'}}>
+              Stable Unit Treatment Value (SUTVA)
+            </h3>
+            <p style={{fontSize: '15px', color: '#212529', lineHeight: '1.6', marginBottom: '20px'}}>
+              Requires that one unit's treatment status doesn't affect another unit's outcomes. This rules out spillovers—for instance, if a minimum wage increase in one state causes workers to commute from neighboring states, SUTVA is violated.
+            </p>
+          </div>
+
+          <div style={{marginBottom: '20px'}}>
+            <h3 style={{fontSize: '18px', fontWeight: 'bold', color: '#043873', marginBottom: '12px'}}>
+              No Compositional Changes
+            </h3>
+            <p style={{fontSize: '15px', color: '#212529', lineHeight: '1.6'}}>
+              Assumes the makeup of your treatment and control groups remains stable over time. If different types of units are entering or exiting the groups differentially, this can masquerade as a treatment effect.
+            </p>
+          </div>
         </div>
 
         {/* CODE SECTION - Reproducible Analysis */}
@@ -1628,6 +1758,271 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                             )}
                             </>
                         )}
+
+                        {/* AI Chat Section */}
+                        <div style={{
+                          marginTop: '24px',
+                          borderTop: '2px solid #e9ecef',
+                          paddingTop: '20px'
+                        }}>
+                          <h3 style={{
+                            fontSize: '18px',
+                            fontWeight: 'bold',
+                            color: '#043873',
+                            margin: '0 0 16px 0'
+                          }}>
+                            💬 Ask AI
+                          </h3>
+                          <p style={{
+                            fontSize: '13px',
+                            color: '#666',
+                            marginBottom: '16px',
+                            lineHeight: '1.5'
+                          }}>
+                            Ask questions about your study, dataset, or causal inference concepts.
+                          </p>
+
+                          {/* Chat Messages */}
+                          <div style={{
+                            maxHeight: '400px',
+                            overflowY: 'auto' as const,
+                            marginBottom: '16px',
+                            padding: '12px',
+                            backgroundColor: '#f8f9fa',
+                            borderRadius: '8px',
+                            border: '1px solid #e9ecef',
+                            minHeight: '200px'
+                          }}>
+                            {chatMessages.length === 0 ? (
+                              <div style={{
+                                textAlign: 'center' as const,
+                                color: '#999',
+                                padding: '40px 20px',
+                                fontSize: '14px'
+                              }}>
+                                Start a conversation by asking a question below.
+                              </div>
+                            ) : (
+                              chatMessages.map((msg, idx) => (
+                                <div
+                                  key={idx}
+                                  style={{
+                                    marginBottom: '16px',
+                                    display: 'flex',
+                                    flexDirection: 'column' as const,
+                                    alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                                  }}
+                                >
+                                  <div style={{
+                                    maxWidth: '85%',
+                                    padding: '10px 14px',
+                                    borderRadius: '12px',
+                                    backgroundColor: msg.role === 'user' ? '#4F9CF9' : '#ffffff',
+                                    color: msg.role === 'user' ? '#ffffff' : '#333',
+                                    fontSize: '14px',
+                                    lineHeight: '1.5',
+                                    boxShadow: msg.role === 'user' ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
+                                    border: msg.role === 'user' ? 'none' : '1px solid #e9ecef',
+                                    whiteSpace: 'pre-wrap' as const,
+                                    wordBreak: 'break-word' as const
+                                  }}>
+                                    {msg.content}
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                            {chatLoading && (
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                marginBottom: '16px'
+                              }}>
+                                <div style={{
+                                  padding: '10px 14px',
+                                  borderRadius: '12px',
+                                  backgroundColor: '#ffffff',
+                                  border: '1px solid #e9ecef',
+                                  fontSize: '14px',
+                                  color: '#666',
+                                  display: 'flex',
+                                  alignItems: 'center'
+                                }}>
+                                  <div style={{
+                                    width: '16px',
+                                    height: '16px',
+                                    border: '2px solid #f3f3f3',
+                                    borderTop: '2px solid #4F9CF9',
+                                    borderRadius: '50%',
+                                    animation: 'spin 1s linear infinite',
+                                    marginRight: '8px'
+                                  }}></div>
+                                  <span>AI is thinking...</span>
+                                </div>
+                              </div>
+                            )}
+                            <div ref={chatMessagesEndRef} />
+                          </div>
+
+                          {/* Chat Error */}
+                          {chatError && (
+                            <div style={{
+                              padding: '10px',
+                              marginBottom: '12px',
+                              backgroundColor: '#f8d7da',
+                              color: '#721c24',
+                              borderRadius: '6px',
+                              fontSize: '13px',
+                              border: '1px solid #f5c6cb'
+                            }}>
+                              ⚠️ {chatError}
+                            </div>
+                          )}
+
+                          {/* Chat Input */}
+                          <div style={{
+                            display: 'flex',
+                            gap: '8px',
+                            alignItems: 'flex-end'
+                          }}>
+                            <textarea
+                              value={chatInput}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                if (value.length <= MAX_MESSAGE_LENGTH) {
+                                  setChatInput(value);
+                                  setChatError(null);
+                                }
+                              }}
+                              onKeyPress={handleChatInputKeyPress}
+                              placeholder="Ask a question about your analysis..."
+                              disabled={chatLoading}
+                              style={{
+                                flex: 1,
+                                minHeight: '60px',
+                                maxHeight: '120px',
+                                padding: '10px 12px',
+                                borderRadius: '8px',
+                                border: '1px solid #dee2e6',
+                                fontSize: '14px',
+                                fontFamily: 'inherit',
+                                resize: 'vertical' as const,
+                                outline: 'none',
+                                boxSizing: 'border-box' as const
+                              }}
+                              onFocus={(e) => {
+                                e.target.style.borderColor = '#4F9CF9';
+                              }}
+                              onBlur={(e) => {
+                                e.target.style.borderColor = '#dee2e6';
+                              }}
+                            />
+                            <button
+                              onClick={handleSendMessage}
+                              disabled={!chatInput.trim() || chatLoading || chatInput.length > MAX_MESSAGE_LENGTH}
+                              style={{
+                                padding: '10px 20px',
+                                backgroundColor: chatInput.trim() && !chatLoading && chatInput.length <= MAX_MESSAGE_LENGTH ? '#4F9CF9' : '#ccc',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: chatInput.trim() && !chatLoading && chatInput.length <= MAX_MESSAGE_LENGTH ? 'pointer' : 'not-allowed',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                transition: 'background-color 0.2s',
+                                height: '60px',
+                                minWidth: '80px'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (chatInput.trim() && !chatLoading && chatInput.length <= MAX_MESSAGE_LENGTH) {
+                                  e.currentTarget.style.backgroundColor = '#3d7dd6';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (chatInput.trim() && !chatLoading && chatInput.length <= MAX_MESSAGE_LENGTH) {
+                                  e.currentTarget.style.backgroundColor = '#4F9CF9';
+                                }
+                              }}
+                            >
+                              {chatLoading ? '...' : 'Send'}
+                            </button>
+                          </div>
+                          <div style={{
+                            fontSize: '12px',
+                            color: '#999',
+                            marginTop: '6px',
+                            textAlign: 'right' as const
+                          }}>
+                            {chatInput.length}/{MAX_MESSAGE_LENGTH} characters
+                          </div>
+
+                          {/* Recommended Questions */}
+                          {recommendedQuestions.length > 0 && (
+                            <div style={{
+                              marginTop: '16px',
+                              paddingTop: '16px',
+                              borderTop: '1px solid #e9ecef'
+                            }}>
+                              <div style={{
+                                fontSize: '13px',
+                                color: '#666',
+                                marginBottom: '10px',
+                                fontWeight: '500'
+                              }}>
+                                💡 Suggested questions:
+                              </div>
+                              <div style={{
+                                display: 'flex',
+                                flexDirection: 'column' as const,
+                                gap: '8px'
+                              }}>
+                                {recommendedQuestions.map((question, idx) => (
+                                  <button
+                                    key={idx}
+                                    onClick={() => {
+                                      setChatInput(question);
+                                      setChatError(null);
+                                      // Focus the textarea
+                                      setTimeout(() => {
+                                        const textarea = document.querySelector('textarea[placeholder*="Ask a question"]') as HTMLTextAreaElement;
+                                        if (textarea) {
+                                          textarea.focus();
+                                          textarea.setSelectionRange(question.length, question.length);
+                                        }
+                                      }, 0);
+                                    }}
+                                    disabled={chatLoading}
+                                    style={{
+                                      padding: '10px 14px',
+                                      backgroundColor: '#f8f9fa',
+                                      border: '1px solid #dee2e6',
+                                      borderRadius: '8px',
+                                      fontSize: '13px',
+                                      color: '#043873',
+                                      cursor: chatLoading ? 'not-allowed' : 'pointer',
+                                      textAlign: 'left' as const,
+                                      transition: 'all 0.2s',
+                                      opacity: chatLoading ? 0.6 : 1
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      if (!chatLoading) {
+                                        e.currentTarget.style.backgroundColor = '#e9ecef';
+                                        e.currentTarget.style.borderColor = '#4F9CF9';
+                                      }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      if (!chatLoading) {
+                                        e.currentTarget.style.backgroundColor = '#f8f9fa';
+                                        e.currentTarget.style.borderColor = '#dee2e6';
+                                      }
+                                    }}
+                                  >
+                                    {question}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                         </div>
                     </div>
                     )}
@@ -1795,12 +2190,26 @@ const styles = {
     marginBottom: '30px',
     boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)'
   },
+  mainSectionTitle: {
+    fontSize: '36px',
+    fontWeight: 'bold',
+    color: '#043873',
+    margin: '0 0 40px 0',
+    textAlign: 'center' as const
+  },
   sectionTitle: {
     fontSize: '24px',
     fontWeight: 'bold',
     color: '#043873',
     margin: '0 0 30px 0',
     textAlign: 'center' as const
+  },
+  subsectionTitle: {
+    fontSize: '20px',
+    fontWeight: 'bold',
+    color: '#043873',
+    margin: '0 0 20px 0',
+    textAlign: 'left' as const
   },
   chartContainer: {
     width: '100%',
@@ -2385,7 +2794,7 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: '20px',
+    marginBottom: '10px',
     flexWrap: 'wrap' as const,
     gap: '15px'
   },

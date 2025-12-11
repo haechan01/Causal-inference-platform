@@ -35,10 +35,12 @@ interface InteractiveDiDChartProps {
   chartData: ChartData;
   fallbackPng?: string; // Fallback PNG if chartData is not available
   didEstimate?: number; // DiD estimate to display on chart
+  onToggleAI?: () => void; // Callback when the AI button is clicked
+  isAIOpen?: boolean; // State to determine if the text should be "Fold" or "Get"
 }
 
 const InteractiveDiDChart = forwardRef<HTMLDivElement, InteractiveDiDChartProps>(
-  ({ chartData, fallbackPng, didEstimate }, ref) => {
+  ({ chartData, fallbackPng, didEstimate, onToggleAI, isAIOpen = true }, ref) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartAreaRef = useRef<HTMLDivElement>(null); // Ref for chart area only (without download button and edit labels)
   
@@ -226,8 +228,10 @@ const InteractiveDiDChart = forwardRef<HTMLDivElement, InteractiveDiDChartProps>
 
   return (
     <div ref={setRefs} style={{ width: '100%', padding: '24px', backgroundColor: '#ffffff', borderRadius: '8px', position: 'relative' }}>
-      {/* Download Button */}
-      <div style={{ marginBottom: '16px', textAlign: 'right' }}>
+      
+      {/* Top Control Bar: Download Button */}
+      <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+        {/* Download Button */}
         <button
           onClick={(e) => {
             e.preventDefault();
@@ -235,26 +239,29 @@ const InteractiveDiDChart = forwardRef<HTMLDivElement, InteractiveDiDChartProps>
             downloadChart();
           }}
           style={{
-            padding: '8px 16px',
-            backgroundColor: '#4F9CF9',
+            padding: '8px 12px',
+            backgroundColor: '#043873',
             color: 'white',
             border: 'none',
             borderRadius: '6px',
             cursor: 'pointer',
             fontSize: '14px',
             fontWeight: '500',
-            transition: 'background-color 0.2s'
+            transition: 'all 0.2s',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = '#3d7bd6';
+            e.currentTarget.style.backgroundColor = '#032d5a';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = '#4F9CF9';
+            e.currentTarget.style.backgroundColor = '#043873';
           }}
           type="button"
           title="Download chart as PNG"
         >
-          ⬇️ Download Chart
+          <i className="fa fa-download"></i> Download Chart
         </button>
       </div>
 
