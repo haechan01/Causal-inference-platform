@@ -77,8 +77,21 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
         </div>
         
         {!suggestions && !loading && (
-          <button onClick={fetchSuggestions} style={styles.getHelpButton}>
-            Get AI Suggestions
+          <button 
+            onClick={fetchSuggestions} 
+            style={styles.getHelpButton}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#4f46e5';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+              e.currentTarget.style.boxShadow = '0 4px 8px rgba(99, 102, 241, 0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#6366f1';
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 2px 4px rgba(99, 102, 241, 0.3)';
+            }}
+          >
+            ✨ Get AI Suggestions
           </button>
         )}
       </div>
@@ -194,8 +207,12 @@ const styles = {
     backgroundColor: '#e3f2fd',
     borderRadius: '12px',
     padding: '20px',
-    marginBottom: '30px',
-    border: '2px solid #4F9CF9'
+    marginBottom: '0',
+    border: '2px solid #4F9CF9',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+    width: '100%',
+    boxSizing: 'border-box' as const,
+    minWidth: 0 // Allow container to shrink below content size
   },
   header: {
     display: 'flex',
@@ -216,14 +233,16 @@ const styles = {
     fontSize: '18px'
   },
   getHelpButton: {
-    backgroundColor: '#4F9CF9',
+    backgroundColor: '#6366f1',
     color: 'white',
     border: 'none',
     borderRadius: '8px',
     padding: '10px 20px',
     fontSize: '14px',
     fontWeight: 'bold',
-    cursor: 'pointer'
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    boxShadow: '0 2px 4px rgba(99, 102, 241, 0.3)'
   },
   loading: {
     display: 'flex',
@@ -269,14 +288,17 @@ const styles = {
   },
   suggestionsGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(2, 1fr)',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
     gap: '15px'
   },
   suggestionCard: {
     backgroundColor: 'white',
     borderRadius: '8px',
     padding: '15px',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+    minWidth: 0, // Allow card to shrink
+    wordWrap: 'break-word' as const,
+    overflowWrap: 'break-word' as const
   },
   cardHeader: {
     display: 'flex',
@@ -316,7 +338,9 @@ const styles = {
     fontSize: '12px',
     color: '#666',
     margin: 0,
-    lineHeight: '1.4'
+    lineHeight: '1.4',
+    wordWrap: 'break-word' as const,
+    overflowWrap: 'break-word' as const
   },
   warnings: {
     backgroundColor: '#fff3cd',

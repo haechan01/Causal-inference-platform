@@ -436,6 +436,9 @@ Respond with JSON only:
                     if 'significance' in interp:
                         context_parts.append(f"- Significance: {interp.get('significance', 'N/A')}")
             
+            if analysis_context.get('did_guidelines'):
+                context_parts.append(f"\n{analysis_context.get('did_guidelines')}")
+            
             if context_parts:
                 context_prompt = "\n".join(context_parts) + "\n\n"
         
