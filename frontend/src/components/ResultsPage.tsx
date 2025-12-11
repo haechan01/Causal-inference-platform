@@ -114,7 +114,7 @@ const ResultsPage: React.FC = () => {
     const [aiError, setAiError] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
   const [codeLanguage, setCodeLanguage] = useState<'python' | 'r'>('python');
-  const [selectedPeriod, setSelectedPeriod] = useState<string | number | null>(null);
+  // const [selectedPeriod, setSelectedPeriod] = useState<string | number | null>(null); // Removed - no longer used
   const [showCheck1Details, setShowCheck1Details] = useState(false);
   const [showCheck2Details, setShowCheck2Details] = useState(false);
   const [showDidCalculationDetails, setShowDidCalculationDetails] = useState(false);
@@ -608,13 +608,14 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                                 </div>
                                 <div style={styles.chartContainer}>
                                     <div style={styles.realChartContainer}>
-                                        {(results.results as any)?.chart_data ? (
-                                            <InteractiveDiDChart
-                                                key="did-chart"
-                                                chartData={(results.results as any).chart_data}
-                                                fallbackPng={(results.results as any).chart}
-                                            />
-                                        ) : (
+                                {(results.results as any)?.chart_data ? (
+                                    <InteractiveDiDChart
+                                        key="did-chart"
+                                        chartData={(results.results as any).chart_data}
+                                        fallbackPng={(results.results as any).chart}
+                                        didEstimate={results.results?.did_estimate}
+                                    />
+                                ) : (
                                             <img 
                                                 src={`data:image/png;base64,${(results.results as any).chart}`} 
                                                 alt="Difference-in-Differences Analysis Chart"
@@ -645,7 +646,6 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                             
                             // Get treatment start time to convert relative_time to actual periods
                             const treatmentStart = results.parameters?.treatment_start;
-                            const timeVar = results.parameters?.time;
                             
                             // Helper to convert relative_time to actual period
                             const getPeriodFromRelativeTime = (relativeTime: number): string | number => {
@@ -691,9 +691,6 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                                     counterfactual: null
                                 }));
                             
-                            // Check if any row has CI data
-                            const hasCIData = combinedData.some((item: any) => item.ciLower !== null);
-                            
                             if (combinedData.length > 0) {
                                 // Calculate overall average
                                 const overallAverage = results.results?.did_estimate;
@@ -702,7 +699,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                                 return (
                                     <div style={{...styles.visualizationSection, marginTop: '30px'}}>
                                         <div style={styles.chartHeader}>
-                                            <h2 style={styles.sectionTitle}>Effect Size</h2>
+                                            <h2 style={styles.sectionTitle}>Effect Size by Period</h2>
                                         </div>
                                         <div style={{padding: '20px'}}>
                                             <p style={{marginBottom: '20px', color: '#666', fontSize: '14px'}}>

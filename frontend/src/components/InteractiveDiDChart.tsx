@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, forwardRef, useCallback } from 'react';
+import React, { useState, useMemo, useRef, forwardRef, useCallback, useImperativeHandle } from 'react';
 import {
   LineChart,
   Line,
@@ -34,11 +34,16 @@ interface ChartData {
 interface InteractiveDiDChartProps {
   chartData: ChartData;
   fallbackPng?: string; // Fallback PNG if chartData is not available
+  didEstimate?: number; // DiD estimate to display on chart
 }
 
-const InteractiveDiDChart = forwardRef<HTMLDivElement, InteractiveDiDChartProps>(({ chartData, fallbackPng }, ref) => {
+const InteractiveDiDChart = forwardRef<HTMLDivElement, InteractiveDiDChartProps>(
+  ({ chartData, fallbackPng, didEstimate }, ref) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartAreaRef = useRef<HTMLDivElement>(null); // Ref for chart area only (without download button and edit labels)
+  
+  // Forward the ref to the container
+  useImperativeHandle(ref, () => chartContainerRef.current as HTMLDivElement);
   const [labels, setLabels] = useState({
     xAxisLabel: chartData.xAxisLabel,
     yAxisLabel: chartData.yAxisLabel,
@@ -52,6 +57,16 @@ const InteractiveDiDChart = forwardRef<HTMLDivElement, InteractiveDiDChartProps>
 
   const [editing, setEditing] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+
+  // Combine refs - must be before any early returns
+  const setRefs = useCallback((node: HTMLDivElement | null) => {
+    chartContainerRef.current = node;
+    if (typeof ref === 'function') {
+      ref(node);
+    } else if (ref) {
+      (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    }
+  }, [ref]);
 
   // Transform data for recharts
   const chartDataFormatted = useMemo(() => {
@@ -210,7 +225,7 @@ const InteractiveDiDChart = forwardRef<HTMLDivElement, InteractiveDiDChartProps>
   }
 
   return (
-    <div ref={chartContainerRef} style={{ width: '100%', padding: '24px', backgroundColor: '#ffffff', borderRadius: '8px', position: 'relative' }}>
+    <div ref={setRefs} style={{ width: '100%', padding: '24px', backgroundColor: '#ffffff', borderRadius: '8px', position: 'relative' }}>
       {/* Download Button */}
       <div style={{ marginBottom: '16px', textAlign: 'right' }}>
         <button
@@ -243,8 +258,8 @@ const InteractiveDiDChart = forwardRef<HTMLDivElement, InteractiveDiDChartProps>
         </button>
       </div>
 
-      {/* Chart Area - This is what gets captured in screenshot */}
-      <div ref={chartAreaRef}>
+        {/* Chart Area - This is what gets captured in screenshot */}
+        <div ref={chartAreaRef} style={{ position: 'relative' }}>
         {/* Editable Title */}
         <div style={{ marginBottom: '24px', textAlign: 'center' }}>
           {editing === 'title' ? (
@@ -297,143 +312,208 @@ const InteractiveDiDChart = forwardRef<HTMLDivElement, InteractiveDiDChartProps>
         </div>
 
         {/* Chart */}
-        <ResponsiveContainer width="100%" height={450}>
-        <LineChart data={chartDataFormatted} margin={{ top: 20, right: 30, left: 60, bottom: 40 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" strokeWidth={1} />
-          <XAxis
-            dataKey={chartData.xAxisLabel}
-            label={{
-              value: labels.xAxisLabel,
-              position: 'insideBottom',
-              offset: -5,
-              style: { textAnchor: 'middle', fill: '#666', fontSize: '13px', fontWeight: '500' }
-            }}
-            tick={{ fill: '#666', fontSize: '12px' }}
-            tickLine={{ stroke: '#d0d0d0' }}
-            angle={chartDataFormatted.length > 8 ? -45 : 0}
-            textAnchor={chartDataFormatted.length > 8 ? 'end' : 'middle'}
-            height={70}
-          />
-          <YAxis
-            label={{
-              value: labels.yAxisLabel,
-              angle: -90,
-              position: 'insideLeft',
-              style: { textAnchor: 'middle', fill: '#666', fontSize: '13px', fontWeight: '500' }
-            }}
-            tick={{ fill: '#666', fontSize: '12px' }}
-            tickLine={{ stroke: '#d0d0d0' }}
-            width={60}
-          />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: '#ffffff',
-              border: '1px solid #e0e0e0',
-              borderRadius: '6px',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-            }}
-            labelStyle={{ fontWeight: '600', color: '#1a1a1a' }}
-          />
-          <Legend
-            wrapperStyle={{ paddingTop: '24px', paddingBottom: '8px' }}
-            iconType="line"
-            formatter={(value) => {
-              const seriesKey = chartData.series.find(s => s.name === value)?.name || value;
-              if (editing === `series-${seriesKey}`) {
+        <div style={{ position: 'relative', width: '100%', height: '450px' }}>
+          <ResponsiveContainer width="100%" height={450}>
+            <LineChart data={chartDataFormatted} margin={{ top: 20, right: 30, left: 60, bottom: 40 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" strokeWidth={1} />
+              <XAxis
+                dataKey={chartData.xAxisLabel}
+                label={{
+                  value: labels.xAxisLabel,
+                  position: 'insideBottom',
+                  offset: -5,
+                  style: { textAnchor: 'middle', fill: '#666', fontSize: '13px', fontWeight: '500' }
+                }}
+                tick={{ fill: '#666', fontSize: '12px' }}
+                tickLine={{ stroke: '#d0d0d0' }}
+                angle={chartDataFormatted.length > 8 ? -45 : 0}
+                textAnchor={chartDataFormatted.length > 8 ? 'end' : 'middle'}
+                height={70}
+              />
+              <YAxis
+                label={{
+                  value: labels.yAxisLabel,
+                  angle: -90,
+                  position: 'insideLeft',
+                  style: { textAnchor: 'middle', fill: '#666', fontSize: '13px', fontWeight: '500' }
+                }}
+                tick={{ fill: '#666', fontSize: '12px' }}
+                tickLine={{ stroke: '#d0d0d0' }}
+                width={60}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: '6px',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                }}
+                labelStyle={{ fontWeight: '600', color: '#1a1a1a' }}
+                content={(props: any) => {
+                  if (!props.active || !props.payload || !props.payload.length) return null;
+                  
+                  const data = props.payload[0]?.payload;
+                  const timeValue = data?.[chartData.xAxisLabel];
+                  
+                  // Get values for each series by matching dataKey with series names
+                  let treatmentValue: number | undefined;
+                  let controlValue: number | undefined;
+                  let counterfactualValue: number | undefined;
+                  
+                  chartData.series.forEach(series => {
+                    const payloadItem = props.payload.find((p: any) => p.dataKey === series.name);
+                    if (payloadItem) {
+                      if (series.name === 'Treatment Group' || series.color === '#4F9CF9') {
+                        treatmentValue = payloadItem.value;
+                      } else if (series.name === 'Control Group' || series.color === '#FF6B6B') {
+                        controlValue = payloadItem.value;
+                      } else if (series.name === 'Counterfactual' || series.type === 'dashed') {
+                        counterfactualValue = payloadItem.value;
+                      }
+                    }
+                  });
+                  
+                  // Calculate effect size if we have treatment and counterfactual
+                  const effectSize = treatmentValue !== undefined && counterfactualValue !== undefined 
+                    ? treatmentValue - counterfactualValue 
+                    : null;
+                  
+                  return (
+                    <div style={{
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #e0e0e0',
+                      borderRadius: '6px',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                      padding: '12px'
+                    }}>
+                      <p style={{ fontWeight: '600', color: '#1a1a1a', margin: '0 0 8px 0', fontSize: '14px' }}>
+                        {timeValue}
+                      </p>
+                      {treatmentValue !== undefined && (
+                        <p style={{ margin: '4px 0', fontSize: '13px', color: '#4F9CF9' }}>
+                          <span style={{ fontWeight: '600' }}>Treatment:</span> {treatmentValue.toFixed(4)}
+                        </p>
+                      )}
+                      {controlValue !== undefined && (
+                        <p style={{ margin: '4px 0', fontSize: '13px', color: '#FF6B6B' }}>
+                          <span style={{ fontWeight: '600' }}>Control:</span> {controlValue.toFixed(4)}
+                        </p>
+                      )}
+                      {counterfactualValue !== undefined && (
+                        <p style={{ margin: '4px 0', fontSize: '13px', color: '#9CA3AF' }}>
+                          <span style={{ fontWeight: '600' }}>Counterfactual:</span> {counterfactualValue.toFixed(4)}
+                        </p>
+                      )}
+                      {effectSize !== null && (
+                        <p style={{ margin: '8px 0 0 0', fontSize: '13px', color: '#043873', fontWeight: '600', borderTop: '1px solid #e0e0e0', paddingTop: '8px' }}>
+                          <span style={{ fontWeight: '600' }}>Effect Size:</span> {(effectSize >= 0 ? '+' : '')}{effectSize.toFixed(4)}
+                        </p>
+                      )}
+                    </div>
+                  );
+                }}
+              />
+              <Legend
+                wrapperStyle={{ paddingTop: '24px', paddingBottom: '8px' }}
+                iconType="line"
+                formatter={(value) => {
+                  const seriesKey = chartData.series.find(s => s.name === value)?.name || value;
+                  if (editing === `series-${seriesKey}`) {
+                    return (
+                      <input
+                        type="text"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={handleLabelSave}
+                        onKeyDown={handleKeyPress}
+                        style={{
+                          border: '2px solid #4F9CF9',
+                          borderRadius: '4px',
+                          padding: '2px 6px',
+                          fontSize: '13px',
+                          width: '150px'
+                        }}
+                        autoFocus
+                      />
+                    );
+                  }
+                  return (
+                    <span
+                      onClick={() => handleLabelClick(`series-${seriesKey}`, labels.seriesNames[seriesKey] || seriesKey)}
+                      style={{
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        color: '#666',
+                        padding: '2px 4px',
+                        borderRadius: '4px',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#f5f7fa';
+                        e.currentTarget.style.color = '#4F9CF9';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.color = '#666';
+                      }}
+                      title="Click to edit"
+                    >
+                      {labels.seriesNames[seriesKey] || seriesKey}
+                    </span>
+                  );
+                }}
+              />
+              
+              {/* Reference line for treatment start */}
+              <ReferenceLine
+                x={chartData.treatmentStart}
+                stroke="#e74c3c"
+                strokeWidth={2}
+                strokeDasharray="4 4"
+                label={{
+                  value: labels.treatmentStartLabel,
+                  position: 'top',
+                  fill: '#e74c3c',
+                  fontSize: '11px',
+                  fontWeight: '500'
+                }}
+              />
+
+              {/* Render lines for each series */}
+              {chartData.series.map((series, index) => {
+                const displayName = labels.seriesNames[series.name] || series.name;
+                if (series.type === 'dashed') {
+                  return (
+                    <Line
+                      key={series.name}
+                      type="monotone"
+                      dataKey={series.name}
+                      stroke={series.color}
+                      strokeWidth={2.5}
+                      strokeDasharray="6 4"
+                      dot={{ fill: series.color, r: 4, strokeWidth: 2, stroke: '#ffffff' }}
+                      activeDot={{ r: 6, strokeWidth: 2, stroke: '#ffffff' }}
+                      name={displayName}
+                    />
+                  );
+                }
                 return (
-                  <input
-                    type="text"
-                    value={editValue}
-                    onChange={(e) => setEditValue(e.target.value)}
-                    onBlur={handleLabelSave}
-                    onKeyDown={handleKeyPress}
-                    style={{
-                      border: '2px solid #4F9CF9',
-                      borderRadius: '4px',
-                      padding: '2px 6px',
-                      fontSize: '13px',
-                      width: '150px'
-                    }}
-                    autoFocus
+                  <Line
+                    key={series.name}
+                    type="monotone"
+                    dataKey={series.name}
+                    stroke={series.color}
+                    strokeWidth={2.5}
+                    dot={{ fill: series.color, r: 4, strokeWidth: 2, stroke: '#ffffff' }}
+                    activeDot={{ r: 6, strokeWidth: 2, stroke: '#ffffff' }}
+                    name={displayName}
                   />
                 );
-              }
-              return (
-                <span
-                  onClick={() => handleLabelClick(`series-${seriesKey}`, labels.seriesNames[seriesKey] || seriesKey)}
-                  style={{
-                    cursor: 'pointer',
-                    fontSize: '13px',
-                    color: '#666',
-                    padding: '2px 4px',
-                    borderRadius: '4px',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#f5f7fa';
-                    e.currentTarget.style.color = '#4F9CF9';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                    e.currentTarget.style.color = '#666';
-                  }}
-                  title="Click to edit"
-                >
-                  {labels.seriesNames[seriesKey] || seriesKey}
-                </span>
-              );
-            }}
-          />
-          
-          {/* Reference line for treatment start */}
-          <ReferenceLine
-            x={chartData.treatmentStart}
-            stroke="#e74c3c"
-            strokeWidth={2}
-            strokeDasharray="4 4"
-            label={{
-              value: labels.treatmentStartLabel,
-              position: 'top',
-              fill: '#e74c3c',
-              fontSize: '11px',
-              fontWeight: '500'
-            }}
-          />
-
-          {/* Render lines for each series */}
-          {chartData.series.map((series, index) => {
-            const displayName = labels.seriesNames[series.name] || series.name;
-            if (series.type === 'dashed') {
-              return (
-                <Line
-                  key={series.name}
-                  type="monotone"
-                  dataKey={series.name}
-                  stroke={series.color}
-                  strokeWidth={2.5}
-                  strokeDasharray="6 4"
-                  dot={{ fill: series.color, r: 4, strokeWidth: 2, stroke: '#ffffff' }}
-                  activeDot={{ r: 6, strokeWidth: 2, stroke: '#ffffff' }}
-                  name={displayName}
-                />
-              );
-            }
-            return (
-              <Line
-                key={series.name}
-                type="monotone"
-                dataKey={series.name}
-                stroke={series.color}
-                strokeWidth={2.5}
-                dot={{ fill: series.color, r: 4, strokeWidth: 2, stroke: '#ffffff' }}
-                activeDot={{ r: 6, strokeWidth: 2, stroke: '#ffffff' }}
-                name={displayName}
-              />
-            );
-          })}
-        </LineChart>
-      </ResponsiveContainer>
-      </div>
+              })}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        </div>
 
       {/* Compact Label Editors */}
       <div style={{
@@ -578,7 +658,8 @@ const InteractiveDiDChart = forwardRef<HTMLDivElement, InteractiveDiDChartProps>
       )}
     </div>
   );
-});
+  }
+);
 
 InteractiveDiDChart.displayName = 'InteractiveDiDChart';
 
