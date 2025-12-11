@@ -118,6 +118,7 @@ const ResultsPage: React.FC = () => {
   const [showCheck1Details, setShowCheck1Details] = useState(false);
   const [showCheck2Details, setShowCheck2Details] = useState(false);
   const [showDidCalculationDetails, setShowDidCalculationDetails] = useState(false);
+  const [isAiSidebarCollapsed, setIsAiSidebarCollapsed] = useState(false);
     
     // Get project ID and dataset ID from navigation state or saved state
     const [projectId, setProjectId] = useState<number | null>((location.state as any)?.projectId || null);
@@ -531,8 +532,19 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
         <div>
             <Navbar />
             <div style={styles.contentContainer}>
-                <div style={styles.mainLayout}>
-                    <div style={styles.mainContent}>
+                <div style={{
+                  ...styles.mainLayout,
+                  justifyContent: isAiSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: isAiSidebarCollapsed ? '24px' : '48px', // More margin when expanded
+                  position: 'relative' as const // Positioning context
+                }}>
+                    <div style={{
+                      ...styles.mainContent,
+                      flex: isAiSidebarCollapsed ? '1 1 auto' : '1 1 60%',
+                      minWidth: isAiSidebarCollapsed ? 'auto' : '60%',
+                      maxWidth: isAiSidebarCollapsed ? '1200px' : 'none',
+                      margin: isAiSidebarCollapsed ? '0 auto' : '0'
+                    }}>
                     
                     {/* Summary Header */}
                     <div style={styles.summaryHeader}>
@@ -1344,8 +1356,24 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                     </div>
 
                     {/* AI INTERPRETATION SECTION - Right Sidebar */}
-                    <div style={styles.aiSidebar}>
-                        <div style={styles.aiSection}>
+                    <div style={{
+                      ...styles.aiSidebar,
+                      display: isAiSidebarCollapsed ? 'none' : 'block',
+                      flex: '0 0 480px',
+                      position: 'sticky' as const,
+                      top: '90px',
+                      right: '0px',
+                      overflow: 'visible' as const, // Ensure button is not clipped
+                      maxHeight: 'calc(100vh - 200px)' // Account for top nav (90px) + bottom nav (~80px) + padding
+                    }}>
+                        <div style={{
+                          ...styles.aiSection,
+                          maxHeight: 'calc(100vh - 200px)',
+                          overflowY: 'auto' as const,
+                          overflowX: 'hidden' as const,
+                          boxSizing: 'border-box' as const,
+                          position: 'relative' as const
+                        }}>
                             <div style={styles.aiSectionHeader}>
                                 <h2 style={styles.sectionTitle}>🤖 AI-Powered Interpretation</h2>
                                 {!aiInterpretation && !loadingAI && (
@@ -1499,8 +1527,107 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                             </>
                         )}
                         </div>
+                        
+                        {/* Fold Button - Outside to the Right, Vertical with Triangle on Right */}
+                        <button
+                          onClick={() => setIsAiSidebarCollapsed(!isAiSidebarCollapsed)}
+                          style={{
+                            position: 'absolute',
+                            right: '-60px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            width: '60px',
+                            height: '220px',
+                            backgroundColor: '#4F9CF9',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: '8px 0 0 8px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '12px',
+                            boxShadow: '-4px 0 12px rgba(79, 156, 249, 0.3)',
+                            zIndex: 10,
+                            transition: 'all 0.3s ease',
+                            padding: '20px 10px'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#3d7dd6';
+                            e.currentTarget.style.transform = 'translateY(-50%) translateX(-4px)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = '#4F9CF9';
+                            e.currentTarget.style.transform = 'translateY(-50%)';
+                          }}
+                          title="Hide AI Interpretation"
+                          type="button"
+                        >
+                          <span style={{ 
+                            fontSize: '14px', 
+                            fontWeight: '600', 
+                            writingMode: 'vertical-rl',
+                            textOrientation: 'mixed',
+                            letterSpacing: '1px',
+                            lineHeight: '1.4'
+                          }}>
+                            Close
+                          </span>
+                          
+                        </button>
                     </div>
                 </div>
+                
+                {/* Collapsed AI Sidebar Toggle - Show when sidebar is collapsed, Vertical with Triangle on Left */}
+                {isAiSidebarCollapsed && (
+                  <button
+                    onClick={() => setIsAiSidebarCollapsed(false)}
+                    style={{
+                      position: 'fixed',
+                      right: '0px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: '60px',
+                      height: '220px',
+                      backgroundColor: '#4F9CF9',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '8px 0 0 8px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '12px',
+                      boxShadow: '-4px 0 12px rgba(79, 156, 249, 0.3)',
+                      zIndex: 1000,
+                      transition: 'all 0.3s ease',
+                      padding: '20px 10px'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#3d7dd6';
+                      e.currentTarget.style.transform = 'translateY(-50%) translateX(-4px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#4F9CF9';
+                      e.currentTarget.style.transform = 'translateY(-50%)';
+                    }}
+                    title="Show AI Interpretation"
+                    type="button"
+                  >
+                    <span style={{ 
+                      fontSize: '14px', 
+                      fontWeight: '600', 
+                      writingMode: 'vertical-rl',
+                      textOrientation: 'mixed',
+                      letterSpacing: '1px',
+                      lineHeight: '1.4'
+                    }}>
+                       Open AI section
+                    </span>
+                  </button>
+                )}
             </div>
             <BottomProgressBar
                 currentStep={currentStep}
@@ -1531,7 +1658,8 @@ const styles = {
     padding: '20px 10px',
     width: '100%',
     boxSizing: 'border-box' as const,
-    alignItems: 'flex-start'
+    alignItems: 'flex-start',
+    position: 'relative' as const // Make it a positioning context for absolute AI sidebar
   },
   mainContent: {
     flex: '1 1 0',
@@ -2087,20 +2215,23 @@ const styles = {
 
   // AI INTERPRETATION SECTION
   aiSidebar: {
-    flex: '0 0 420px',
-    position: 'sticky' as const,
-    top: '90px',
+    width: '420px',
+    position: 'absolute' as const,
+    top: '0px',
     maxHeight: 'calc(100vh - 110px)',
     overflowY: 'auto' as const,
+    overflowX: 'hidden' as const,
     boxSizing: 'border-box' as const,
-    alignSelf: 'flex-start'
+    transition: 'all 0.3s ease'
   },
   aiSection: {
     backgroundColor: 'white',
     borderRadius: '12px',
     padding: '24px',
     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-    border: '1px solid #e0e0e0'
+    border: '1px solid #e0e0e0',
+    width: '100%',
+    boxSizing: 'border-box' as const
   },
   aiCard: {
     backgroundColor: '#f8f9fa',
