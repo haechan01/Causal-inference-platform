@@ -6,7 +6,7 @@ interface LogoProps {
 
 const Logo: React.FC<LogoProps> = ({ style }) => {
   return (
-    <h1 style={style}>CausalFlow</h1>
+    <h1 style={style}>CausAl Studio</h1>
   );
 };
 
