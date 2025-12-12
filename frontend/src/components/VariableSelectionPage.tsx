@@ -742,7 +742,7 @@ ALWAYS BE PRECISE: Use the exact variable names from the parameters, never subst
                         Select Treatment and Control Groups
                       </HelpTooltip>
                     </div>
-                    <div style={styles.requiredBadge}>Required</div>
+                    <div style={styles.optionalBadge}>Optional</div>
                   </div>
                   <p style={styles.helperText}>
                     Which column identifies your individuals or groups? Select the column that uniquely identifies each unit being tracked over time.
@@ -881,10 +881,10 @@ ALWAYS BE PRECISE: Use the exact variable names from the parameters, never subst
                   })()}
                 </div>
 
-                {/* Card 6: Control Variables */}
+                {/* Card 5: Control Variables */}
                 <div style={styles.card}>
                   <div style={styles.cardHeader}>
-                    <div style={styles.cardNumber}>6</div>
+                    <div style={styles.cardNumber}>5</div>
                     <div style={styles.cardTitle}>
                       <HelpTooltip concept="control variables">
                         Select Control Variables

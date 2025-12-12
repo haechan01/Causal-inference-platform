@@ -101,6 +101,56 @@ interface DiDResults {
   };
 }
 
+interface InfoTooltipProps {
+  text: string;
+}
+
+const InfoTooltip: React.FC<InfoTooltipProps> = ({ text }) => {
+  const [isVisible, setIsVisible] = useState(false);
+
+  return (
+    <div
+      style={{ position: 'relative', display: 'inline-block', marginLeft: '6px', cursor: 'help' }}
+      onMouseEnter={() => setIsVisible(true)}
+      onMouseLeave={() => setIsVisible(false)}
+    >
+      <span style={{ color: '#043873', fontSize: '14px' }}>ⓘ</span>
+      {isVisible && (
+        <div style={{
+          position: 'absolute',
+          bottom: '100%',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: '#333',
+          color: 'white',
+          padding: '8px 12px',
+          borderRadius: '6px',
+          fontSize: '12px',
+          width: '240px',
+          zIndex: 1000,
+          marginBottom: '8px',
+          textAlign: 'center',
+          fontWeight: 'normal',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+          lineHeight: '1.4',
+          pointerEvents: 'none'
+        }}>
+          {text}
+          <div style={{
+            position: 'absolute',
+            top: '100%',
+            left: '50%',
+            marginLeft: '-5px',
+            borderWidth: '5px',
+            borderStyle: 'solid',
+            borderColor: '#333 transparent transparent transparent'
+          }} />
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ResultsPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -921,10 +971,22 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                           <thead>
                             <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
                               <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#212529' }}>Period</th>
-                              <th style={{ padding: '12px', textAlign: 'right', fontWeight: '600', color: '#212529' }}>Effect Size</th>
-                              <th style={{ padding: '12px', textAlign: 'right', fontWeight: '600', color: '#212529' }}>95% CI Lower</th>
-                              <th style={{ padding: '12px', textAlign: 'right', fontWeight: '600', color: '#212529' }}>95% CI Upper</th>
-                              <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#212529' }}>Significant</th>
+                              <th style={{ padding: '12px', textAlign: 'right', fontWeight: '600', color: '#212529' }}>
+                                Effect Size
+                                <InfoTooltip text="The estimated impact of the intervention in this period. Positive values mean an increase, negative values mean a decrease." />
+                              </th>
+                              <th style={{ padding: '12px', textAlign: 'right', fontWeight: '600', color: '#212529' }}>
+                                95% CI Lower
+                                <InfoTooltip text="95% Confidence Interval. There is a 95% chance the true effect falls within this range. If it crosses zero, the result is not statistically significant." />
+                              </th>
+                              <th style={{ padding: '12px', textAlign: 'right', fontWeight: '600', color: '#212529' }}>
+                                95% CI Upper
+                                <InfoTooltip text="95% Confidence Interval. There is a 95% chance the true effect falls within this range. If it crosses zero, the result is not statistically significant." />
+                              </th>
+                              <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#212529' }}>
+                                Significant
+                                <InfoTooltip text="Indicates if we can be confident the effect is real and not just random noise (p < 0.05)." />
+                              </th>
                             </tr>
                           </thead>
                           <tbody>
@@ -982,6 +1044,10 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                           </tbody>
                         </table>
 
+                        <div style={{ marginTop: '12px', fontSize: '13px', color: '#666', fontStyle: 'italic', textAlign: 'right' }}>
+                          * 'Significant' means the result is likely not due to chance. The 95% CI shows the likely range of the true effect.
+                        </div>
+
                         {/* How DiD was calculated - Collapsible */}
                         {stats && overallAverage !== null && overallAverage !== undefined && (
                           <div style={{ marginTop: '24px' }}>
@@ -1027,13 +1093,13 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                                     <strong>Step 1:</strong> Calculate change in Treatment Group
                                   </p>
                                   <div style={{ marginLeft: '20px', marginBottom: '12px' }}>
-                                    Treatment Post - Treatment Pre = {formatNumber(stats.outcome_mean_treated_post, 2)} - {formatNumber(stats.outcome_mean_treated_pre, 2)} = <strong>{formatNumber(stats.outcome_mean_treated_post - stats.outcome_mean_treated_pre, 2)}</strong>
+                                    Treatment Post (Average outcome treatment group after) - Treatment Pre = {formatNumber(stats.outcome_mean_treated_post, 2)} - {formatNumber(stats.outcome_mean_treated_pre, 2)} = <strong>{formatNumber(stats.outcome_mean_treated_post - stats.outcome_mean_treated_pre, 2)}</strong>
                                   </div>
                                   <p style={{ margin: '0 0 8px 0' }}>
                                     <strong>Step 2:</strong> Calculate change in Control Group
                                   </p>
                                   <div style={{ marginLeft: '20px', marginBottom: '12px' }}>
-                                    Control Post - Control Pre = {formatNumber(stats.outcome_mean_control_post, 2)} - {formatNumber(stats.outcome_mean_control_pre, 2)} = <strong>{formatNumber(stats.outcome_mean_control_post - stats.outcome_mean_control_pre, 2)}</strong>
+                                    Control Post (Average outcome control group after) - Control Pre = {formatNumber(stats.outcome_mean_control_post, 2)} - {formatNumber(stats.outcome_mean_control_pre, 2)} = <strong>{formatNumber(stats.outcome_mean_control_post - stats.outcome_mean_control_pre, 2)}</strong>
                                   </div>
                                   <p style={{ margin: '0 0 8px 0' }}>
                                     <strong>Step 3:</strong> DiD Estimate = Treatment Change - Control Change
