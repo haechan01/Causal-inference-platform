@@ -70,8 +70,10 @@ def create_did_chart(df, outcome_var, time_var, treatment_start, start_period, e
             df_filtered['is_treated'] = df_filtered[unit_var].isin(treatment_units).astype(int)
             print(f"Chart: After unit filtering, rows: {len(df_filtered)}")
         else:
-            # Fallback to original logic if units not specified
-            df_filtered['is_treated'] = 0  # Default to control
+            # Fallback: if units not specified, assume 'is_treated' is already correctly set in df
+            # (it is set in run_did_analysis)
+            if 'is_treated' not in df_filtered.columns:
+                df_filtered['is_treated'] = 0  # Default to control if missing
         
         df_filtered['post_treatment'] = (df_filtered[time_var] >= treatment_start).astype(int)
         
@@ -242,8 +244,10 @@ def create_pretreatment_trends_chart(df, outcome_var, time_var, treatment_var,
             # Create treatment indicator based on selected units
             df_pre['is_treated'] = df_pre[unit_var].isin(treatment_units).astype(int)
         else:
-            # Fallback to treatment variable if units not specified
-            df_pre['is_treated'] = (df_pre[treatment_var] == treatment_value).astype(int)
+            # Fallback: if units not specified, use existing 'is_treated' from df if available
+            if 'is_treated' not in df_pre.columns:
+                # Only recalculate if missing (legacy support)
+                df_pre['is_treated'] = (df_pre[treatment_var] == treatment_value).astype(int)
         
         # Calculate means by group and time period
         time_series_data = df_pre.groupby([time_var, 'is_treated'])[outcome_var].mean().reset_index()
@@ -652,14 +656,22 @@ def run_did_analysis(dataset_id):
         print(f"  treatment_start: {treatment_start}")
         
         # Validate required parameters
+        # Validate required parameters
+        # unit_var is now REQUIRED again as per user request
         required_params = [
             outcome_var, treatment_var, treatment_value, 
-            time_var, treatment_start, start_period, end_period, unit_var,
-            treatment_units, control_units
+            time_var, treatment_start, start_period, end_period, unit_var
         ]
         if not all(required_params):
+            missing = [k for k, v in {
+                'outcome': outcome_var, 'treatment': treatment_var, 
+                'tr_value': treatment_value, 'time': time_var,
+                'tr_start': treatment_start, 'start': start_period, 'end': end_period,
+                'unit': unit_var
+            }.items() if not v]
+            print(f"Missing params: {missing}")
             return jsonify({
-                "error": "Missing required analysis parameters"
+                "error": f"Missing required analysis parameters: {', '.join(missing)}"
             }), 400
         
         # Download file from S3 to perform analysis
@@ -701,9 +713,40 @@ def run_did_analysis(dataset_id):
                 df['is_treated'] = df[unit_var].isin(treatment_units).astype(int)
                 print(f"Treatment assignment - treated units: {df['is_treated'].sum()}")
             else:
-                print("Using fallback treatment variable logic")
-                # Fallback to original treatment variable logic if units not specified
-                df['is_treated'] = (df[treatment_var] == treatment_value).astype(int)
+                print("Using fallback treatment variable logic (Auto-Group Creation)")
+                # Handle type matching for treatment comparison
+                tv_col = df[treatment_var]
+                matched_value = treatment_value
+                
+                if pd.api.types.is_numeric_dtype(tv_col):
+                    try:
+                        matched_value = float(treatment_value)
+                    except (ValueError, TypeError):
+                        pass # Keep as original data
+                elif pd.api.types.is_bool_dtype(tv_col):
+                    # Handle boolean conversion from string
+                    if isinstance(treatment_value, str):
+                        if treatment_value.lower() in ['true', '1', 'yes', 't']:
+                            matched_value = True
+                        elif treatment_value.lower() in ['false', '0', 'no', 'f']:
+                            matched_value = False
+                # For string/categorical columns, we use treatment_value directly as provided
+
+                
+                print(f"  Matching treatment var '{treatment_var}' with value '{matched_value}'")
+                
+                if unit_var:
+                    # Identify units that HAVE the treatment value (at any time)
+                    # This defines the "Treatment Group" vs "Control Group"
+                    # We assume standard DiD: units that are treated at some point belong to Treatment Group.
+                    treated_units_derived = df[df[treatment_var] == matched_value][unit_var].unique()
+                    print(f"  Identified {len(treated_units_derived)} treated units based on value match")
+                    
+                    # Create group indicator: 1 if unit is in derived treated list, 0 otherwise
+                    df['is_treated'] = df[unit_var].isin(treated_units_derived).astype(int)
+                else:
+                    # This should theoretically be unreachable due to validation check above, but for safety:
+                    return jsonify({"error": "Unit variable is required for auto-group assignment"}), 400
             
             # Convert treatment start to appropriate type
             if pd.api.types.is_numeric_dtype(df[time_var]):
@@ -830,10 +873,14 @@ def run_did_analysis(dataset_id):
                 }
             
             # Prepare data for analysis
+            # Prepare data for analysis
+            # Filter out empty strings/None (e.g. if unit_var is not provided)
             analysis_cols = [
                 outcome_var, 'is_treated', 'post_treatment', 
                 'did_interaction', unit_var, time_var
             ] + control_vars
+            analysis_cols = [col for col in analysis_cols if col]
+            
             analysis_data = df[analysis_cols].copy()
             analysis_data = analysis_data.dropna()
             
@@ -949,29 +996,31 @@ def run_did_analysis(dataset_id):
             # This accounts for correlation within units over time
             epsilon = 1e-10
             
-            # Calculate unit-level means for each group-period combination
-            unit_means = analysis_data.groupby([unit_var, 'is_treated', 'post_treatment'])[outcome_var].mean().reset_index()
-            
-            # Calculate DiD at unit level
-            treated_units_list = analysis_data[analysis_data['is_treated'] == 1][unit_var].unique()
-            control_units_list = analysis_data[analysis_data['is_treated'] == 0][unit_var].unique()
-            
-            # Calculate unit-level differences
             unit_diffs_treated = []
-            for unit in treated_units_list:
-                unit_data = unit_means[unit_means[unit_var] == unit]
-                pre = unit_data[unit_data['post_treatment'] == 0][outcome_var].values
-                post = unit_data[unit_data['post_treatment'] == 1][outcome_var].values
-                if len(pre) > 0 and len(post) > 0:
-                    unit_diffs_treated.append(post[0] - pre[0])
-            
             unit_diffs_control = []
-            for unit in control_units_list:
-                unit_data = unit_means[unit_means[unit_var] == unit]
-                pre = unit_data[unit_data['post_treatment'] == 0][outcome_var].values
-                post = unit_data[unit_data['post_treatment'] == 1][outcome_var].values
-                if len(pre) > 0 and len(post) > 0:
-                    unit_diffs_control.append(post[0] - pre[0])
+            
+            if unit_var:
+                # Calculate unit-level means for each group-period combination
+                unit_means = analysis_data.groupby([unit_var, 'is_treated', 'post_treatment'])[outcome_var].mean().reset_index()
+                
+                # Calculate DiD at unit level
+                treated_units_list = analysis_data[analysis_data['is_treated'] == 1][unit_var].unique()
+                control_units_list = analysis_data[analysis_data['is_treated'] == 0][unit_var].unique()
+                
+                # Calculate unit-level differences
+                for unit in treated_units_list:
+                    unit_data = unit_means[unit_means[unit_var] == unit]
+                    pre = unit_data[unit_data['post_treatment'] == 0][outcome_var].values
+                    post = unit_data[unit_data['post_treatment'] == 1][outcome_var].values
+                    if len(pre) > 0 and len(post) > 0:
+                        unit_diffs_treated.append(post[0] - pre[0])
+                
+                for unit in control_units_list:
+                    unit_data = unit_means[unit_means[unit_var] == unit]
+                    pre = unit_data[unit_data['post_treatment'] == 0][outcome_var].values
+                    post = unit_data[unit_data['post_treatment'] == 1][outcome_var].values
+                    if len(pre) > 0 and len(post) > 0:
+                        unit_diffs_control.append(post[0] - pre[0])
             
             # Calculate standard errors using unit-level variance
             if len(unit_diffs_treated) > 1 and len(unit_diffs_control) > 1:
