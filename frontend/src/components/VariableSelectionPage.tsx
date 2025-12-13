@@ -59,7 +59,7 @@ const VariableSelectionPage: React.FC = () => {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
-  const [recommendedQuestions, setRecommendedQuestions] = useState<string[]>([
+  const [recommendedQuestions] = useState<string[]>([
     "Which variables should I control given my treatment and outcome variables?",
     "What are common pitfalls when selecting control variables for DiD?",
     "How do I know if I have enough time periods for DiD?"

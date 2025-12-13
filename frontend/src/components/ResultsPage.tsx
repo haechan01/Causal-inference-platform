@@ -152,7 +152,6 @@ const InfoTooltip: React.FC<InfoTooltipProps> = ({ text }) => {
 };
 
 const ResultsPage: React.FC = () => {
-  const navigate = useNavigate();
   const location = useLocation();
   const { accessToken } = useAuth();
   const { currentStep, steps, goToPreviousStep, goToNextStep, navigateToStep } = useProgressStep();
@@ -168,6 +167,8 @@ const ResultsPage: React.FC = () => {
   const [showCheck1Details, setShowCheck1Details] = useState(false);
   const [showCheck2Details, setShowCheck2Details] = useState(false);
   const [showDidCalculationDetails, setShowDidCalculationDetails] = useState(false);
+  const [showOutcomeExplanation, setShowOutcomeExplanation] = useState(false);
+  const [showStatsExplanation, setShowStatsExplanation] = useState(false);
   const [aiSidebarWidth, setAiSidebarWidth] = useState(480); // Default width in pixels
   const [isResizing, setIsResizing] = useState(false);
   const [isAiSidebarCollapsed, setIsAiSidebarCollapsed] = useState(false);
@@ -178,7 +179,7 @@ const ResultsPage: React.FC = () => {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
-  const [recommendedQuestions, setRecommendedQuestions] = useState<string[]>([
+  const [recommendedQuestions] = useState<string[]>([
     "What is the parallel trends assumption?",
     "How do I interpret my DiD estimate?",
     "What are the limitations of this analysis?"
@@ -884,10 +885,164 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                           style={styles.realChart}
                         />
                       )}
-                      <div style={styles.chartNote}>
-                        The blue line represents the treatment group,
-                        the red line represents the control group, and the dashed line shows what would have happened
-                        to the treatment group without the intervention (counterfactual).
+
+                      {/* Foldable Helper Section for Reading the Chart */}
+                      <div style={{ marginTop: '24px', width: '100%' }}>
+                        <button
+                          onClick={() => setShowOutcomeExplanation(!showOutcomeExplanation)}
+                          style={{
+                            width: '100%',
+                            padding: '12px 16px',
+                            backgroundColor: '#f8f9fa',
+                            border: '1px solid #dee2e6',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            color: '#043873',
+                            transition: 'background-color 0.2s',
+                            boxSizing: 'border-box'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#e9ecef';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = '#f8f9fa';
+                          }}
+                        >
+                          <span>How to read this chart</span>
+                          <span>{showOutcomeExplanation ? '▲' : '▼'}</span>
+                        </button>
+
+                        {showOutcomeExplanation && (
+                          <div style={{
+                            marginTop: '0',
+                            padding: '24px',
+                            backgroundColor: '#ffffff',
+                            borderRadius: '0 0 8px 8px',
+                            border: '1px solid #dee2e6',
+                            borderTop: 'none',
+                            boxSizing: 'border-box',
+                            textAlign: 'left',
+                            fontSize: '15px',
+                            lineHeight: '1.7',
+                            color: '#1e293b' // Darker base color
+                          }}>
+                            <div style={{ marginBottom: '24px' }}>
+                              <h4 style={{ margin: '0 0 12px 0', color: '#0f172a', fontSize: '16px', fontWeight: '700' }}>
+                                Counterfactual (Dashed Line)
+                              </h4>
+                              <p style={{ margin: '0 0 12px 0' }}>
+                                The dashed line shows: <strong style={{ color: '#0f172a' }}>"What would have happened without the intervention?"</strong>
+                              </p>
+                              <p style={{ margin: '0 0 16px 0' }}>
+                                Think of it like a parallel universe where nothing changed. We estimate this by assuming both groups would have followed the same trend if there was no intervention.
+                              </p>
+
+                              <div style={{ marginBottom: '20px' }}>
+                                <strong style={{ color: '#334155', fontSize: '13px', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: '700' }}>
+                                  How we calculate it:
+                                </strong>
+                                <ol style={{ margin: '0 0 0 24px', padding: 0 }}>
+                                  <li style={{ marginBottom: '12px' }}>
+                                    <strong style={{ color: '#0f172a' }}>Calculate the Initial Gap:</strong>
+                                    <div style={{ fontSize: '14px', color: '#334155', marginTop: '4px' }}>
+                                      How different were the two groups before the treatment? (Treatment Pre - Control Pre)
+                                    </div>
+                                  </li>
+                                  <li>
+                                    <strong style={{ color: '#0f172a' }}>Add the Control Group's Current Outcome:</strong>
+                                    <div style={{ fontSize: '14px', color: '#334155', marginTop: '4px' }}>
+                                      We assume this initial gap would have stayed the same over time.
+                                    </div>
+                                  </li>
+                                </ol>
+                              </div>
+
+                              <div style={{
+                                marginTop: '16px',
+                                backgroundColor: '#f8fafc',
+                                padding: '24px',
+                                borderRadius: '8px',
+                                border: '1px solid #e2e8f0',
+                                boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.05)'
+                              }}>
+                                <strong style={{ color: '#334155', fontSize: '13px', display: 'block', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: '700' }}>
+                                  Formula breakdown
+                                </strong>
+                                <div style={{ fontFamily: "'Fira Code', 'Consolas', monospace", fontSize: '13px', color: '#334155', lineHeight: '1.8' }}>
+                                  <div style={{
+                                    marginTop: '0',
+                                    fontWeight: '600',
+                                    color: '#0f172a',
+                                    padding: '20px',
+                                    backgroundColor: '#e2e8f0',
+                                    borderRadius: '6px',
+                                    display: 'block',
+                                    border: '1px solid #cbd5e1',
+                                    marginBottom: '16px',
+                                    overflowX: 'auto'
+                                  }}>
+                                    <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: '8px' }}>
+                                      <span>Counterfactual</span>
+                                      <span>=</span>
+                                      <span style={{ color: '#0369a1' }}>(Treatment_Pre - Control_Pre)</span>
+                                      <span>+</span>
+                                      <span style={{ color: '#059669' }}>Control_Post</span>
+                                    </div>
+                                    <div style={{
+                                      fontSize: '11px',
+                                      fontWeight: 'normal',
+                                      marginTop: '8px',
+                                      color: '#475569',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      fontFamily: 'sans-serif'
+                                    }}>
+                                      {/* Spacer for Counterfactual = */}
+                                      <div style={{ width: '135px', flexShrink: 0 }}></div>
+                                      {/* Alignment for Initial Gap */}
+                                      <div style={{ width: '220px', textAlign: 'center', borderTop: '1px solid #94a3b8', marginTop: '-8px', paddingTop: '4px' }}>
+                                        Initial Gap
+                                      </div>
+                                      {/* Spacer for + */}
+                                      <div style={{ width: '25px', flexShrink: 0 }}></div>
+                                      {/* Alignment for Trend */}
+                                      <div style={{ width: '100px', textAlign: 'center', borderTop: '1px solid #94a3b8', marginTop: '-8px', paddingTop: '4px' }}>
+                                        Trend
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div style={{ fontSize: '14px', marginTop: '16px', lineHeight: '1.6' }}>
+                                    <strong style={{ color: '#0f172a' }}>Core Assumption:</strong> The counterfactual outcome for the treated group is that it would have maintained the same pre-treatment difference (<span style={{ color: '#0369a1', fontWeight: '600' }}>Initial Gap</span>) relative to the control group, even after the general time trend.
+                                  </div>
+                                </div>
+                              </div>
+
+                              <p style={{ marginTop: '20px', color: '#334155', fontStyle: 'italic', fontSize: '15px', borderLeft: '3px solid #cbd5e1', paddingLeft: '16px', marginLeft: '4px' }}>
+                                The gap between the actual treatment outcome (solid blue) and this counterfactual line (dashed) is the estimated effect of the intervention.
+                              </p>
+                            </div>
+
+                            <div>
+                              <h4 style={{ margin: '0 0 12px 0', color: '#0f172a', fontSize: '16px', fontWeight: '700' }}>
+                                Effect Size (Vertical Distance)
+                              </h4>
+                              <ul style={{ margin: '0 0 0 24px', padding: 0 }}>
+                                <li style={{ marginBottom: '8px' }}>
+                                  <strong style={{ color: '#2563eb' }}>Positive Effect:</strong> The solid blue line is higher than the dashed line.
+                                </li>
+                                <li>
+                                  <strong style={{ color: '#dc2626' }}>Negative Effect:</strong> The solid blue line is lower than the dashed line.
+                                </li>
+                              </ul>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1046,6 +1201,85 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
 
                         <div style={{ marginTop: '12px', fontSize: '13px', color: '#666', fontStyle: 'italic', textAlign: 'right' }}>
                           * 'Significant' means the result is likely not due to chance. The 95% CI shows the likely range of the true effect.
+                        </div>
+
+                        {/* Statistical Terms Explanation - New Section */}
+                        <div style={{ marginTop: '24px', marginBottom: '10px' }}>
+                          <button
+                            onClick={() => setShowStatsExplanation(!showStatsExplanation)}
+                            style={{
+                              width: '100%',
+                              padding: '12px 16px',
+                              backgroundColor: '#f8f9fa',
+                              border: '1px solid #dee2e6',
+                              borderRadius: '8px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              fontSize: '16px',
+                              fontWeight: '600',
+                              color: '#043873',
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = '#e9ecef';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = '#f8f9fa';
+                            }}
+                            type="button"
+                          >
+                            <span>How to read these statistics</span>
+                            <span>{showStatsExplanation ? '▲' : '▼'}</span>
+                          </button>
+
+                          {showStatsExplanation && (
+                            <div style={{
+                              marginTop: '0',
+                              padding: '24px',
+                              backgroundColor: '#ffffff',
+                              borderRadius: '0 0 8px 8px',
+                              border: '1px solid #dee2e6',
+                              borderTop: 'none',
+                              boxSizing: 'border-box',
+                              textAlign: 'left',
+                              fontSize: '15px',
+                              lineHeight: '1.7',
+                              color: '#1e293b'
+                            }}>
+                              <div style={{ marginBottom: '20px' }}>
+                                <h4 style={{ margin: '0 0 8px 0', color: '#0f172a', fontSize: '16px', fontWeight: '700' }}>
+                                  P-Value
+                                </h4>
+                                <p style={{ margin: 0, color: '#334155' }}>
+                                  The probability that the observed effect happened by random chance. A low p-value (typically <strong>&lt; 0.05</strong>) suggests the result is real and not just noise.
+                                </p>
+                              </div>
+
+                              <div style={{ marginBottom: '20px' }}>
+                                <h4 style={{ margin: '0 0 8px 0', color: '#0f172a', fontSize: '16px', fontWeight: '700' }}>
+                                  Statistical Significance
+                                </h4>
+                                <p style={{ margin: 0, color: '#334155' }}>
+                                  A result is "statistically significant" when the p-value is low enough (typically &lt; 0.05) to trust that the intervention had a real effect.
+                                </p>
+                              </div>
+
+                              <div>
+                                <h4 style={{ margin: '0 0 8px 0', color: '#0f172a', fontSize: '16px', fontWeight: '700' }}>
+                                  95% Confidence Interval (CI)
+                                </h4>
+                                <p style={{ margin: 0, color: '#334155' }}>
+                                  This range gives you an idea of the precision of the estimate. We are 95% confident that the true effect lies within this range.
+                                </p>
+                                <ul style={{ margin: '8px 0 0 24px', padding: 0, color: '#334155' }}>
+                                  <li>If the interval <strong>does not cross zero</strong> (e.g., 2.5 to 5.8), the result is statistically significant.</li>
+                                  <li>If it <strong>crosses zero</strong> (e.g., -1.2 to 3.4), we generally cannot claim a significant effect.</li>
+                                </ul>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* How DiD was calculated - Collapsible */}
