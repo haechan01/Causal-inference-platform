@@ -135,7 +135,7 @@ Respond with JSON only:
         """
         question_context = f"\nUser's causal question: {causal_question}" if causal_question else ""
         
-        prompt = f"""You are a causal inference expert helping a user set up their analysis.
+        prompt = f"""You are a causal inference expert helping a user set up their Difference-in-Differences (DiD) analysis.
 {question_context}
 
 Dataset columns:
@@ -143,25 +143,54 @@ Dataset columns:
 
 Based on the column names and types, suggest the best variables for each role.
 
+IMPORTANT GUIDANCE FOR DiD CONTROL VARIABLES:
+ℹ️ What DiD Already Handles:
+- Time-invariant differences between groups (geography, baseline characteristics) are absorbed by group fixed effects.
+- Common time shocks (macroeconomic fluctuations, seasonal patterns) are absorbed by time fixed effects.
+- DO NOT suggest controlling for these.
+
+⚠️ What Users Should Control:
+- Time-varying confounders that differentially affect treatment and control groups.
+- Variables that change over time differently across groups AND correlate with both treatment status and outcome.
+- Examples: regional economic indicators, concurrent policies, demographic shifts.
+
+🚫 Avoid "Bad Controls":
+- NEVER control for variables affected by the treatment itself (post-treatment outcomes).
+- Example: If studying a job training program's effect on wages, don't control for employment status if the program also affects employment.
+
+INSTRUCTIONS:
+1. Suggest the best variable for each role (Outcome, Treatment, Time, Unit).
+2. For Control Variables, specifically look for time-varying confounders based on the rules above.
+3. If NO suitable control variables are found, return an empty list or "None" with reasoning. DO NOT force suggested controls if none exist.
+4. Be humble: You are guessing based on column names/types. State your assumptions clearly.
+5. Provide 1-3 alternative choices for each role if applicable.
+6. Justify VALID selections based on data type.
+
 Respond with JSON only:
 {{
     "outcome_suggestions": [
-        {{"column": "name", "confidence": 0-1, "reasoning": "why this is a good outcome"}}
+        {{"column": "name", "confidence": 0-1, "reasoning": "reason", "assumptions": "assumptions"}}
     ],
     "treatment_suggestions": [
-        {{"column": "name", "confidence": 0-1, "reasoning": "why this indicates treatment"}}
+        {{"column": "name", "confidence": 0-1, "reasoning": "reason", "assumptions": "assumptions"}}
     ],
     "time_suggestions": [
-        {{"column": "name", "confidence": 0-1, "reasoning": "why this represents time"}}
+        {{"column": "name", "confidence": 0-1, "reasoning": "reason", "assumptions": "assumptions"}}
     ],
     "unit_suggestions": [
-        {{"column": "name", "confidence": 0-1, "reasoning": "why this identifies units"}}
+        {{"column": "name", "confidence": 0-1, "reasoning": "reason", "assumptions": "assumptions"}}
     ],
     "control_suggestions": [
-        {{"column": "name", "reasoning": "why this should be controlled for"}}
+        {{"column": "name", "reasoning": "reason", "assumptions": "assumptions"}}
     ],
-    "warnings": ["any concerns about variable selection"],
-    "explanation": "Brief explanation of your reasoning"
+    "alternative_options": {{
+        "outcome": ["alt1", "alt2"],
+        "treatment": ["alt1"],
+        "time": [],
+        "unit": []
+    }},
+    "warnings": ["potential bad controls or concerns"],
+    "explanation": "Brief explanation of your selections and any alternatives"
 }}"""
 
         response = self._call_gemini(prompt)
@@ -502,6 +531,20 @@ Guidelines:
 - DO NOT use markdown formatting like **bold** or *italic* - use plain text only
 - After your response, suggest 3 relevant follow-up questions the user might want to ask
 - IMPORTANT: The user has already received an AI interpretation of their results. Do not repeat information that has already been provided. Instead, provide nuanced, context-specific responses that build upon or clarify what they already know.
+
+IMPORTANT GUIDANCE FOR DiD ANALYSIS:
+ℹ️ What DiD Already Handles:
+- Time-invariant differences (geography, baseline characteristics) are absorbed by group fixed effects.
+- Common time shocks (macroeconomic fluctuations, seasonal patterns) are absorbed by time fixed effects.
+- DO NOT advise controlling for these.
+
+⚠️ What Users Should Control:
+- Time-varying confounders that differentially affect treatment and control groups.
+- Variables that change over time differently across groups AND correlate with both treatment status and outcome.
+
+🚫 Avoid "Bad Controls":
+- NEVER control for variables affected by the treatment itself.
+- Example: If studying a job training program's effect on wages, don't control for employment status.
 
 IMPORTANT: At the end of your response, include exactly 3 follow-up questions in this format:
 <FOLLOWUP_QUESTIONS>

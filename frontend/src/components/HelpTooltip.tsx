@@ -41,12 +41,18 @@ const STATIC_EXPLANATIONS: Record<string, {
     simple_explanation: 'Control variables are additional factors that might influence the outcome. Including them helps isolate the true effect of the treatment by accounting for other potential causes.',
     example: 'When studying the effect of education on income, you might control for age, work experience, and location, as these also affect income.',
     why_it_matters: 'Control variables improve the accuracy of your causal estimate by reducing omitted variable bias. They help ensure you\'re measuring the treatment effect, not the effect of other factors.'
+  },
+  'manual group assignment': {
+    title: 'Manual Group Assignment',
+    simple_explanation: 'This optional step allows you to manually specify which units belong to the treatment group and which belong to the control group. If skipped, the system will automatically assign groups based on your Treatment Variable and Value.',
+    example: 'If your data has a "State" column, you can manually select "California" and "New York" as treatment units, and "Texas" and "Florida" as control units.',
+    why_it_matters: 'Manual assignment gives you full control if the automatic logic doesn\'t perfectly match your study design, or if you want to exclude specific units from the analysis.'
   }
 };
 
 const HelpTooltip: React.FC<HelpTooltipProps> = ({ concept, children }) => {
   const [showHelp, setShowHelp] = useState(false);
-  
+
   // Get static explanation - no API call needed
   const explanation = STATIC_EXPLANATIONS[concept.toLowerCase()] || {
     title: concept,
@@ -56,7 +62,7 @@ const HelpTooltip: React.FC<HelpTooltipProps> = ({ concept, children }) => {
   return (
     <span style={styles.wrapper}>
       {children}
-      <button 
+      <button
         style={styles.helpButton}
         onClick={(e) => {
           e.stopPropagation();
@@ -66,14 +72,14 @@ const HelpTooltip: React.FC<HelpTooltipProps> = ({ concept, children }) => {
       >
         ?
       </button>
-      
+
       {showHelp && (
         <div style={styles.tooltip} onClick={(e) => e.stopPropagation()}>
           <div style={styles.tooltipHeader}>
             <h4 style={styles.tooltipTitle}>
               {explanation.title}
             </h4>
-            <button 
+            <button
               onClick={(e) => {
                 e.stopPropagation();
                 setShowHelp(false);
@@ -83,18 +89,18 @@ const HelpTooltip: React.FC<HelpTooltipProps> = ({ concept, children }) => {
               ×
             </button>
           </div>
-          
+
           <div style={styles.tooltipContent}>
             <p style={styles.simpleExplanation}>
               {explanation.simple_explanation}
             </p>
-            
+
             {explanation.example && (
               <div style={styles.example}>
                 <strong>Example:</strong> {explanation.example}
               </div>
             )}
-            
+
             {explanation.why_it_matters && (
               <div style={styles.whyMatters}>
                 <strong>Why it matters:</strong> {explanation.why_it_matters}

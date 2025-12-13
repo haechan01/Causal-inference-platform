@@ -122,24 +122,72 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
             <SuggestionCard
               title="Outcome Variable"
               suggestions={suggestions.outcome_suggestions}
+              alternatives={suggestions.alternative_options?.outcome}
               icon="📊"
             />
             <SuggestionCard
               title="Treatment Indicator"
               suggestions={suggestions.treatment_suggestions}
+              alternatives={suggestions.alternative_options?.treatment}
               icon="💊"
             />
             <SuggestionCard
               title="Time Variable"
               suggestions={suggestions.time_suggestions}
+              alternatives={suggestions.alternative_options?.time}
               icon="📅"
             />
             <SuggestionCard
               title="Unit Identifier"
               suggestions={suggestions.unit_suggestions}
+              alternatives={suggestions.alternative_options?.unit}
               icon="🏷️"
             />
           </div>
+
+          {/* New Control Variables Section */}
+          {suggestions.control_suggestions && suggestions.control_suggestions.length > 0 && (
+            <div style={styles.controlsSection}>
+              <div style={styles.sectionHeader}>
+                <span style={{ fontSize: '18px' }}>🎛️</span>
+                <h4 style={styles.sectionTitle}>Suggested Control Variables</h4>
+              </div>
+              <p style={styles.sectionDescription}>
+                These variables change over time and might differ between groups (time-varying confounders).
+              </p>
+              <div style={styles.controlsGrid}>
+                {suggestions.control_suggestions.map((ctrl: any, i: number) => (
+                  <div key={i} style={styles.controlCard}>
+                    <span style={styles.columnName}>{ctrl.column}</span>
+                    <p style={styles.reasoning}>{ctrl.reasoning}</p>
+                    {ctrl.assumptions && (
+                      <p style={styles.assumptionText}><em>Note: {ctrl.assumptions}</em></p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* New Alternatives Options Section - If not already shown in cards */}
+          {suggestions.alternative_options && Object.values(suggestions.alternative_options).some((v: any) => v && v.length > 0) && (
+            <div style={styles.alternativesSection}>
+              <div style={styles.sectionHeader}>
+                <span style={{ fontSize: '18px' }}>🔄</span>
+                <h4 style={styles.sectionTitle}>Alternative Options</h4>
+              </div>
+              <div style={styles.alternativesGrid}>
+                {Object.entries(suggestions.alternative_options).map(([role, opts]: [string, any]) =>
+                  opts && opts.length > 0 ? (
+                    <div key={role} style={styles.alternativeItem}>
+                      <strong>{role.charAt(0).toUpperCase() + role.slice(1)}:</strong> {opts.join(', ')}
+                    </div>
+                  ) : null
+                )}
+              </div>
+            </div>
+          )}
+
 
           {suggestions.warnings && suggestions.warnings.length > 0 && (
             <div style={styles.warnings}>
@@ -172,8 +220,9 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
 const SuggestionCard: React.FC<{
   title: string;
   suggestions: Suggestion[];
+  alternatives?: string[];
   icon: string;
-}> = ({ title, suggestions, icon }) => {
+}> = ({ title, suggestions, alternatives, icon }) => {
   if (!suggestions || suggestions.length === 0) return null;
 
   const top = suggestions[0];
@@ -198,6 +247,9 @@ const SuggestionCard: React.FC<{
         </div>
       </div>
       <p style={styles.reasoning}>{top.reasoning}</p>
+      {(top as any).assumptions && (
+        <p style={styles.assumptionText}><em>Assumption: {(top as any).assumptions}</em></p>
+      )}
     </div>
   );
 };
@@ -371,6 +423,60 @@ const styles = {
     padding: '12px 24px',
     fontSize: '14px',
     cursor: 'pointer'
+  },
+  controlsSection: {
+    marginTop: '20px',
+    backgroundColor: '#fff',
+    borderRadius: '8px',
+    padding: '15px'
+  },
+  sectionHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginBottom: '8px'
+  },
+  sectionTitle: {
+    margin: 0,
+    fontSize: '16px',
+    color: '#333'
+  },
+  sectionDescription: {
+    fontSize: '13px',
+    color: '#666',
+    marginBottom: '10px'
+  },
+  controlsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+    gap: '10px'
+  },
+  controlCard: {
+    border: '1px solid #e9ecef',
+    borderRadius: '6px',
+    padding: '10px',
+    backgroundColor: '#f8f9fa'
+  },
+  alternativesSection: {
+    marginTop: '20px',
+    backgroundColor: '#fff',
+    borderRadius: '8px',
+    padding: '15px'
+  },
+  alternativesGrid: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '8px'
+  },
+  alternativeItem: {
+    fontSize: '13px',
+    color: '#495057'
+  },
+  assumptionText: {
+    fontSize: '11px',
+    color: '#6c757d',
+    fontStyle: 'italic',
+    marginTop: '4px'
   }
 };
 
