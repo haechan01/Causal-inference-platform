@@ -59,7 +59,7 @@ const VariableSelectionPage: React.FC = () => {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
-  const [recommendedQuestions, setRecommendedQuestions] = useState<string[]>([
+  const [recommendedQuestions] = useState<string[]>([
     "Which variables should I control given my treatment and outcome variables?",
     "What are common pitfalls when selecting control variables for DiD?",
     "How do I know if I have enough time periods for DiD?"
@@ -208,14 +208,14 @@ const VariableSelectionPage: React.FC = () => {
       case 1: return !!selection.outcome;
       case 2: return !!selection.treatment && !!selection.treatment_value;
       case 3: return !!selection.time && !!selection.treatment_start && !!selection.start_period && !!selection.end_period;
-      case 4: return !!selection.unit;
-      case 5: return !!selection.treatment_units.length && !!selection.control_units.length;
+      case 4: return !!selection.unit; // Required: unit selection
+      case 5: return true; // Optional: manual group assignment
       case 6: return true; // Optional control variables card
       default: return false;
     }
   };
 
-  const canProceed = isCardComplete(1) && isCardComplete(2) && isCardComplete(3) && isCardComplete(4) && isCardComplete(5);
+  const canProceed = isCardComplete(1) && isCardComplete(2) && isCardComplete(3) && isCardComplete(4) && isCardComplete(5) && isCardComplete(6);
 
   // Resize handlers for AI sidebar
   useEffect(() => {
@@ -733,16 +733,16 @@ ALWAYS BE PRECISE: Use the exact variable names from the parameters, never subst
                 </div>
 
 
-                {/* Card 4: Select Treatment and Control Units */}
+                {/* Card 4: Select Unit Variable */}
                 <div style={styles.card}>
                   <div style={styles.cardHeader}>
                     <div style={styles.cardNumber}>4</div>
                     <div style={styles.cardTitle}>
                       <HelpTooltip concept="unit of analysis">
-                        Select Treatment and Control Groups
+                        Select Unit Variable
                       </HelpTooltip>
                     </div>
-                    <div style={styles.optionalBadge}>Optional</div>
+                    <div style={styles.requiredBadge}>Required</div>
                   </div>
                   <p style={styles.helperText}>
                     Which column identifies your individuals or groups? Select the column that uniquely identifies each unit being tracked over time.
@@ -759,132 +759,148 @@ ALWAYS BE PRECISE: Use the exact variable names from the parameters, never subst
                     placeholder="Search and select unit column..."
                     style={styles.select}
                   />
-                  <p style={styles.helperText}>
-                    Choose which specific {selection.unit} values should be in your treatment group and which should be in your control group.
-                  </p>
-
-                  {/* Get unique values for the unit variable */}
-                  {(() => {
-                    const unitVariable = variables.find(v => v.name === selection.unit);
-                    const unitValues = unitVariable?.unique_values || [];
-                    return (
-                      <div style={styles.unitSelectionContainer}>
-                        {/* Treatment Units */}
-                        <div style={styles.unitGroup}>
-                          <h4 style={styles.unitGroupTitle}>Treatment Group Units</h4>
-                          <p style={styles.unitGroupDescription}>
-                            Select which {selection.unit} values should receive the treatment:
-                          </p>
-                          <div style={styles.searchableDropdownContainer}>
-                            <SearchableDropdown
-                              options={unitValues.map(value => ({
-                                value: value,
-                                label: value
-                              }))}
-                              value=""
-                              onChange={(value) => {
-                                // Add the selected value to the treatment units if it's not already there
-                                if (value && !selection.treatment_units.includes(value)) {
-                                  setSelection(prev => ({
-                                    ...prev,
-                                    treatment_units: [...prev.treatment_units, value],
-                                    control_units: prev.control_units.filter(u => u !== value)
-                                  }));
-                                }
-                              }}
-                              placeholder="Search and select treatment units..."
-                              style={styles.select}
-                            />
-                            {/* Show selected treatment units */}
-                            {selection.treatment_units.length > 0 && (
-                              <div style={styles.selectedUnits}>
-                                <p style={styles.selectedUnitsLabel}>Selected Treatment Units:</p>
-                                <div style={styles.selectedUnitsList}>
-                                  {selection.treatment_units.map(unit => (
-                                    <span key={unit} style={styles.selectedUnitTag}>
-                                      {unit}
-                                      <button
-                                        type="button"
-                                        style={styles.removeUnitButton}
-                                        onClick={() => {
-                                          setSelection(prev => ({
-                                            ...prev,
-                                            treatment_units: prev.treatment_units.filter(u => u !== unit)
-                                          }));
-                                        }}
-                                      >
-                                        ×
-                                      </button>
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Control Units */}
-                        <div style={styles.unitGroup}>
-                          <h4 style={styles.unitGroupTitle}>Control Group Units</h4>
-                          <p style={styles.unitGroupDescription}>
-                            Select which {selection.unit} values should be in the control group:
-                          </p>
-                          <div style={styles.searchableDropdownContainer}>
-                            <SearchableDropdown
-                              options={unitValues.map(value => ({
-                                value: value,
-                                label: value
-                              }))}
-                              value=""
-                              onChange={(value) => {
-                                // Add the selected value to the control units if it's not already there
-                                if (value && !selection.control_units.includes(value)) {
-                                  setSelection(prev => ({
-                                    ...prev,
-                                    control_units: [...prev.control_units, value],
-                                    treatment_units: prev.treatment_units.filter(u => u !== value)
-                                  }));
-                                }
-                              }}
-                              placeholder="Search and select control units..."
-                              style={styles.select}
-                            />
-                            {/* Show selected control units */}
-                            {selection.control_units.length > 0 && (
-                              <div style={styles.selectedUnits}>
-                                <p style={styles.selectedUnitsLabel}>Selected Control Units:</p>
-                                <div style={styles.selectedUnitsList}>
-                                  {selection.control_units.map(unit => (
-                                    <span key={unit} style={styles.selectedUnitTag}>
-                                      {unit}
-                                      <button
-                                        type="button"
-                                        style={styles.removeUnitButton}
-                                        onClick={() => {
-                                          setSelection(prev => ({
-                                            ...prev,
-                                            control_units: prev.control_units.filter(u => u !== unit)
-                                          }));
-                                        }}
-                                      >
-                                        ×
-                                      </button>
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
                 </div>
 
-                {/* Card 5: Control Variables */}
+                {/* Card 5: Manual Treatment and Control Group Assignment */}
+                {selection.unit && (
+                  <div style={styles.card}>
+                    <div style={styles.cardHeader}>
+                      <div style={styles.cardNumber}>5</div>
+                      <div style={styles.cardTitle}>
+                        <HelpTooltip concept="manual group assignment">
+                          Manual Treatment and Control Group Assignment
+                        </HelpTooltip>
+                      </div>
+                      <div style={styles.optionalBadge}>Optional</div>
+                    </div>
+                    <p style={styles.helperText}>
+                      Choose which specific {selection.unit} values should be in your treatment group and which should be in your control group.
+                      If left empty, we will automatically assign groups based on your treatment variable.
+                    </p>
+
+                    {/* Get unique values for the unit variable */}
+                    {(() => {
+                      const unitVariable = variables.find(v => v.name === selection.unit);
+                      const unitValues = unitVariable?.unique_values || [];
+                      return (
+                        <div style={styles.unitSelectionContainer}>
+                          {/* Treatment Units */}
+                          <div style={styles.unitGroup}>
+                            <h4 style={styles.unitGroupTitle}>Treatment Group Units</h4>
+                            <p style={styles.unitGroupDescription}>
+                              Select which {selection.unit} values should receive the treatment:
+                            </p>
+                            <div style={styles.searchableDropdownContainer}>
+                              <SearchableDropdown
+                                options={unitValues.map(value => ({
+                                  value: value,
+                                  label: value
+                                }))}
+                                value=""
+                                onChange={(value) => {
+                                  // Add the selected value to the treatment units if it's not already there
+                                  if (value && !selection.treatment_units.includes(value)) {
+                                    setSelection(prev => ({
+                                      ...prev,
+                                      treatment_units: [...prev.treatment_units, value],
+                                      control_units: prev.control_units.filter(u => u !== value)
+                                    }));
+                                  }
+                                }}
+                                placeholder="Search and select treatment units..."
+                                style={styles.select}
+                              />
+                              {/* Show selected treatment units */}
+                              {selection.treatment_units.length > 0 && (
+                                <div style={styles.selectedUnits}>
+                                  <p style={styles.selectedUnitsLabel}>Selected Treatment Units:</p>
+                                  <div style={styles.selectedUnitsList}>
+                                    {selection.treatment_units.map(unit => (
+                                      <span key={unit} style={styles.selectedUnitTag}>
+                                        {unit}
+                                        <button
+                                          type="button"
+                                          style={styles.removeUnitButton}
+                                          onClick={() => {
+                                            setSelection(prev => ({
+                                              ...prev,
+                                              treatment_units: prev.treatment_units.filter(u => u !== unit)
+                                            }));
+                                          }}
+                                        >
+                                          ×
+                                        </button>
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Control Units */}
+                          <div style={styles.unitGroup}>
+                            <h4 style={styles.unitGroupTitle}>Control Group Units</h4>
+                            <p style={styles.unitGroupDescription}>
+                              Select which {selection.unit} values should be in the control group:
+                            </p>
+                            <div style={styles.searchableDropdownContainer}>
+                              <SearchableDropdown
+                                options={unitValues.map(value => ({
+                                  value: value,
+                                  label: value
+                                }))}
+                                value=""
+                                onChange={(value) => {
+                                  // Add the selected value to the control units if it's not already there
+                                  if (value && !selection.control_units.includes(value)) {
+                                    setSelection(prev => ({
+                                      ...prev,
+                                      control_units: [...prev.control_units, value],
+                                      treatment_units: prev.treatment_units.filter(u => u !== value)
+                                    }));
+                                  }
+                                }}
+                                placeholder="Search and select control units..."
+                                style={styles.select}
+                              />
+                              {/* Show selected control units */}
+                              {selection.control_units.length > 0 && (
+                                <div style={styles.selectedUnits}>
+                                  <p style={styles.selectedUnitsLabel}>Selected Control Units:</p>
+                                  <div style={styles.selectedUnitsList}>
+                                    {selection.control_units.map(unit => (
+                                      <span key={unit} style={styles.selectedUnitTag}>
+                                        {unit}
+                                        <button
+                                          type="button"
+                                          style={styles.removeUnitButton}
+                                          onClick={() => {
+                                            setSelection(prev => ({
+                                              ...prev,
+                                              control_units: prev.control_units.filter(u => u !== unit)
+                                            }));
+                                          }}
+                                        >
+                                          ×
+                                        </button>
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* Card 6: Control Variables */}
                 <div style={styles.card}>
                   <div style={styles.cardHeader}>
-                    <div style={styles.cardNumber}>5</div>
+                    <div style={styles.cardNumber}>6</div>
                     <div style={styles.cardTitle}>
                       <HelpTooltip concept="control variables">
                         Select Control Variables

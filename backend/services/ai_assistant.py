@@ -229,6 +229,7 @@ Data Structure Analysis:
 """
 
         prompt = f"""You are a DiD expert. Validate this analysis setup before it runs.
+Note: Empty treatment/control units lists are VALID. In that case, the system automatically assigns groups based on the treatment variable and value.
 
 Analysis Parameters:
 - Outcome variable: {parameters.get('outcome')}

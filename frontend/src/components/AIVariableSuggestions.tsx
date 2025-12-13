@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import axios from 'axios';
 
 interface Suggestion {
@@ -31,7 +31,7 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
   const fetchSuggestions = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const response = await axios.post('/ai/suggest-variables', {
         schema_info: schemaInfo,
@@ -49,9 +49,9 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
 
   const applyAllSuggestions = () => {
     if (!suggestions) return;
-    
+
     const applied: any = {};
-    
+
     if (suggestions.outcome_suggestions?.[0]) {
       applied.outcome = suggestions.outcome_suggestions[0].column;
     }
@@ -64,7 +64,7 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
     if (suggestions.unit_suggestions?.[0]) {
       applied.unit = suggestions.unit_suggestions[0].column;
     }
-    
+
     onApplySuggestions(applied);
   };
 
@@ -75,10 +75,10 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
           <span style={styles.aiIcon}>🤖</span>
           <h3 style={styles.title}>AI Variable Assistant</h3>
         </div>
-        
+
         {!suggestions && !loading && (
-          <button 
-            onClick={fetchSuggestions} 
+          <button
+            onClick={fetchSuggestions}
             style={styles.getHelpButton}
             onMouseEnter={(e) => {
               e.currentTarget.style.backgroundColor = '#4f46e5';
@@ -156,8 +156,8 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
             <button onClick={applyAllSuggestions} style={styles.applyButton}>
               Apply All Suggestions
             </button>
-            <button 
-              onClick={() => setExpanded(false)} 
+            <button
+              onClick={() => setExpanded(false)}
               style={styles.dismissButton}
             >
               Dismiss
@@ -175,9 +175,9 @@ const SuggestionCard: React.FC<{
   icon: string;
 }> = ({ title, suggestions, icon }) => {
   if (!suggestions || suggestions.length === 0) return null;
-  
+
   const top = suggestions[0];
-  
+
   return (
     <div style={styles.suggestionCard}>
       <div style={styles.cardHeader}>
@@ -187,12 +187,12 @@ const SuggestionCard: React.FC<{
       <div style={styles.topSuggestion}>
         <span style={styles.columnName}>{top.column}</span>
         <div style={styles.confidenceBar}>
-          <div 
+          <div
             style={{
               ...styles.confidenceFill,
               width: `${top.confidence * 100}%`,
-              backgroundColor: top.confidence > 0.7 ? '#28a745' : 
-                              top.confidence > 0.4 ? '#ffc107' : '#dc3545'
+              backgroundColor: top.confidence > 0.7 ? '#28a745' :
+                top.confidence > 0.4 ? '#ffc107' : '#dc3545'
             }}
           />
         </div>

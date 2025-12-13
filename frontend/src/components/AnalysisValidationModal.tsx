@@ -92,18 +92,18 @@ const AnalysisValidationModal: React.FC<Props> = ({
               <div style={{
                 ...styles.statusBanner,
                 backgroundColor: validation.proceed_recommendation === 'proceed' ? '#d4edda' :
-                                validation.proceed_recommendation === 'review' ? '#fff3cd' : '#f8d7da'
+                  validation.proceed_recommendation === 'review' ? '#fff3cd' : '#f8d7da'
               }}>
-                <span style={styles.statusIcon}>
+                <span style={{ fontSize: '24px', marginRight: '10px' }}>
                   {validation.proceed_recommendation === 'proceed' ? '✅' :
-                   validation.proceed_recommendation === 'review' ? '⚠️' : '🛑'}
+                    validation.proceed_recommendation === 'review' ? '' : '🛑'}
                 </span>
                 <span style={styles.statusText}>
-                  {validation.proceed_recommendation === 'proceed' 
-                    ? 'Your analysis setup looks good!' 
+                  {validation.proceed_recommendation === 'proceed'
+                    ? 'Your analysis setup looks good!'
                     : validation.proceed_recommendation === 'review'
-                    ? 'Please review the warnings below'
-                    : 'Critical issues need to be fixed'}
+                      ? 'Please review the warnings below'
+                      : 'Critical issues need to be fixed'}
                 </span>
               </div>
 
@@ -163,14 +163,14 @@ const AnalysisValidationModal: React.FC<Props> = ({
         </div>
 
         <div style={styles.footer}>
-          <button 
-            onClick={onCancel} 
+          <button
+            onClick={onCancel}
             style={styles.cancelButton}
             disabled={runningAnalysis}
           >
             Go Back & Edit
           </button>
-          <button 
+          <button
             onClick={handleRunClick}
             disabled={loading || runningAnalysis || validation?.proceed_recommendation === 'stop'}
             style={{
