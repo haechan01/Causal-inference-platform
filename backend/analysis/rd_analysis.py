@@ -25,6 +25,7 @@ from .rd_helpers import (
     triangular_kernel,
     validate_polynomial_order,
 )
+from .rd_bandwidth import imbens_kalyanaraman_bandwidth
 
 
 class RDEstimator:
@@ -51,11 +52,19 @@ class RDEstimator:
         """
         Calculate optimal bandwidth (default: Imbens-Kalyanaraman).
 
-        Phase 0: not implemented.
+        Returns:
+          {
+            "bandwidth": float,
+            "method": str,
+            "diagnostics": dict,
+            "warnings": list[str]
+          }
         """
-        raise NotImplementedError(
-            "Optimal bandwidth calculation will be implemented "
-            "in a subsequent PR."
+        return imbens_kalyanaraman_bandwidth(
+            data=self.data,
+            running_var=self.running_var,
+            outcome_var=self.outcome_var,
+            cutoff=self.cutoff,
         )
 
     def estimate(
@@ -221,8 +230,97 @@ class RDEstimator:
         """
         Sensitivity analysis over a bandwidth grid.
 
-        Phase 0: not implemented.
+        Bandwidth grid:
+          0.3*h_opt .. 2.5*h_opt  (n_bandwidths points)
+
+        For each bandwidth, runs estimate() and returns results suitable for plotting.
         """
-        raise NotImplementedError(
-            "RD sensitivity analysis will be implemented in a subsequent PR."
-        )
+        if n_bandwidths is None or int(n_bandwidths) < 5:
+            raise ValueError("n_bandwidths must be at least 5.")
+
+        opt = self.calculate_optimal_bandwidth()
+        h_opt = float(opt["bandwidth"])
+
+        hs = np.linspace(0.3 * h_opt, 2.5 * h_opt, int(n_bandwidths))
+
+        results: list[Dict[str, Any]] = []
+        effects: list[float] = []
+
+        for h in hs:
+            try:
+                est = self.estimate(bandwidth=float(h), polynomial_order=1)
+                results.append(
+                    {
+                        "bandwidth": float(h),
+                        "treatment_effect": est["treatment_effect"],
+                        "ci_lower": est["ci_lower"],
+                        "ci_upper": est["ci_upper"],
+                        "se": est["se"],
+                        "p_value": est["p_value"],
+                        "n_total": est["n_total"],
+                    }
+                )
+                effects.append(float(est["treatment_effect"]))
+            except Exception as e:
+                results.append(
+                    {
+                        "bandwidth": float(h),
+                        "treatment_effect": None,
+                        "ci_lower": None,
+                        "ci_upper": None,
+                        "se": None,
+                        "p_value": None,
+                        "n_total": None,
+                        "error": str(e),
+                    }
+                )
+
+        stability = _stability_from_effects(effects)
+
+        return {
+            "results": results,
+            "optimal_bandwidth": h_opt,
+            "stability_coefficient": stability["cv"],
+            "interpretation": stability["interpretation"],
+            "bandwidth_method": opt.get("method"),
+            "bandwidth_warnings": opt.get("warnings", []),
+        }
+
+
+def _stability_from_effects(effects: list[float]) -> Dict[str, Any]:
+    """
+    Compute coefficient of variation (CV) and a plain-English stability label.
+    """
+    if len(effects) < 3:
+        return {
+            "cv": None,
+            "interpretation": {
+                "stability": "unknown",
+                "message": "Not enough successful bandwidth fits to assess stability.",
+            },
+        }
+
+    arr = np.asarray(effects, dtype=float)
+    mean = float(np.mean(arr))
+    std = float(np.std(arr, ddof=1)) if arr.size > 1 else 0.0
+
+    denom = abs(mean) if abs(mean) > 1e-8 else 1e-8
+    cv = float(std / denom)
+
+    if cv < 0.30:
+        stability = "very stable"
+        msg = "Your estimated effect is very consistent across bandwidth choices."
+    elif cv < 0.60:
+        stability = "moderately stable"
+        msg = "Your estimated effect changes somewhat as bandwidth changes."
+    else:
+        stability = "unstable"
+        msg = "Your estimated effect changes a lot across bandwidths; interpret with caution."
+
+    return {
+        "cv": cv,
+        "interpretation": {
+            "stability": stability,
+            "message": msg,
+        },
+    }

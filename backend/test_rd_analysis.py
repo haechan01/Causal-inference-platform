@@ -52,6 +52,28 @@ class TestRDEstimator(unittest.TestCase):
         with self.assertRaises(ValueError):
             rd.estimate(bandwidth=0.5, polynomial_order=1)
 
+    def test_optimal_bandwidth_and_sensitivity(self):
+        rng = np.random.default_rng(1)
+        n = 600
+        cutoff = 0.0
+
+        x = rng.uniform(-10, 10, size=n)
+        y = 0.2 * x + 1.5 * (x >= cutoff).astype(float) + rng.normal(0, 1.0, size=n)
+
+        df = pd.DataFrame({"x": x, "y": y})
+        rd = RDEstimator(df, running_var="x", outcome_var="y", cutoff=cutoff)
+
+        bw = rd.calculate_optimal_bandwidth()
+        self.assertIn("bandwidth", bw)
+        self.assertGreater(bw["bandwidth"], 0)
+
+        sens = rd.sensitivity_analysis(n_bandwidths=10)
+        self.assertIn("results", sens)
+        self.assertEqual(len(sens["results"]), 10)
+        self.assertIn("optimal_bandwidth", sens)
+        self.assertIn("stability_coefficient", sens)
+        self.assertIn("interpretation", sens)
+
 
 if __name__ == "__main__":
     unittest.main()
