@@ -2,7 +2,8 @@
 Bandwidth selection for Regression Discontinuity (RD).
 
 Planned:
-- Imbens-Kalyanaraman (2012) MSE-optimal bandwidth for sharp RD with triangular kernel.
+- Imbens-Kalyanaraman (2012) MSE-optimal bandwidth for sharp RD with triangular
+  kernel.
 """
 
 from __future__ import annotations
@@ -43,16 +44,22 @@ def imbens_kalyanaraman_bandwidth(
       }
     """
     if running_var not in data.columns:
-        raise ValueError(f"running_var '{running_var}' not found in dataset columns.")
+        raise ValueError(
+            f"running_var '{running_var}' not found in dataset columns."
+        )
     if outcome_var not in data.columns:
-        raise ValueError(f"outcome_var '{outcome_var}' not found in dataset columns.")
+        raise ValueError(
+            f"outcome_var '{outcome_var}' not found in dataset columns."
+        )
 
     df = data[[running_var, outcome_var]].copy()
     df[running_var] = pd.to_numeric(df[running_var], errors="coerce")
     df[outcome_var] = pd.to_numeric(df[outcome_var], errors="coerce")
     df = df.dropna(subset=[running_var, outcome_var])
     if df.empty:
-        raise ValueError("No valid numeric rows found for running/outcome variables.")
+        raise ValueError(
+            "No valid numeric rows found for running/outcome variables."
+        )
 
     cutoff = float(cutoff)
     df["X_centered"] = df[running_var] - cutoff
@@ -62,7 +69,8 @@ def imbens_kalyanaraman_bandwidth(
     if n_total < 40:
         # Estimating curvature reliably is hard with very small samples.
         raise ValueError(
-            "Not enough data to auto-calculate bandwidth reliably (need at least 40 rows). "
+            "Not enough data to auto-calculate bandwidth reliably "
+            "(need at least 40 rows). "
             "Please specify bandwidth manually."
         )
 
@@ -72,7 +80,9 @@ def imbens_kalyanaraman_bandwidth(
     x_sd = float(np.std(x, ddof=1)) if n_total > 1 else 0.0
     x_range = compute_running_var_range(df[running_var])
     if x_sd <= 0 or not np.isfinite(x_sd):
-        raise ValueError("Running variable has zero variation; cannot compute bandwidth.")
+        raise ValueError(
+            "Running variable has zero variation; cannot compute bandwidth."
+        )
 
     # Pilot bandwidth: rule-of-thumb scaling for local polynomial smoothing.
     # n^{-1/5} is standard for local linear; constant chosen for practicality.
@@ -100,11 +110,13 @@ def imbens_kalyanaraman_bandwidth(
     warnings: list[str] = []
     if n_plus < 20 or n_minus < 20:
         warnings.append(
-            "Pilot bandwidth leaves fewer than 20 observations on one side of the cutoff; "
+            "Pilot bandwidth leaves fewer than 20 observations on one side "
+            "of the cutoff; "
             "auto bandwidth may be unstable."
         )
 
-    # Curvature term (second derivative at 0). Use average magnitude across sides.
+    # Curvature term (second derivative at 0). Use average magnitude across
+    # sides.
     m2 = float((m2_plus + m2_minus) / 2.0)
     m2_abs = abs(m2)
 
@@ -162,7 +174,8 @@ def _estimate_curvature_and_variance(
     bandwidth: float,
 ) -> Tuple[float, float, int]:
     """
-    Estimate curvature (second derivative at 0) and residual variance on one side.
+    Estimate curvature (second derivative at 0) and residual variance on one
+    side.
 
     We fit a weighted quadratic:
       y ~ 1 + x + x^2
@@ -198,5 +211,3 @@ def _estimate_curvature_and_variance(
     var = float(np.sum(resid**2) / dof)
 
     return m2, var, n
-
-

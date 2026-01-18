@@ -233,7 +233,8 @@ class RDEstimator:
         Bandwidth grid:
           0.3*h_opt .. 2.5*h_opt  (n_bandwidths points)
 
-        For each bandwidth, runs estimate() and returns results suitable for plotting.
+        For each bandwidth, runs estimate() and returns results suitable for
+        plotting.
         """
         if n_bandwidths is None or int(n_bandwidths) < 5:
             raise ValueError("n_bandwidths must be at least 5.")
@@ -296,7 +297,9 @@ def _stability_from_effects(effects: list[float]) -> Dict[str, Any]:
             "cv": None,
             "interpretation": {
                 "stability": "unknown",
-                "message": "Not enough successful bandwidth fits to assess stability.",
+                "message": (
+                    "Not enough successful bandwidth fits to assess stability."
+                ),
             },
         }
 
@@ -309,13 +312,19 @@ def _stability_from_effects(effects: list[float]) -> Dict[str, Any]:
 
     if cv < 0.30:
         stability = "very stable"
-        msg = "Your estimated effect is very consistent across bandwidth choices."
+        msg = (
+            "Your estimated effect is very consistent "
+            "across bandwidth choices."
+        )
     elif cv < 0.60:
         stability = "moderately stable"
         msg = "Your estimated effect changes somewhat as bandwidth changes."
     else:
         stability = "unstable"
-        msg = "Your estimated effect changes a lot across bandwidths; interpret with caution."
+        msg = (
+            "Your estimated effect changes a lot across bandwidths; "
+            "interpret with caution."
+        )
 
     return {
         "cv": cv,
