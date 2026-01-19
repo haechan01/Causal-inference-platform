@@ -115,10 +115,14 @@ def imbens_kalyanaraman_bandwidth(
             "auto bandwidth may be unstable."
         )
 
-    # Curvature term (second derivative at 0). Use average magnitude across
-    # sides.
-    m2 = float((m2_plus + m2_minus) / 2.0)
-    m2_abs = abs(m2)
+    # Curvature term (second derivative at 0). Use **average magnitude** across
+    # sides (average of absolute curvatures), not the magnitude of the average.
+    #
+    # Why: if curvatures have opposite signs, averaging first can cancel out,
+    # spuriously suggesting "near-zero curvature" and triggering an
+    # inappropriate pilot-bandwidth fallback.
+    m2_avg = float((m2_plus + m2_minus) / 2.0)
+    m2_abs = float((abs(m2_plus) + abs(m2_minus)) / 2.0)
 
     # Triangular kernel constant per spec.
     c_k = 3.4375
@@ -156,6 +160,8 @@ def imbens_kalyanaraman_bandwidth(
             "n_minus": n_minus,
             "m2_plus": m2_plus,
             "m2_minus": m2_minus,
+            "m2_avg": m2_avg,
+            "m2_abs": m2_abs,
             "var_plus": var_plus,
             "var_minus": var_minus,
             "x_sd": x_sd,

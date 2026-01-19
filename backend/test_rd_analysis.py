@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from analysis.rd_analysis import RDEstimator
+from analysis.rd_bandwidth import imbens_kalyanaraman_bandwidth
 
 
 class TestRDEstimator(unittest.TestCase):
@@ -93,6 +94,36 @@ class TestRDEstimator(unittest.TestCase):
         self.assertIn("optimal_bandwidth", sens)
         self.assertIn("stability_coefficient", sens)
         self.assertIn("interpretation", sens)
+
+    def test_ik_curvature_uses_average_magnitude(self):
+        """
+        Regression test:
+        If curvature has opposite signs across the cutoff, using abs(mean(m2))
+        can incorrectly cancel toward zero. We require mean(abs(m2)) instead.
+        """
+        # Dense symmetric grid to make weighted quadratic fits exact.
+        x = np.linspace(-10.0, 10.0, 401)
+        # Opposite curvature: y''(0-) = +2, y''(0+) = -2
+        y = np.where(x >= 0.0, -(x**2), x**2)
+
+        df = pd.DataFrame({"x": x, "y": y})
+        bw = imbens_kalyanaraman_bandwidth(
+            data=df,
+            running_var="x",
+            outcome_var="y",
+            cutoff=0.0,
+        )
+
+        diag = bw["diagnostics"]
+
+        # Average curvature cancels; average magnitude should not.
+        self.assertAlmostEqual(float(diag["m2_avg"]), 0.0, delta=1e-8)
+        self.assertGreater(float(diag["m2_abs"]), 1.0)
+
+        expected = (
+            abs(float(diag["m2_plus"])) + abs(float(diag["m2_minus"]))
+        ) / 2.0
+        self.assertAlmostEqual(float(diag["m2_abs"]), expected, delta=1e-12)
 
 
 if __name__ == "__main__":
