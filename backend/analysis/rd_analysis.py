@@ -281,7 +281,10 @@ class RDEstimator:
         return {
             "results": results,
             "optimal_bandwidth": h_opt,
-            "stability_coefficient": stability["cv"],
+            "stability_coefficient": stability["cv"],  # Deprecated, kept for API compatibility
+            "stability_std": stability["std"],
+            "stability_range": stability["range"],
+            "stability_mean": stability["mean"],
             "interpretation": stability["interpretation"],
             "bandwidth_method": opt.get("method"),
             "bandwidth_warnings": opt.get("warnings", []),
@@ -290,11 +293,27 @@ class RDEstimator:
 
 def _stability_from_effects(effects: list[float]) -> Dict[str, Any]:
     """
-    Compute coefficient of variation (CV) and a plain-English stability label.
+    Assess stability of treatment effects across bandwidth choices.
+
+    Uses standard deviation and range-based metrics rather than coefficient
+    of variation (CV), since CV is inappropriate for quantities that can be
+    zero or negative.
+
+    Returns:
+      {
+        "cv": None,  # Deprecated, kept for backward compatibility
+        "std": float,
+        "range": float,
+        "mean": float,
+        "interpretation": {...}
+      }
     """
     if len(effects) < 3:
         return {
             "cv": None,
+            "std": None,
+            "range": None,
+            "mean": None,
             "interpretation": {
                 "stability": "unknown",
                 "message": (
@@ -306,28 +325,70 @@ def _stability_from_effects(effects: list[float]) -> Dict[str, Any]:
     arr = np.asarray(effects, dtype=float)
     mean = float(np.mean(arr))
     std = float(np.std(arr, ddof=1)) if arr.size > 1 else 0.0
+    effect_range = float(np.max(arr) - np.min(arr))
 
-    denom = abs(mean) if abs(mean) > 1e-8 else 1e-8
-    cv = float(std / denom)
+    # Assess stability based on absolute variability:
+    # - For near-zero effects, use standard deviation alone
+    # - For larger effects, use range relative to mean magnitude
 
-    if cv < 0.30:
-        stability = "very stable"
-        msg = (
-            "Your estimated effect is very consistent "
-            "across bandwidth choices."
-        )
-    elif cv < 0.60:
-        stability = "moderately stable"
-        msg = "Your estimated effect changes somewhat as bandwidth changes."
+    abs_mean = abs(mean)
+
+    # If mean effect is very small (< 0.1), assess based on std alone
+    if abs_mean < 0.1:
+        if std < 0.05:
+            stability = "very stable"
+            msg = (
+                f"Your estimated effect is consistently near zero "
+                f"(std = {std:.3f}), showing strong stability across "
+                f"bandwidth choices."
+            )
+        elif std < 0.15:
+            stability = "moderately stable"
+            msg = (
+                f"Your estimated effect is near zero with modest variation "
+                f"(std = {std:.3f}) across bandwidth choices."
+            )
+        else:
+            stability = "unstable"
+            msg = (
+                f"Your estimated effect shows substantial variation "
+                f"(std = {std:.3f}) across bandwidth choices; "
+                f"interpret with caution."
+            )
     else:
-        stability = "unstable"
-        msg = (
-            "Your estimated effect changes a lot across bandwidths; "
-            "interpret with caution."
+        # For non-trivial effects, use range relative to mean magnitude
+        relative_range = (
+            effect_range / abs_mean if abs_mean > 0 else float("inf")
         )
+
+        if relative_range < 0.30:
+            stability = "very stable"
+            msg = (
+                f"Your estimated effect (mean = {mean:.3f}) is very "
+                f"consistent across bandwidth choices "
+                f"(range/|mean| = {relative_range:.2f})."
+            )
+        elif relative_range < 0.60:
+            stability = "moderately stable"
+            msg = (
+                f"Your estimated effect (mean = {mean:.3f}) changes "
+                f"somewhat as bandwidth changes "
+                f"(range/|mean| = {relative_range:.2f})."
+            )
+        else:
+            stability = "unstable"
+            msg = (
+                f"Your estimated effect (mean = {mean:.3f}) changes "
+                f"substantially across bandwidths "
+                f"(range/|mean| = {relative_range:.2f}); "
+                f"interpret with caution."
+            )
 
     return {
-        "cv": cv,
+        "cv": None,  # Deprecated: CV is not appropriate for treatment effects
+        "std": std,
+        "range": effect_range,
+        "mean": mean,
         "interpretation": {
             "stability": stability,
             "message": msg,

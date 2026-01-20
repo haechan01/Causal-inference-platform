@@ -97,9 +97,26 @@ const MethodSelectionPage: React.FC = () => {
             navigate('/variable-selection', { 
                 state: { projectId, datasetId } 
             });
+        } else if (selectedMethod === 'rdd') {
+            // Save state before navigating to RD setup
+            if (projectId && accessToken) {
+                try {
+                    await projectStateService.saveState(projectId, {
+                        currentStep: 'rd-setup',
+                        selectedMethod: selectedMethod
+                    }, accessToken);
+                } catch (error) {
+                    console.error('Failed to save state:', error);
+                }
+            }
+            
+            // Navigate to RD setup with project ID
+            navigate('/rd-setup', {
+                state: { projectId, datasetId }
+            });
         } else {
-            // For other methods, go to analysis (or show coming soon)
-            alert("This method is coming soon! Please select Difference-in-Differences for now.");
+            // For other methods, show coming soon
+            alert("This method is coming soon! Please select Difference-in-Differences or Regression Discontinuity for now.");
         }
     };
 
@@ -179,12 +196,11 @@ const MethodSelectionPage: React.FC = () => {
                         <div 
                             style={{
                                 ...styles.methodCard,
-                                ...styles.methodCardDisabled,
                                 ...(selectedMethod === 'rdd' ? styles.selectedCard : {})
                             }}
                             onClick={() => handleMethodSelect('rdd')}
                         >
-                            <div style={styles.comingSoonBadge}>Coming Soon</div>
+                            <div style={styles.statusBadge}>Available</div>
                             <div style={styles.cardContent}>
                                 <div style={styles.icon}>✂️</div>
                                 <h3 style={styles.cardTitle}>Regression Discontinuity</h3>
@@ -639,7 +655,7 @@ const MethodSelectionPage: React.FC = () => {
                 steps={steps}
                 onPrev={goToPreviousStep}
                 onNext={handleNext}
-                canGoNext={selectedMethod === 'did'} // Only allow next if DiD is selected (others are coming soon)
+                canGoNext={selectedMethod === 'did' || selectedMethod === 'rdd'} // Allow next for DiD and RDD
                 onStepClick={(path) => navigate(path, { state: { projectId, datasetId } })}
             />
         </div>

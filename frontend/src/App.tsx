@@ -10,6 +10,8 @@ import MethodSelectionPage from './components/MethodSelectionPage';
 import VariableSelectionPage from './components/VariableSelectionPage';
 import DataPreviewPage from './components/DataPreviewPage';
 import ResultsPage from './components/ResultsPage';
+import RDSetup from './components/RDSetup';
+import RDResults from './components/RDResults';
 
 // Main app content component that uses auth context
 const AppContent: React.FC = () => {
@@ -60,6 +62,14 @@ const AppContent: React.FC = () => {
       <Route 
         path="/results" 
         element={isAuthenticated ? <ResultsPage /> : <Navigate to="/login" />} 
+      />
+      <Route 
+        path="/rd-setup" 
+        element={isAuthenticated ? <RDSetup /> : <Navigate to="/login" />} 
+      />
+      <Route 
+        path="/rd-results" 
+        element={isAuthenticated ? <RDResults /> : <Navigate to="/login" />} 
       />
       
       {/* Catch all route */}
