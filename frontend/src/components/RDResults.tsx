@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Navbar from './Navbar';
+import RDSensitivityPlot from './RDSensitivityPlot';
+import RDScatterPlot from './RDScatterPlot';
 
 const RDResults: React.FC = () => {
   const location = useLocation();
@@ -172,6 +174,25 @@ const RDResults: React.FC = () => {
               </ul>
             </div>
           ) : null}
+
+          {/* RD Scatter Plot Visualization */}
+          <RDScatterPlot
+            datasetId={results.dataset_id}
+            runningVar={parameters.running_var}
+            outcomeVar={parameters.outcome_var}
+            cutoff={parameters.cutoff}
+            bandwidth={res.bandwidth_used}
+            polynomialOrder={res.polynomial_order}
+          />
+
+          {/* Sensitivity Analysis Visualization */}
+          <RDSensitivityPlot
+            datasetId={results.dataset_id}
+            runningVar={parameters.running_var}
+            outcomeVar={parameters.outcome_var}
+            cutoff={parameters.cutoff}
+            optimalBandwidth={bandwidth_info.optimal_bandwidth}
+          />
 
           {/* Action Buttons */}
           <div style={styles.actionButtons}>

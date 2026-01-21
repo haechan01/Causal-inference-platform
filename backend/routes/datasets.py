@@ -581,8 +581,11 @@ def get_dataset_preview(dataset_id):
                 'missing_percentage': missing_percentage
             }
             
-            # Preview rows (first 100)
-            preview_rows = df.head(100).fillna('').to_dict('records')
+            # Preview rows (default 100, configurable via query param)
+            limit = request.args.get('limit', default=100, type=int)
+            # Cap at 10000 to prevent performance issues
+            limit = min(limit, 10000)
+            preview_rows = df.head(limit).fillna('').to_dict('records')
             
             # Use sanitize_for_json to handle any remaining NaNs or Infs
             response = {
