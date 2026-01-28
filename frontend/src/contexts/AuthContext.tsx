@@ -87,9 +87,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           
           try {
             await refreshAccessToken();
-            // Retry the original request with new token
-            originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-            return axios(originalRequest);
+            // Get the fresh token from localStorage (not the stale closure variable)
+            const freshToken = localStorage.getItem('accessToken');
+            if (freshToken) {
+              originalRequest.headers.Authorization = `Bearer ${freshToken}`;
+              return axios(originalRequest);
+            } else {
+              throw new Error('No fresh token available');
+            }
           } catch (refreshError) {
             // Refresh failed, logout user
             logout();
