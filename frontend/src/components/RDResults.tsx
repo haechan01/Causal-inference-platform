@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Navbar from './Navbar';
+import BottomProgressBar from './BottomProgressBar';
+import { useProgressStep } from '../hooks/useProgressStep';
 import RDSensitivityPlot from './RDSensitivityPlot';
 import RDScatterPlot from './RDScatterPlot';
 
 const RDResults: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { currentStep, steps, goToPreviousStep, goToNextStep, navigateToStep } = useProgressStep();
   const [results, setResults] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -157,7 +160,7 @@ const RDResults: React.FC = () => {
 
           {/* Warnings */}
           {(res.warnings && res.warnings.length > 0) ||
-          (bandwidth_info.bandwidth_warnings && bandwidth_info.bandwidth_warnings.length > 0) ? (
+            (bandwidth_info.bandwidth_warnings && bandwidth_info.bandwidth_warnings.length > 0) ? (
             <div style={styles.warningCard}>
               <h3 style={styles.warningTitle}>⚠️ Warnings</h3>
               <ul style={styles.warningList}>
@@ -194,23 +197,16 @@ const RDResults: React.FC = () => {
             optimalBandwidth={bandwidth_info.optimal_bandwidth}
           />
 
-          {/* Action Buttons */}
-          <div style={styles.actionButtons}>
-            <button
-              style={styles.secondaryButton}
-              onClick={() => navigate('/rd-setup', { state: location.state })}
-            >
-              Run New Analysis
-            </button>
-            <button
-              style={styles.primaryButton}
-              onClick={() => navigate('/projects')}
-            >
-              Back to Projects
-            </button>
-          </div>
         </div>
       </div>
+      <BottomProgressBar
+        currentStep={currentStep}
+        steps={steps}
+        onPrev={goToPreviousStep}
+        onNext={goToNextStep}
+        canGoNext={false}
+        onStepClick={(stepPath) => navigateToStep(stepPath)}
+      />
     </div>
   );
 };
@@ -220,6 +216,7 @@ export default RDResults;
 const styles = {
   container: {
     paddingTop: '70px',
+    paddingBottom: '100px',
     minHeight: '100vh',
     backgroundColor: '#f5f5f5',
   },
@@ -427,32 +424,6 @@ const styles = {
     paddingLeft: '20px',
     color: '#856404',
     lineHeight: '1.6',
-  },
-  actionButtons: {
-    display: 'flex',
-    gap: '15px',
-    justifyContent: 'center',
-    marginTop: '30px',
-  },
-  primaryButton: {
-    backgroundColor: '#043873',
-    color: 'white',
-    border: 'none',
-    borderRadius: '8px',
-    padding: '14px 30px',
-    fontSize: '16px',
-    fontWeight: '600',
-    cursor: 'pointer',
-  },
-  secondaryButton: {
-    backgroundColor: 'white',
-    color: '#043873',
-    border: '2px solid #043873',
-    borderRadius: '8px',
-    padding: '14px 30px',
-    fontSize: '16px',
-    fontWeight: '600',
-    cursor: 'pointer',
   },
 };
 
