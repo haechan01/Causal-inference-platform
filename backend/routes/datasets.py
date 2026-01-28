@@ -1538,6 +1538,9 @@ def run_rd_sensitivity_analysis(dataset_id):
                 'results': result['results'],
                 'optimal_bandwidth': result['optimal_bandwidth'],
                 'stability_coefficient': result['stability_coefficient'],
+                'stability_std': result.get('stability_std'),
+                'stability_range': result.get('stability_range'),
+                'stability_mean': result.get('stability_mean'),
                 'interpretation': result['interpretation'],
                 'bandwidth_method': result.get('bandwidth_method'),
                 'bandwidth_warnings': result.get('bandwidth_warnings', [])

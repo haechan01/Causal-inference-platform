@@ -45,6 +45,8 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<SensitivityResult[]>([]);
   const [stabilityCoefficient, setStabilityCoefficient] = useState<number | null>(null);
+  const [stabilityStd, setStabilityStd] = useState<number | null>(null);
+  const [stabilityRange, setStabilityRange] = useState<number | null>(null);
   const [interpretation, setInterpretation] = useState<any>(null);
 
   useEffect(() => {
@@ -73,6 +75,8 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
         );
         setData(validResults);
         setStabilityCoefficient(response.data.stability_coefficient);
+        setStabilityStd(response.data.stability_std);
+        setStabilityRange(response.data.stability_range);
         setInterpretation(response.data.interpretation);
       } catch (err: any) {
         console.error('Error fetching sensitivity analysis:', err);
@@ -123,7 +127,7 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length > 0) {
       const point = payload[0].payload;
-      
+
       // Handle cases where some values might be undefined
       const bandwidth = point.bandwidth ?? 0;
       const effect = point.treatment_effect ?? 0;
@@ -131,7 +135,7 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
       const ciUpper = point.ci_upper ?? 0;
       const pValue = point.p_value ?? 0;
       const nTotal = point.n_total ?? 0;
-      
+
       return (
         <div style={styles.tooltipContainer}>
           <p style={styles.tooltipTitle}>Bandwidth: {bandwidth.toFixed(3)}</p>
@@ -183,19 +187,32 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
       </div>
 
       {/* Stability Metrics */}
-      {stabilityCoefficient !== null && interpretation && (
+      {interpretation && (
         <div style={styles.stabilityCard}>
           <div style={styles.stabilityHeader}>
-            <div>
-              <span style={styles.stabilityLabel}>Stability Coefficient (CV):</span>
-              <span style={styles.stabilityValue}>
-                {(stabilityCoefficient * 100).toFixed(2)}%
-              </span>
+            <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+              {stabilityCoefficient !== null && (
+                <div>
+                  <span style={styles.stabilityLabel}>Stability Coefficient (CV):</span>
+                  <span style={styles.stabilityValue}>
+                    {(stabilityCoefficient * 100).toFixed(2)}%
+                  </span>
+                </div>
+              )}
+              {stabilityStd !== null && stabilityCoefficient === null && (
+                <div>
+                  <span style={styles.stabilityLabel}>Standard Deviation:</span>
+                  <span style={styles.stabilityValue}>
+                    {stabilityStd.toFixed(3)}
+                  </span>
+                </div>
+              )}
             </div>
             <div
               style={{
                 ...styles.stabilityBadge,
                 backgroundColor: stabilityColor,
+                marginLeft: 'auto',
               }}
             >
               {interpretation.stability.replace(/_/g, ' ').toUpperCase()}

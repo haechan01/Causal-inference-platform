@@ -336,14 +336,14 @@ def _stability_from_effects(effects: list[float]) -> Dict[str, Any]:
     # If mean effect is very small (< 0.1), assess based on std alone
     if abs_mean < 0.1:
         if std < 0.05:
-            stability = "very stable"
+            stability = "highly_stable"
             msg = (
                 f"Your estimated effect is consistently near zero "
                 f"(std = {std:.3f}), showing strong stability across "
                 f"bandwidth choices."
             )
         elif std < 0.15:
-            stability = "moderately stable"
+            stability = "moderately_stable"
             msg = (
                 f"Your estimated effect is near zero with modest variation "
                 f"(std = {std:.3f}) across bandwidth choices."
@@ -362,14 +362,14 @@ def _stability_from_effects(effects: list[float]) -> Dict[str, Any]:
         )
 
         if relative_range < 0.30:
-            stability = "very stable"
+            stability = "highly_stable"
             msg = (
                 f"Your estimated effect (mean = {mean:.3f}) is very "
                 f"consistent across bandwidth choices "
                 f"(range/|mean| = {relative_range:.2f})."
             )
         elif relative_range < 0.60:
-            stability = "moderately stable"
+            stability = "moderately_stable"
             msg = (
                 f"Your estimated effect (mean = {mean:.3f}) changes "
                 f"somewhat as bandwidth changes "
