@@ -239,7 +239,7 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
               tickFormatter={(value) => value.toFixed(2)}
             />
             <Tooltip content={<CustomTooltip />} />
-            <Legend />
+            <Legend wrapperStyle={{ paddingTop: '40px' }} />
 
             {/* Confidence interval area */}
             <Area
