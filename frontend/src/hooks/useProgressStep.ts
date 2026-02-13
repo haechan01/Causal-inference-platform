@@ -4,13 +4,16 @@ export const useProgressStep = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Flow: Upload Data → Create Project → Method → Variables → Results
+  // Unified Flow: Upload Data → Project → Method → Variables → Results
+  // The Variables and Results pages adapt based on the selected method (DiD or RD)
+  // Use method-specific paths so back/forward navigation goes to the correct page
+  const isRDFlow = location.pathname === '/rd-setup' || location.pathname === '/rd-results';
   const steps = [
     { id: 'upload', label: 'Upload Data', path: '/upload-data' },
     { id: 'projects', label: 'Project', path: '/projects' },
     { id: 'method', label: 'Method', path: '/method-selection' },
-    { id: 'variables', label: 'Variables', path: '/variable-selection' },
-    { id: 'results', label: 'Results', path: '/results' }
+    { id: 'variables', label: 'Variables', path: isRDFlow ? '/rd-setup' : '/variable-selection' },
+    { id: 'results', label: 'Results', path: isRDFlow ? '/rd-results' : '/results' }
   ];
 
   // Helper to build path with preserved query params (projectId, datasetId)
@@ -52,6 +55,11 @@ export const useProgressStep = () => {
       case '/analysis':
       case '/results':
         return 'results';
+      // RD routes map to the generic steps
+      case '/rd-setup':
+        return 'variables'; // RD Setup is the "Variables" step for RD
+      case '/rd-results':
+        return 'results'; // RD Results is the "Results" step for RD
       default:
         return 'upload';
     }

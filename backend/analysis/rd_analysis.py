@@ -25,6 +25,7 @@ from .rd_helpers import (
     triangular_kernel,
     validate_polynomial_order,
 )
+from .rd_bandwidth import imbens_kalyanaraman_bandwidth
 
 
 class RDEstimator:
@@ -41,21 +42,31 @@ class RDEstimator:
         running_var: str,
         outcome_var: str,
         cutoff: float,
+        treatment_side: str = 'above'
     ):
         self.data = data
         self.running_var = running_var
         self.outcome_var = outcome_var
         self.cutoff = float(cutoff)
+        self.treatment_side = treatment_side
 
     def calculate_optimal_bandwidth(self) -> Dict[str, Any]:
         """
         Calculate optimal bandwidth (default: Imbens-Kalyanaraman).
 
-        Phase 0: not implemented.
+        Returns:
+          {
+            "bandwidth": float,
+            "method": str,
+            "diagnostics": dict,
+            "warnings": list[str]
+          }
         """
-        raise NotImplementedError(
-            "Optimal bandwidth calculation will be implemented "
-            "in a subsequent PR."
+        return imbens_kalyanaraman_bandwidth(
+            data=self.data,
+            running_var=self.running_var,
+            outcome_var=self.outcome_var,
+            cutoff=self.cutoff,
         )
 
     def estimate(
@@ -115,7 +126,11 @@ class RDEstimator:
             )
 
         df["X_centered"] = df[self.running_var] - self.cutoff
-        df["treated"] = (df[self.running_var] >= self.cutoff).astype(int)
+        
+        if self.treatment_side == 'below':
+            df["treated"] = (df[self.running_var] < self.cutoff).astype(int)
+        else:
+            df["treated"] = (df[self.running_var] >= self.cutoff).astype(int)
 
         in_bw = df["X_centered"].abs() <= h
         df_bw = df.loc[in_bw].copy()
@@ -137,10 +152,15 @@ class RDEstimator:
                 "Try increasing the bandwidth."
             )
         if n_treated < 10 or n_control < 10:
+            side_above = "at/above"
+            side_below = "below"
+            n_above = int((df_bw[self.running_var] >= self.cutoff).sum())
+            n_below = int((df_bw[self.running_var] < self.cutoff).sum())
+            
             raise ValueError(
                 "Not enough observations on both sides of the cutoff "
                 "within the bandwidth. "
-                f"Found {n_control} below cutoff and {n_treated} at/above "
+                f"Found {n_below} below cutoff and {n_above} at/above "
                 "cutoff (need at least 10 each). "
                 "Try increasing the bandwidth."
             )
@@ -208,6 +228,7 @@ class RDEstimator:
             "n_total": n_total,
             "polynomial_order": order,
             "kernel": "triangular",
+            "treatment_side": self.treatment_side,
             "warnings": warnings,
             "diagnostics": {
                 "running_var_range": diag.running_var_range,
@@ -221,8 +242,167 @@ class RDEstimator:
         """
         Sensitivity analysis over a bandwidth grid.
 
-        Phase 0: not implemented.
+        Bandwidth grid:
+          0.3*h_opt .. 2.5*h_opt  (n_bandwidths points)
+
+        For each bandwidth, runs estimate() and returns results suitable for
+        plotting.
         """
-        raise NotImplementedError(
-            "RD sensitivity analysis will be implemented in a subsequent PR."
+        if n_bandwidths is None or int(n_bandwidths) < 5:
+            raise ValueError("n_bandwidths must be at least 5.")
+
+        opt = self.calculate_optimal_bandwidth()
+        h_opt = float(opt["bandwidth"])
+
+        hs = np.linspace(0.3 * h_opt, 2.5 * h_opt, int(n_bandwidths))
+
+        results: list[Dict[str, Any]] = []
+        effects: list[float] = []
+
+        for h in hs:
+            try:
+                est = self.estimate(bandwidth=float(h), polynomial_order=1)
+                results.append(
+                    {
+                        "bandwidth": float(h),
+                        "treatment_effect": est["treatment_effect"],
+                        "ci_lower": est["ci_lower"],
+                        "ci_upper": est["ci_upper"],
+                        "se": est["se"],
+                        "p_value": est["p_value"],
+                        "n_total": est["n_total"],
+                    }
+                )
+                effects.append(float(est["treatment_effect"]))
+            except Exception as e:
+                results.append(
+                    {
+                        "bandwidth": float(h),
+                        "treatment_effect": None,
+                        "ci_lower": None,
+                        "ci_upper": None,
+                        "se": None,
+                        "p_value": None,
+                        "n_total": None,
+                        "error": str(e),
+                    }
+                )
+
+        stability = _stability_from_effects(effects)
+
+        return {
+            "results": results,
+            "optimal_bandwidth": h_opt,
+            "stability_coefficient": stability["cv"],  # Deprecated, kept for API compatibility
+            "stability_std": stability["std"],
+            "stability_range": stability["range"],
+            "stability_mean": stability["mean"],
+            "interpretation": stability["interpretation"],
+            "bandwidth_method": opt.get("method"),
+            "bandwidth_warnings": opt.get("warnings", []),
+        }
+
+
+def _stability_from_effects(effects: list[float]) -> Dict[str, Any]:
+    """
+    Assess stability of treatment effects across bandwidth choices.
+
+    Uses standard deviation and range-based metrics rather than coefficient
+    of variation (CV), since CV is inappropriate for quantities that can be
+    zero or negative.
+
+    Returns:
+      {
+        "cv": None,  # Deprecated, kept for backward compatibility
+        "std": float,
+        "range": float,
+        "mean": float,
+        "interpretation": {...}
+      }
+    """
+    if len(effects) < 3:
+        return {
+            "cv": None,
+            "std": None,
+            "range": None,
+            "mean": None,
+            "interpretation": {
+                "stability": "unknown",
+                "message": (
+                    "Not enough successful bandwidth fits to assess stability."
+                ),
+            },
+        }
+
+    arr = np.asarray(effects, dtype=float)
+    mean = float(np.mean(arr))
+    std = float(np.std(arr, ddof=1)) if arr.size > 1 else 0.0
+    effect_range = float(np.max(arr) - np.min(arr))
+
+    # Assess stability based on absolute variability:
+    # - For near-zero effects, use standard deviation alone
+    # - For larger effects, use range relative to mean magnitude
+
+    abs_mean = abs(mean)
+
+    # If mean effect is very small (< 0.1), assess based on std alone
+    if abs_mean < 0.1:
+        if std < 0.05:
+            stability = "highly_stable"
+            msg = (
+                f"Your estimated effect is consistently near zero "
+                f"(std = {std:.3f}), showing strong stability across "
+                f"bandwidth choices."
+            )
+        elif std < 0.15:
+            stability = "moderately_stable"
+            msg = (
+                f"Your estimated effect is near zero with modest variation "
+                f"(std = {std:.3f}) across bandwidth choices."
+            )
+        else:
+            stability = "unstable"
+            msg = (
+                f"Your estimated effect shows substantial variation "
+                f"(std = {std:.3f}) across bandwidth choices; "
+                f"interpret with caution."
+            )
+    else:
+        # For non-trivial effects, use range relative to mean magnitude
+        relative_range = (
+            effect_range / abs_mean if abs_mean > 0 else float("inf")
         )
+
+        if relative_range < 0.30:
+            stability = "highly_stable"
+            msg = (
+                f"Your estimated effect (mean = {mean:.3f}) is very "
+                f"consistent across bandwidth choices "
+                f"(range/|mean| = {relative_range:.2f})."
+            )
+        elif relative_range < 0.60:
+            stability = "moderately_stable"
+            msg = (
+                f"Your estimated effect (mean = {mean:.3f}) changes "
+                f"somewhat as bandwidth changes "
+                f"(range/|mean| = {relative_range:.2f})."
+            )
+        else:
+            stability = "unstable"
+            msg = (
+                f"Your estimated effect (mean = {mean:.3f}) changes "
+                f"substantially across bandwidths "
+                f"(range/|mean| = {relative_range:.2f}); "
+                f"interpret with caution."
+            )
+
+    return {
+        "cv": None,  # Deprecated: CV is not appropriate for treatment effects
+        "std": std,
+        "range": effect_range,
+        "mean": mean,
+        "interpretation": {
+            "stability": stability,
+            "message": msg,
+        },
+    }
