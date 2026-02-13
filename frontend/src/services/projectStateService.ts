@@ -2,6 +2,7 @@
 import axios from 'axios';
 
 export interface AnalysisConfig {
+  // DiD-specific
   outcome?: string;
   treatment?: string;
   treatmentValue?: string;
@@ -13,6 +14,13 @@ export interface AnalysisConfig {
   controls?: string[];
   treatmentUnits?: string[];
   controlUnits?: string[];
+  // RD-specific
+  runningVar?: string;
+  cutoff?: string | number;
+  outcomeVar?: string;
+  bandwidth?: string;
+  polynomialOrder?: number;
+  treatmentSide?: 'above' | 'below';
 }
 
 export interface ProjectState {

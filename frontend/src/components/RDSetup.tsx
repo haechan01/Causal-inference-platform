@@ -6,6 +6,7 @@ import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
 import { useAuth } from '../contexts/AuthContext';
 import SearchableDropdown from './SearchableDropdown';
+import { projectStateService } from '../services/projectStateService';
 
 interface Variable {
   name: string;
@@ -15,7 +16,7 @@ interface Variable {
 
 const RDSetup: React.FC = () => {
   const navigate = useNavigate();
-  const { currentStep, steps, goToPreviousStep } = useProgressStep();
+  const { currentStep, steps, goToPreviousStep, navigateToStep } = useProgressStep();
   const { accessToken } = useAuth();
   const location = useLocation();
 
@@ -65,6 +66,32 @@ const RDSetup: React.FC = () => {
           );
           setLoading(false);
           return;
+        }
+
+        // Load saved project state (variable selection) - like DiD VariableSelectionPage
+        try {
+          const project = await projectStateService.loadProject(
+            currentProjectId,
+            accessToken!
+          );
+          if (project.analysisConfig) {
+            const config = project.analysisConfig;
+            if (config.runningVar || config.outcomeVar || config.cutoff) {
+              setRunningVar(config.runningVar || '');
+              setCutoff(String(config.cutoff ?? ''));
+              setOutcomeVar(config.outcomeVar || '');
+              setBandwidth(config.bandwidth || '');
+              setPolynomialOrder(config.polynomialOrder ?? 1);
+              setTreatmentSide(
+                config.treatmentSide === 'below' ? 'below' : 'above'
+              );
+            }
+          }
+          if (!datasetId && project.datasets && project.datasets.length > 0) {
+            setDatasetId(project.datasets[0].id);
+          }
+        } catch (err) {
+          console.warn('Failed to load saved RD state:', err);
         }
 
         // Load datasets for the project
@@ -165,6 +192,31 @@ const RDSetup: React.FC = () => {
 
       // Store results in localStorage
       localStorage.setItem('rdAnalysisResults', JSON.stringify(response.data));
+
+      // Save project state with analysis config and results - like DiD VariableSelectionPage
+      if (projectId && accessToken) {
+        try {
+          await projectStateService.saveState(
+            projectId,
+            {
+              currentStep: 'results',
+              selectedMethod: 'rdd',
+              analysisConfig: {
+                runningVar,
+                cutoff: parseFloat(cutoff),
+                outcomeVar,
+                bandwidth: bandwidth || undefined,
+                polynomialOrder,
+                treatmentSide,
+              },
+              lastResults: response.data,
+            },
+            accessToken
+          );
+        } catch (saveError) {
+          console.warn('Failed to save project state:', saveError);
+        }
+      }
 
       // Navigate to results page
       navigate('/rd-results', {
@@ -411,9 +463,7 @@ const RDSetup: React.FC = () => {
         onPrev={goToPreviousStep}
         onNext={handleRunAnalysis}
         canGoNext={canProceed && !analyzing}
-        onStepClick={(path) =>
-          navigate(path, { state: { projectId, datasetId } })
-        }
+        onStepClick={(path) => navigateToStep(path)}
       />
     </div>
   );

@@ -6,12 +6,14 @@ export const useProgressStep = () => {
 
   // Unified Flow: Upload Data → Project → Method → Variables → Results
   // The Variables and Results pages adapt based on the selected method (DiD or RD)
+  // Use method-specific paths so back/forward navigation goes to the correct page
+  const isRDFlow = location.pathname === '/rd-setup' || location.pathname === '/rd-results';
   const steps = [
     { id: 'upload', label: 'Upload Data', path: '/upload-data' },
     { id: 'projects', label: 'Project', path: '/projects' },
     { id: 'method', label: 'Method', path: '/method-selection' },
-    { id: 'variables', label: 'Variables', path: '/variable-selection' },
-    { id: 'results', label: 'Results', path: '/results' }
+    { id: 'variables', label: 'Variables', path: isRDFlow ? '/rd-setup' : '/variable-selection' },
+    { id: 'results', label: 'Results', path: isRDFlow ? '/rd-results' : '/results' }
   ];
 
   // Helper to build path with preserved query params (projectId, datasetId)
