@@ -350,7 +350,7 @@ PARALLEL TRENDS ASSUMPTION:
         Interpret causal analysis results in plain language.
         
         Args:
-            analysis_results: Results from the causal analysis (DiD format)
+            analysis_results: Results from the causal analysis (DiD or RD format)
             causal_question: Optional research question
             method: Analysis method used
             parameters: Analysis parameters (outcome, treatment, etc.)
@@ -358,10 +358,74 @@ PARALLEL TRENDS ASSUMPTION:
         Returns:
             Dictionary with interpretation sections
         """
-        # Extract results data safely
         results = analysis_results.get('results', {})
         params = parameters or {}
         
+        if method == "Regression Discontinuity":
+            return self._interpret_rd_results(results, params, causal_question)
+        return self._interpret_did_results(results, params, causal_question)
+    
+    def _interpret_rd_results(
+        self,
+        results: Dict[str, Any],
+        params: Dict[str, Any],
+        causal_question: Optional[str]
+    ) -> Dict[str, Any]:
+        """Interpret Regression Discontinuity analysis results."""
+        treatment_effect = results.get('treatment_effect', 0)
+        se = results.get('se', 0)
+        p_value = results.get('p_value', 1.0)
+        is_significant = results.get('is_significant', False)
+        ci_lower = results.get('ci_lower', 0)
+        ci_upper = results.get('ci_upper', 0)
+        n_treated = results.get('n_treated', 0)
+        n_control = results.get('n_control', 0)
+        bandwidth_used = results.get('bandwidth_used', 0)
+        polynomial_order = results.get('polynomial_order', 1)
+        warnings = results.get('warnings', [])
+        
+        running_var = params.get('running_var', '?')
+        outcome_var = params.get('outcome_var', '?')
+        cutoff = params.get('cutoff', '?')
+        treatment_side = params.get('treatment_side', 'above')
+        
+        warn_str = f" Warnings:{warnings}" if warnings else ""
+        
+        results_summary = (
+            f"RD: effect={treatment_effect:.3f}, se={se:.3f}, p={p_value:.4f}, sig={is_significant}, "
+            f"CI[{ci_lower:.3f},{ci_upper:.3f}]. Running var={running_var}, cutoff={cutoff}, "
+            f"outcome={outcome_var}, treatment_side={treatment_side}. "
+            f"N_treated={n_treated}, N_control={n_control}, bandwidth={bandwidth_used:.3f}, "
+            f"poly_order={polynomial_order}{warn_str}"
+        )
+        
+        q = f"Q: {causal_question}\n" if causal_question else ""
+        
+        prompt = f"""You are a causal inference expert. Interpret these Regression Discontinuity (RD) results and provide actionable recommendations.
+{q}Data: {results_summary}
+
+Return JSON only with these exact fields:
+{{
+  "executive_summary": "2-3 sentences explaining the main RD finding in plain language (discontinuity at cutoff, effect size, significance)",
+  "parallel_trends_interpretation": "2 sentences on bandwidth choice, local continuity assumption, and design validity (use this field for RD design/bandwidth assessment)",
+  "effect_size_interpretation": "2 sentences on the practical significance of the treatment effect at the cutoff",
+  "statistical_interpretation": "2 sentences on statistical significance and confidence",
+  "limitations": ["limitation 1", "limitation 2", "limitation 3"],
+  "implications": ["what this means for practice 1", "what this means 2"],
+  "confidence_level": "high/medium/low",
+  "next_steps": ["specific actionable step 1", "specific actionable step 2", "specific actionable step 3"],
+  "recommendation": "1-2 sentence overall recommendation based on results"
+}}"""
+        
+        return self._parse_interpretation_response(prompt)
+    
+    def _interpret_did_results(
+        self,
+        results: Dict[str, Any],
+        params: Dict[str, Any],
+        causal_question: Optional[str]
+    ) -> Dict[str, Any]:
+        """Interpret Difference-in-Differences analysis results."""
         did_estimate = results.get('did_estimate', 0)
         standard_error = results.get('standard_error', 0)
         p_value = results.get('p_value', 1.0)
@@ -369,27 +433,21 @@ PARALLEL TRENDS ASSUMPTION:
         ci = results.get('confidence_interval', {})
         ci_lower = ci.get('lower', 0)
         ci_upper = ci.get('upper', 0)
-        
         stats = results.get('statistics', {})
-        
-        # Parallel trends test info
         parallel_trends_test = results.get('parallel_trends_test')
-        parallel_trends_passed = None
-        parallel_trends_p_value = None
-        if parallel_trends_test:
-            parallel_trends_passed = parallel_trends_test.get('passed')
-            parallel_trends_p_value = parallel_trends_test.get('p_value')
+        parallel_trends_passed = parallel_trends_test.get('passed') if parallel_trends_test else None
+        parallel_trends_p_value = parallel_trends_test.get('p_value') if parallel_trends_test else None
         
-        # Build ultra-concise results summary (minimize input tokens to maximize output space)
-        results_summary = f"{method}: est={did_estimate:.2f}, se={standard_error:.2f}, p={p_value:.3f}, sig={is_significant}, CI[{ci_lower:.1f},{ci_upper:.1f}]. Y={params.get('outcome','?')}, D={params.get('treatment','?')}. N={stats.get('total_observations',0)}, T={stats.get('treated_units',0)}, C={stats.get('control_units',0)}"
-        
-        # Add parallel trends info if available (ultra concise)
+        results_summary = (
+            f"DiD: est={did_estimate:.2f}, se={standard_error:.2f}, p={p_value:.3f}, sig={is_significant}, "
+            f"CI[{ci_lower:.1f},{ci_upper:.1f}]. Y={params.get('outcome','?')}, D={params.get('treatment','?')}. "
+            f"N={stats.get('total_observations',0)}, T={stats.get('treated_units',0)}, C={stats.get('control_units',0)}"
+        )
         pt_info = ""
         if parallel_trends_test is not None:
             pt_status = "PASS" if parallel_trends_passed else "FAIL"
             pt_info = f" PT:{pt_status}(p={parallel_trends_p_value:.2f})" if parallel_trends_p_value is not None else f" PT:{pt_status}"
         
-        # Build minimal prompt (maximize room for response)
         q = f"Q: {causal_question}\n" if causal_question else ""
         
         prompt = f"""You are a causal inference expert. Interpret these results and provide actionable recommendations.
@@ -408,10 +466,12 @@ Return JSON only with these exact fields:
   "recommendation": "1-2 sentence overall recommendation based on results"
 }}"""
         
-        # Log prompt length for debugging
+        return self._parse_interpretation_response(prompt)
+    
+    def _parse_interpretation_response(self, prompt: str) -> Dict[str, Any]:
+        """Call Gemini and parse the interpretation JSON response."""
         response = self._call_gemini(prompt)
         
-        # Clean response (remove markdown code blocks if present)
         response = response.strip()
         if response.startswith('```json'):
             response = response[7:]
@@ -421,10 +481,8 @@ Return JSON only with these exact fields:
             response = response[:-3]
         response = response.strip()
         
-        # Try to parse JSON - handle partial/incomplete JSON gracefully
         try:
             interpretation = json.loads(response)
-            # Ensure all required fields exist
             return {
                 'executive_summary': interpretation.get('executive_summary', ''),
                 'parallel_trends_interpretation': interpretation.get('parallel_trends_interpretation', ''),
@@ -437,15 +495,12 @@ Return JSON only with these exact fields:
                 'recommendation': interpretation.get('recommendation', '')
             }
         except json.JSONDecodeError:
-            # Try to extract partial JSON fields if response was truncated
+            import re
             partial_data = {}
             try:
-                # Try to find JSON object in the response
-                import re
                 json_match = re.search(r'\{.*\}', response, re.DOTALL)
                 if json_match:
                     partial_json = json_match.group(0)
-                    # Try to fix common truncation issues
                     open_braces = partial_json.count('{')
                     close_braces = partial_json.count('}')
                     if open_braces > close_braces:
@@ -454,10 +509,9 @@ Return JSON only with these exact fields:
             except Exception:
                 pass
             
-            # Return what we have, with fallbacks
             return {
                 'executive_summary': partial_data.get('executive_summary', response[:500] if len(response) > 500 else response),
-                'parallel_trends_interpretation': partial_data.get('parallel_trends_interpretation', 'Response was truncated - unable to parse full content. Try increasing AI_MAX_TOKENS in .env'),
+                'parallel_trends_interpretation': partial_data.get('parallel_trends_interpretation', 'Response was truncated.'),
                 'effect_size_interpretation': partial_data.get('effect_size_interpretation', ''),
                 'statistical_interpretation': partial_data.get('statistical_interpretation', ''),
                 'limitations': partial_data.get('limitations', ['Response was truncated - incomplete data available']),

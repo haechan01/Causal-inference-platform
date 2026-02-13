@@ -398,30 +398,59 @@ Respond with JSON only:
             if analysis_context.get('parameters'):
                 params = analysis_context['parameters']
                 context_parts.append(f"Current Analysis Parameters:")
-                context_parts.append(f"- Outcome: {params.get('outcome', 'N/A')}")
-                context_parts.append(f"- Treatment: {params.get('treatment', 'N/A')}")
-                context_parts.append(f"- Time variable: {params.get('time', 'N/A')}")
+                # DiD parameters
+                if params.get('outcome'):
+                    context_parts.append(f"- Outcome: {params.get('outcome', 'N/A')}")
+                if params.get('treatment'):
+                    context_parts.append(f"- Treatment: {params.get('treatment', 'N/A')}")
+                if params.get('time'):
+                    context_parts.append(f"- Time variable: {params.get('time', 'N/A')}")
                 if params.get('treatment_start'):
                     context_parts.append(f"- Treatment start: {params.get('treatment_start', 'N/A')}")
                 if params.get('unit'):
                     context_parts.append(f"- Unit variable: {params.get('unit', 'N/A')}")
                 if params.get('controls'):
                     context_parts.append(f"- Control variables: {', '.join(params.get('controls', []))}")
+                # RD parameters
+                if params.get('running_var'):
+                    context_parts.append(f"- Running variable: {params.get('running_var', 'N/A')}")
+                if params.get('outcome_var'):
+                    context_parts.append(f"- Outcome variable: {params.get('outcome_var', 'N/A')}")
+                if params.get('cutoff') is not None:
+                    context_parts.append(f"- Cutoff: {params.get('cutoff', 'N/A')}")
+                if params.get('treatment_side'):
+                    context_parts.append(f"- Treatment side: {params.get('treatment_side', 'N/A')}")
             
             if analysis_context.get('results'):
                 results = analysis_context['results']
                 context_parts.append(f"\nAnalysis Results:")
+                # DiD results
                 if 'did_estimate' in results:
                     context_parts.append(f"- DiD Estimate: {results.get('did_estimate', 'N/A')}")
                 if 'standard_error' in results:
                     context_parts.append(f"- Standard Error: {results.get('standard_error', 'N/A')}")
+                # RD results
+                if 'treatment_effect' in results:
+                    context_parts.append(f"- RD Treatment Effect: {results.get('treatment_effect', 'N/A')}")
+                if 'se' in results:
+                    context_parts.append(f"- Standard Error: {results.get('se', 'N/A')}")
+                if 'ci_lower' in results and 'ci_upper' in results:
+                    context_parts.append(f"- 95% Confidence Interval: [{results.get('ci_lower', 'N/A')}, {results.get('ci_upper', 'N/A')}]")
+                elif 'confidence_interval' in results:
+                    ci = results.get('confidence_interval', {})
+                    context_parts.append(f"- 95% Confidence Interval: [{ci.get('lower', 'N/A')}, {ci.get('upper', 'N/A')}]")
                 if 'p_value' in results:
                     context_parts.append(f"- P-value: {results.get('p_value', 'N/A')}")
                 if 'is_significant' in results:
                     context_parts.append(f"- Significant: {results.get('is_significant', 'N/A')}")
-                if 'confidence_interval' in results:
-                    ci = results.get('confidence_interval', {})
-                    context_parts.append(f"- 95% Confidence Interval: [{ci.get('lower', 'N/A')}, {ci.get('upper', 'N/A')}]")
+                if 'n_treated' in results:
+                    context_parts.append(f"- N treated: {results.get('n_treated', 'N/A')}")
+                if 'n_control' in results:
+                    context_parts.append(f"- N control: {results.get('n_control', 'N/A')}")
+                if 'bandwidth_used' in results:
+                    context_parts.append(f"- Bandwidth used: {results.get('bandwidth_used', 'N/A')}")
+                if 'polynomial_order' in results:
+                    context_parts.append(f"- Polynomial order: {results.get('polynomial_order', 'N/A')}")
                 if 'statistics' in results:
                     stats = results.get('statistics', {})
                     context_parts.append(f"\nStatistical Summary:")
@@ -668,11 +697,18 @@ IMPORTANT: At the end of your response, include exactly 3 follow-up questions in
                     # Try to customize based on conversation
                     if analysis_context and analysis_context.get('parameters'):
                         params = analysis_context['parameters']
-                        default_questions = [
-                            f"What does the {params.get('outcome', 'outcome')} variable represent?",
-                            f"How does the {params.get('treatment', 'treatment')} variable work?",
-                            "What assumptions should I verify for this analysis?"
-                        ]
+                        if params.get('running_var'):
+                            default_questions = [
+                                f"What does the {params.get('outcome_var', 'outcome')} variable represent?",
+                                f"How does the cutoff at {params.get('cutoff', '?')} affect the design?",
+                                "What assumptions should I verify for this RD analysis?"
+                            ]
+                        else:
+                            default_questions = [
+                                f"What does the {params.get('outcome', 'outcome')} variable represent?",
+                                f"How does the {params.get('treatment', 'treatment')} variable work?",
+                                "What assumptions should I verify for this analysis?"
+                            ]
                     followup_questions = default_questions[:3]
                 
                 return {
