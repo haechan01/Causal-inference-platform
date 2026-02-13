@@ -42,11 +42,13 @@ class RDEstimator:
         running_var: str,
         outcome_var: str,
         cutoff: float,
+        treatment_side: str = 'above'
     ):
         self.data = data
         self.running_var = running_var
         self.outcome_var = outcome_var
         self.cutoff = float(cutoff)
+        self.treatment_side = treatment_side
 
     def calculate_optimal_bandwidth(self) -> Dict[str, Any]:
         """
@@ -124,7 +126,11 @@ class RDEstimator:
             )
 
         df["X_centered"] = df[self.running_var] - self.cutoff
-        df["treated"] = (df[self.running_var] >= self.cutoff).astype(int)
+        
+        if self.treatment_side == 'below':
+            df["treated"] = (df[self.running_var] < self.cutoff).astype(int)
+        else:
+            df["treated"] = (df[self.running_var] >= self.cutoff).astype(int)
 
         in_bw = df["X_centered"].abs() <= h
         df_bw = df.loc[in_bw].copy()
@@ -146,10 +152,15 @@ class RDEstimator:
                 "Try increasing the bandwidth."
             )
         if n_treated < 10 or n_control < 10:
+            side_above = "at/above"
+            side_below = "below"
+            n_above = int((df_bw[self.running_var] >= self.cutoff).sum())
+            n_below = int((df_bw[self.running_var] < self.cutoff).sum())
+            
             raise ValueError(
                 "Not enough observations on both sides of the cutoff "
                 "within the bandwidth. "
-                f"Found {n_control} below cutoff and {n_treated} at/above "
+                f"Found {n_below} below cutoff and {n_above} at/above "
                 "cutoff (need at least 10 each). "
                 "Try increasing the bandwidth."
             )
@@ -217,6 +228,7 @@ class RDEstimator:
             "n_total": n_total,
             "polynomial_order": order,
             "kernel": "triangular",
+            "treatment_side": self.treatment_side,
             "warnings": warnings,
             "diagnostics": {
                 "running_var_range": diag.running_var_range,

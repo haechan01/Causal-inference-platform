@@ -114,11 +114,15 @@ const RDResults: React.FC = () => {
               <div style={styles.statValue}>{res.se.toFixed(3)}</div>
             </div>
             <div style={styles.statCard}>
-              <div style={styles.statLabel}>Above Cutoff</div>
+              <div style={styles.statLabel}>
+                {parameters.treatment_side === 'below' ? 'Treated (Below)' : 'Treated (Above)'}
+              </div>
               <div style={styles.statValue}>{res.n_treated}</div>
             </div>
             <div style={styles.statCard}>
-              <div style={styles.statLabel}>Below Cutoff</div>
+              <div style={styles.statLabel}>
+                {parameters.treatment_side === 'below' ? 'Control (Above)' : 'Control (Below)'}
+              </div>
               <div style={styles.statValue}>{res.n_control}</div>
             </div>
           </div>
@@ -186,6 +190,7 @@ const RDResults: React.FC = () => {
             cutoff={parameters.cutoff}
             bandwidth={res.bandwidth_used}
             polynomialOrder={res.polynomial_order}
+            treatmentSide={parameters.treatment_side}
           />
 
           {/* Sensitivity Analysis Visualization */}
@@ -195,6 +200,7 @@ const RDResults: React.FC = () => {
             outcomeVar={parameters.outcome_var}
             cutoff={parameters.cutoff}
             optimalBandwidth={bandwidth_info.optimal_bandwidth}
+            treatmentSide={parameters.treatment_side}
           />
 
         </div>

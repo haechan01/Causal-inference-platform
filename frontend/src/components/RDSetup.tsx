@@ -36,6 +36,7 @@ const RDSetup: React.FC = () => {
   const [outcomeVar, setOutcomeVar] = useState('');
   const [bandwidth, setBandwidth] = useState('');
   const [polynomialOrder, setPolynomialOrder] = useState(1);
+  const [treatmentSide, setTreatmentSide] = useState<'above' | 'below'>('above');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Analysis state
@@ -144,6 +145,7 @@ const RDSetup: React.FC = () => {
         running_var: runningVar,
         outcome_var: outcomeVar,
         cutoff: parseFloat(cutoff),
+        treatment_side: treatmentSide,
         polynomial_order: polynomialOrder,
       };
 
@@ -250,21 +252,52 @@ const RDSetup: React.FC = () => {
             <div style={styles.card}>
               <div style={styles.cardHeader}>
                 <div style={styles.cardNumber}>2</div>
-                <div style={styles.cardTitle}>Cutoff Threshold</div>
+                <div style={styles.cardTitle}>Cutoff Threshold & Treatment Side</div>
                 <div style={styles.requiredBadge}>Required</div>
               </div>
               <p style={styles.helperText}>
-                Enter the cutoff value at which treatment assignment changes.
-                {runningVar && ` Units at or above this value in "${runningVar}" receive treatment.`}
+                Enter the cutoff value and specify which side receive treatment.
               </p>
-              <input
-                type="number"
-                style={styles.textInput}
-                placeholder="e.g., 70"
-                value={cutoff}
-                onChange={(e) => setCutoff(e.target.value)}
-                step="any"
-              />
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Cutoff Value</label>
+                <input
+                  type="number"
+                  style={styles.textInput}
+                  placeholder="e.g., 70"
+                  value={cutoff}
+                  onChange={(e) => setCutoff(e.target.value)}
+                  step="any"
+                />
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Treatment Side</label>
+                <div style={styles.radioGroup}>
+                  <label style={styles.radioLabel}>
+                    <input
+                      type="radio"
+                      name="treatmentSide"
+                      value="above"
+                      checked={treatmentSide === 'above'}
+                      onChange={() => setTreatmentSide('above')}
+                      style={styles.radioInput}
+                    />
+                    Units at or above {cutoff || 'the cutoff'} (Standard)
+                  </label>
+                  <label style={styles.radioLabel}>
+                    <input
+                      type="radio"
+                      name="treatmentSide"
+                      value="below"
+                      checked={treatmentSide === 'below'}
+                      onChange={() => setTreatmentSide('below')}
+                      style={styles.radioInput}
+                    />
+                    Units below {cutoff || 'the cutoff'}
+                  </label>
+                </div>
+              </div>
             </div>
 
             {/* Card 3: Outcome Variable */}
@@ -618,6 +651,25 @@ const styles = {
     backgroundColor: '#ccc',
     cursor: 'not-allowed',
     opacity: 0.6,
+  },
+  radioGroup: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '12px',
+    marginTop: '10px',
+  },
+  radioLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    fontSize: '15px',
+    color: '#333',
+    cursor: 'pointer',
+  },
+  radioInput: {
+    width: '18px',
+    height: '18px',
+    cursor: 'pointer',
   },
 };
 

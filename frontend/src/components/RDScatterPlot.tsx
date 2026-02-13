@@ -24,6 +24,7 @@ interface RDScatterPlotProps {
   cutoff: number;
   bandwidth: number;
   polynomialOrder: number;
+  treatmentSide?: 'above' | 'below';
 }
 
 interface DataPoint {
@@ -45,6 +46,7 @@ const RDScatterPlot: React.FC<RDScatterPlotProps> = ({
   cutoff,
   bandwidth,
   polynomialOrder,
+  treatmentSide = 'above',
 }) => {
   const { accessToken } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -86,7 +88,9 @@ const RDScatterPlot: React.FC<RDScatterPlotProps> = ({
           .map((row: any) => ({
             x: parseFloat(row[runningVar]),
             y: parseFloat(row[outcomeVar]),
-            treated: parseFloat(row[runningVar]) >= cutoff,
+            treated: treatmentSide === 'below'
+              ? parseFloat(row[runningVar]) < cutoff
+              : parseFloat(row[runningVar]) >= cutoff,
           }));
 
         if (windowData.length === 0) {
@@ -113,14 +117,17 @@ const RDScatterPlot: React.FC<RDScatterPlotProps> = ({
           const x = xMin + i * xStep;
           const point: FittedLine = { x };
 
-          // Control side (below cutoff)
-          if (x < cutoff && controlData.length > 0) {
-            point.y_control = fitPolynomial(controlData, x, cutoff, polynomialOrder);
-          }
+          const isLeftOfCutoff = x < cutoff;
+          const isTreatedSide = treatmentSide === 'below' ? isLeftOfCutoff : !isLeftOfCutoff;
 
-          // Treated side (at or above cutoff)
-          if (x >= cutoff && treatedData.length > 0) {
-            point.y_treated = fitPolynomial(treatedData, x, cutoff, polynomialOrder);
+          if (isTreatedSide) {
+            if (treatedData.length > 0) {
+              point.y_treated = fitPolynomial(treatedData, x, cutoff, polynomialOrder);
+            }
+          } else {
+            if (controlData.length > 0) {
+              point.y_control = fitPolynomial(controlData, x, cutoff, polynomialOrder);
+            }
           }
 
           fitted.push(point);
@@ -229,11 +236,11 @@ const RDScatterPlot: React.FC<RDScatterPlotProps> = ({
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length > 0) {
       const point = payload[0].payload;
-      
+
       // Handle cases where some values might be undefined
       const x = point.x ?? 0;
       const y = point.y ?? 0;
-      
+
       return (
         <div style={styles.tooltipContainer}>
           <p style={styles.tooltipTitle}>
@@ -316,7 +323,7 @@ const RDScatterPlot: React.FC<RDScatterPlotProps> = ({
               data={controlPoints}
               fill="#6c757d"
               fillOpacity={0.6}
-              name="Control (Below Cutoff)"
+              name={treatmentSide === 'below' ? 'Control (At/Above Cutoff)' : 'Control (Below Cutoff)'}
             />
 
             {/* Treated scatter points */}
@@ -324,7 +331,7 @@ const RDScatterPlot: React.FC<RDScatterPlotProps> = ({
               data={treatedPoints}
               fill="#043873"
               fillOpacity={0.6}
-              name="Treated (At/Above Cutoff)"
+              name={treatmentSide === 'below' ? 'Treated (Below Cutoff)' : 'Treated (At/Above Cutoff)'}
             />
 
             {/* Fitted lines */}
@@ -354,8 +361,9 @@ const RDScatterPlot: React.FC<RDScatterPlotProps> = ({
 
       <div style={styles.noteBox}>
         <strong>📊 How to interpret:</strong> The vertical red line marks the cutoff.
-        Points to the left are control units (gray), points to the right are treated
-        units (blue). The fitted lines show the local polynomial regression on each side.
+        Points in blue are the <strong>treated units</strong> ({treatmentSide === 'below' ? 'below' : 'above'} the cutoff),
+        and points in gray are the <strong>control units</strong>.
+        The fitted lines show the local polynomial regression on each side.
         A discontinuous jump at the cutoff indicates a treatment effect.
       </div>
     </div>

@@ -1228,6 +1228,7 @@ def run_rd_analysis(dataset_id):
         cutoff = data.get('cutoff')
         bandwidth = data.get('bandwidth')  # Optional
         polynomial_order = data.get('polynomial_order', 1)  # Default to 1
+        treatment_side = data.get('treatment_side', 'above') # Default to above
         
         print("Received RD parameters:")
         print(f"  running_var: {running_var}")
@@ -1235,6 +1236,7 @@ def run_rd_analysis(dataset_id):
         print(f"  cutoff: {cutoff}")
         print(f"  bandwidth: {bandwidth}")
         print(f"  polynomial_order: {polynomial_order}")
+        print(f"  treatment_side: {treatment_side}")
         
         # Validate required parameters
         if not running_var:
@@ -1306,7 +1308,8 @@ def run_rd_analysis(dataset_id):
                 data=df,
                 running_var=running_var,
                 outcome_var=outcome_var,
-                cutoff=cutoff
+                cutoff=cutoff,
+                treatment_side=treatment_side
             )
             
             # If bandwidth not provided, calculate optimal bandwidth
@@ -1361,6 +1364,7 @@ def run_rd_analysis(dataset_id):
                     'cutoff': cutoff,
                     'bandwidth_used': bandwidth,
                     'polynomial_order': polynomial_order,
+                    'treatment_side': treatment_side,
                 },
                 'results': {
                     'treatment_effect': result['treatment_effect'],
@@ -1444,12 +1448,14 @@ def run_rd_sensitivity_analysis(dataset_id):
         outcome_var = data.get('outcome_var')
         cutoff = data.get('cutoff')
         n_bandwidths = data.get('n_bandwidths', 20)  # Default to 20
+        treatment_side = data.get('treatment_side', 'above')
         
         print("Received RD sensitivity parameters:")
         print(f"  running_var: {running_var}")
         print(f"  outcome_var: {outcome_var}")
         print(f"  cutoff: {cutoff}")
         print(f"  n_bandwidths: {n_bandwidths}")
+        print(f"  treatment_side: {treatment_side}")
         
         # Validate required parameters
         if not running_var:
@@ -1511,7 +1517,8 @@ def run_rd_sensitivity_analysis(dataset_id):
                 data=df,
                 running_var=running_var,
                 outcome_var=outcome_var,
-                cutoff=cutoff
+                cutoff=cutoff,
+                treatment_side=treatment_side
             )
             
             # Run sensitivity analysis
@@ -1534,6 +1541,7 @@ def run_rd_sensitivity_analysis(dataset_id):
                     'outcome_var': outcome_var,
                     'cutoff': cutoff,
                     'n_bandwidths': n_bandwidths,
+                    'treatment_side': treatment_side,
                 },
                 'results': result['results'],
                 'optimal_bandwidth': result['optimal_bandwidth'],

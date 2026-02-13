@@ -21,6 +21,7 @@ interface RDSensitivityPlotProps {
   outcomeVar: string;
   cutoff: number;
   optimalBandwidth?: number;
+  treatmentSide?: 'above' | 'below';
 }
 
 interface SensitivityResult {
@@ -39,6 +40,7 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
   outcomeVar,
   cutoff,
   optimalBandwidth,
+  treatmentSide = 'above',
 }) => {
   const { accessToken } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -61,6 +63,7 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
             running_var: runningVar,
             outcome_var: outcomeVar,
             cutoff: cutoff,
+            treatment_side: treatmentSide,
             n_bandwidths: 20,
           },
           {
@@ -89,7 +92,7 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
     if (accessToken && datasetId) {
       fetchSensitivityAnalysis();
     }
-  }, [accessToken, datasetId, runningVar, outcomeVar, cutoff]);
+  }, [accessToken, datasetId, runningVar, outcomeVar, cutoff, treatmentSide]);
 
   if (loading) {
     return (
