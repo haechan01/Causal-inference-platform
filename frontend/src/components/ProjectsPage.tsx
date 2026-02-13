@@ -220,8 +220,8 @@ const ProjectsPage: React.FC = () => {
         }, accessToken!);
 
         if (project.currentStep && project.currentStep !== 'projects') {
-          // Navigate to saved step
-          const stepPath = projectStateService.getStepPath(project.currentStep);
+          // Navigate to saved step (pass selectedMethod for correct RD vs DiD routing)
+          const stepPath = projectStateService.getStepPath(project.currentStep, project.selectedMethod);
           navigate(stepPath, { state: navState });
         } else {
           // Default to method selection
@@ -306,7 +306,7 @@ const ProjectsPage: React.FC = () => {
                       projectId: project.id,
                       datasetId: project.datasets[0].id
                     };
-                    const stepPath = projectStateService.getStepPath(step);
+                    const stepPath = projectStateService.getStepPath(step, project.selected_method);
                     navigate(stepPath, { state: navState });
                   }
                 }}

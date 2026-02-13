@@ -102,15 +102,21 @@ class ProjectStateService {
   }
 
   /**
-   * Get the route path for a given step
+   * Get the route path for a given step.
+   * Uses selectedMethod to route to method-specific pages (e.g. RD uses /rd-setup, /rd-results).
    */
-  getStepPath(step: string): string {
+  getStepPath(step: string, selectedMethod?: string): string {
+    // Handle RD-specific step names that may come from backend
+    if (step === 'rd-setup') return '/rd-setup';
+    if (step === 'rd-results') return '/rd-results';
+
+    const isRD = selectedMethod === 'rdd';
     const stepPaths: Record<string, string> = {
       'upload': '/upload-data',
       'projects': '/projects',
       'method': '/method-selection',
-      'variables': '/variable-selection',
-      'results': '/results'
+      'variables': isRD ? '/rd-setup' : '/variable-selection',
+      'results': isRD ? '/rd-results' : '/results'
     };
     return stepPaths[step] || '/projects';
   }

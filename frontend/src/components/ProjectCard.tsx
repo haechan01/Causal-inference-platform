@@ -48,13 +48,17 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
     const stepLabels: Record<string, string> = {
       'method': 'Method Selected',
       'variables': 'Configuring Variables',
-      'results': 'Analysis Complete'
+      'results': 'Analysis Complete',
+      'rd-setup': 'Configuring Variables',
+      'rd-results': 'Analysis Complete'
     };
 
     const stepColors: Record<string, string> = {
       'method': '#3498db',
       'variables': '#f39c12',
-      'results': '#27ae60'
+      'results': '#27ae60',
+      'rd-setup': '#f39c12',
+      'rd-results': '#27ae60'
     };
 
     return {
@@ -71,7 +75,14 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
     if (!project.current_step || !hasDatasets) return false;
 
     const steps = ['projects', 'method', 'variables', 'results'];
-    const currentIndex = steps.indexOf(project.current_step);
+    // Map RD-specific steps to generic steps for index comparison
+    const normalizedStep =
+      project.current_step === 'rd-setup'
+        ? 'variables'
+        : project.current_step === 'rd-results'
+          ? 'results'
+          : project.current_step;
+    const currentIndex = steps.indexOf(normalizedStep);
     const targetIndex = steps.indexOf(step);
 
     // Allow navigation to current or previous steps
