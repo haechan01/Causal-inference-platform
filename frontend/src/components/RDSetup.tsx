@@ -190,8 +190,11 @@ const RDSetup: React.FC = () => {
         }
       );
 
-      // Store results in localStorage
-      localStorage.setItem('rdAnalysisResults', JSON.stringify(response.data));
+      // Store results in localStorage (keyed by project for multi-project support)
+      const storageKey = projectId
+        ? `rdAnalysisResults_${projectId}`
+        : 'rdAnalysisResults';
+      localStorage.setItem(storageKey, JSON.stringify(response.data));
 
       // Save project state with analysis config and results - like DiD VariableSelectionPage
       if (projectId && accessToken) {

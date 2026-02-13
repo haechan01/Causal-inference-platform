@@ -7,6 +7,7 @@ import RDSensitivityPlot from './RDSensitivityPlot';
 import RDScatterPlot from './RDScatterPlot';
 import { aiService, ResultsInterpretation } from '../services/aiService';
 import { useAuth } from '../contexts/AuthContext';
+import { projectStateService } from '../services/projectStateService';
 
 const COLLAPSE_THRESHOLD = 200;
 const MAX_MESSAGE_LENGTH = 2000;
@@ -38,34 +39,77 @@ const RDResults: React.FC = () => {
 
   useEffect(() => {
     const loadResults = async () => {
-      const storedResults = localStorage.getItem('rdAnalysisResults');
+      const projectId =
+        (location.state as any)?.projectId ||
+        parseInt(new URLSearchParams(location.search).get('projectId') || '0') ||
+        null;
 
-      if (storedResults) {
+      let loadedResults: any = null;
+
+      // 1. Try project state (backend) - source of truth per project
+      if (projectId && accessToken) {
         try {
-          const parsedResults = JSON.parse(storedResults);
-          setResults(parsedResults);
+          const project = await projectStateService.loadProject(projectId, accessToken);
+          if (project.lastResults?.results && project.lastResults?.parameters) {
+            loadedResults = project.lastResults;
+          }
+        } catch (err) {
+          console.warn('Failed to load RD results from project state:', err);
+        }
+      }
 
-          // Load cached AI interpretation if it matches this analysis
-          const storedInterpretation = localStorage.getItem('rdAiInterpretation');
-          if (storedInterpretation) {
+      // 2. Try localStorage keyed by project
+      if (!loadedResults && projectId) {
+        const stored = localStorage.getItem(`rdAnalysisResults_${projectId}`);
+        if (stored) {
+          try {
+            loadedResults = JSON.parse(stored);
+          } catch (e) {
+            console.warn('Failed to parse project RD results from localStorage:', e);
+          }
+        }
+      }
+
+      // 3. Fallback: legacy global key (for backwards compatibility when no projectId)
+      if (!loadedResults) {
+        const stored = localStorage.getItem('rdAnalysisResults');
+        if (stored) {
+          try {
+            loadedResults = JSON.parse(stored);
+          } catch (e) {
+            console.warn('Failed to parse RD results from localStorage:', e);
+          }
+        }
+      }
+
+      if (loadedResults) {
+        setResults(loadedResults);
+
+        // Load cached AI interpretation if it matches this analysis
+        const interpretationKey = projectId
+          ? `rdAiInterpretation_${projectId}`
+          : 'rdAiInterpretation';
+        const storedInterpretation = localStorage.getItem(interpretationKey);
+        if (storedInterpretation) {
+          try {
             const parsed = JSON.parse(storedInterpretation);
-            const params = parsedResults.parameters || {};
+            const params = loadedResults.parameters || {};
             const currentKey = JSON.stringify({
-              dataset_id: parsedResults.dataset_id,
+              dataset_id: loadedResults.dataset_id,
               running_var: params.running_var,
               outcome_var: params.outcome_var,
               cutoff: params.cutoff,
-              treatment_effect: parsedResults.results?.treatment_effect,
-              p_value: parsedResults.results?.p_value,
+              treatment_effect: loadedResults.results?.treatment_effect,
+              p_value: loadedResults.results?.p_value,
             });
             if (parsed.analysisKey === currentKey) {
               setAiInterpretation(parsed.interpretation);
             } else {
-              localStorage.removeItem('rdAiInterpretation');
+              localStorage.removeItem(interpretationKey);
             }
+          } catch {
+            localStorage.removeItem(interpretationKey);
           }
-        } catch (error) {
-          console.error('Error parsing stored results:', error);
         }
       } else {
         setAiInterpretation(null);
@@ -74,7 +118,7 @@ const RDResults: React.FC = () => {
     };
 
     loadResults();
-  }, []);
+  }, [accessToken, location.state, location.search]);
 
   const loadAIInterpretation = async () => {
     if (!results?.results || !results?.parameters) {
@@ -103,7 +147,12 @@ const RDResults: React.FC = () => {
         treatment_effect: results.results?.treatment_effect,
         p_value: results.results?.p_value,
       });
-      localStorage.setItem('rdAiInterpretation', JSON.stringify({
+      const projectId =
+        (location.state as any)?.projectId ||
+        parseInt(new URLSearchParams(location.search).get('projectId') || '0') ||
+        null;
+      const interpretationKey = projectId ? `rdAiInterpretation_${projectId}` : 'rdAiInterpretation';
+      localStorage.setItem(interpretationKey, JSON.stringify({
         analysisKey,
         interpretation,
         timestamp: new Date().toISOString(),

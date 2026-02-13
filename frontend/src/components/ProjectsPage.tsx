@@ -307,7 +307,8 @@ const ProjectsPage: React.FC = () => {
                       datasetId: project.datasets[0].id
                     };
                     const stepPath = projectStateService.getStepPath(step, project.selected_method);
-                    navigate(stepPath, { state: navState });
+                    const urlWithParams = `${stepPath}?projectId=${project.id}&datasetId=${project.datasets[0].id}`;
+                    navigate(urlWithParams, { state: navState });
                   }
                 }}
               />
