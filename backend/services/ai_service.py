@@ -10,6 +10,11 @@ import google.generativeai as genai
 from typing import Dict, Any, Optional
 
 
+def _safe_num(v: Any, default: float = 0) -> float:
+    """Coerce value for numeric formatting. Handles None from sanitize_for_json (NaN/Inf)."""
+    return default if v is None else v
+
+
 class CausalAIService:
     """
     Simplified AI service using direct Google Gemini API calls.
@@ -372,22 +377,23 @@ PARALLEL TRENDS ASSUMPTION:
         causal_question: Optional[str]
     ) -> Dict[str, Any]:
         """Interpret Regression Discontinuity analysis results."""
-        treatment_effect = results.get('treatment_effect', 0)
-        se = results.get('se', 0)
-        p_value = results.get('p_value', 1.0)
-        is_significant = results.get('is_significant', False)
-        ci_lower = results.get('ci_lower', 0)
-        ci_upper = results.get('ci_upper', 0)
-        n_treated = results.get('n_treated', 0)
-        n_control = results.get('n_control', 0)
-        bandwidth_used = results.get('bandwidth_used', 0)
-        polynomial_order = results.get('polynomial_order', 1)
-        warnings = results.get('warnings', [])
+        treatment_effect = _safe_num(results.get('treatment_effect'), 0)
+        se = _safe_num(results.get('se'), 0)
+        p_value = _safe_num(results.get('p_value'), 1.0)
+        is_significant = results.get('is_significant') if results.get('is_significant') is not None else False
+        ci_lower = _safe_num(results.get('ci_lower'), 0)
+        ci_upper = _safe_num(results.get('ci_upper'), 0)
+        n_treated = _safe_num(results.get('n_treated'), 0)
+        n_control = _safe_num(results.get('n_control'), 0)
+        bandwidth_used = _safe_num(results.get('bandwidth_used'), 0)
+        polynomial_order = results.get('polynomial_order')
+        polynomial_order = int(polynomial_order) if polynomial_order is not None else 1
+        warnings = results.get('warnings') or []
         
-        running_var = params.get('running_var', '?')
-        outcome_var = params.get('outcome_var', '?')
-        cutoff = params.get('cutoff', '?')
-        treatment_side = params.get('treatment_side', 'above')
+        running_var = params.get('running_var') or '?'
+        outcome_var = params.get('outcome_var') or '?'
+        cutoff = params.get('cutoff') if params.get('cutoff') is not None else '?'
+        treatment_side = params.get('treatment_side') or 'above'
         
         warn_str = f" Warnings:{warnings}" if warnings else ""
         
@@ -426,27 +432,31 @@ Return JSON only with these exact fields:
         causal_question: Optional[str]
     ) -> Dict[str, Any]:
         """Interpret Difference-in-Differences analysis results."""
-        did_estimate = results.get('did_estimate', 0)
-        standard_error = results.get('standard_error', 0)
-        p_value = results.get('p_value', 1.0)
-        is_significant = results.get('is_significant', False)
-        ci = results.get('confidence_interval', {})
-        ci_lower = ci.get('lower', 0)
-        ci_upper = ci.get('upper', 0)
-        stats = results.get('statistics', {})
+        did_estimate = _safe_num(results.get('did_estimate'), 0)
+        standard_error = _safe_num(results.get('standard_error'), 0)
+        p_value = _safe_num(results.get('p_value'), 1.0)
+        is_significant = results.get('is_significant') if results.get('is_significant') is not None else False
+        ci = results.get('confidence_interval') or {}
+        ci_lower = _safe_num(ci.get('lower'), 0)
+        ci_upper = _safe_num(ci.get('upper'), 0)
+        stats = results.get('statistics') or {}
         parallel_trends_test = results.get('parallel_trends_test')
         parallel_trends_passed = parallel_trends_test.get('passed') if parallel_trends_test else None
         parallel_trends_p_value = parallel_trends_test.get('p_value') if parallel_trends_test else None
         
+        n_total = _safe_num(stats.get('total_observations'), 0)
+        n_treated = _safe_num(stats.get('treated_units'), 0)
+        n_control = _safe_num(stats.get('control_units'), 0)
+        
         results_summary = (
             f"DiD: est={did_estimate:.2f}, se={standard_error:.2f}, p={p_value:.3f}, sig={is_significant}, "
-            f"CI[{ci_lower:.1f},{ci_upper:.1f}]. Y={params.get('outcome','?')}, D={params.get('treatment','?')}. "
-            f"N={stats.get('total_observations',0)}, T={stats.get('treated_units',0)}, C={stats.get('control_units',0)}"
+            f"CI[{ci_lower:.1f},{ci_upper:.1f}]. Y={params.get('outcome') or '?'}, D={params.get('treatment') or '?'}. "
+            f"N={n_total}, T={n_treated}, C={n_control}"
         )
         pt_info = ""
         if parallel_trends_test is not None:
             pt_status = "PASS" if parallel_trends_passed else "FAIL"
-            pt_info = f" PT:{pt_status}(p={parallel_trends_p_value:.2f})" if parallel_trends_p_value is not None else f" PT:{pt_status}"
+            pt_info = f" PT:{pt_status}(p={_safe_num(parallel_trends_p_value, 0):.2f})" if parallel_trends_p_value is not None else f" PT:{pt_status}"
         
         q = f"Q: {causal_question}\n" if causal_question else ""
         

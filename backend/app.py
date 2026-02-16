@@ -1,14 +1,16 @@
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from datetime import timedelta
 import os
+import logging
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
 app = Flask(__name__)
+logger = logging.getLogger(__name__)
 
 # --- CORS Configuration ---
 allowed_origins = os.environ.get('CORS_ORIGINS', 'http://localhost:3000')
@@ -92,6 +94,16 @@ app.register_blueprint(analysis_bp)
 app.register_blueprint(projects_bp)
 app.register_blueprint(datasets_bp)
 app.register_blueprint(ai_bp)
+
+
+@app.errorhandler(500)
+def handle_500(error):
+    """Avoid leaking internal error details in production."""
+    logger.exception("Unhandled server error")
+    is_debug = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
+    if is_debug:
+        return jsonify({"error": str(error)}), 500
+    return jsonify({"error": "An internal error occurred"}), 500
 
 
 @app.route('/')
