@@ -6,7 +6,10 @@ import BottomProgressBar from './BottomProgressBar';
 import { useProgressStep } from '../hooks/useProgressStep';
 import { useAuth } from '../contexts/AuthContext';
 import SearchableDropdown from './SearchableDropdown';
+import RDVariableSuggestions from './RDVariableSuggestions';
 import { projectStateService } from '../services/projectStateService';
+
+const COLLAPSE_THRESHOLD = 200;
 
 interface Variable {
   name: string;
@@ -43,6 +46,11 @@ const RDSetup: React.FC = () => {
   // Analysis state
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  // AI panel state
+  const [schemaInfo, setSchemaInfo] = useState<any>(null);
+  const [aiSidebarWidth, setAiSidebarWidth] = useState(420);
+  const [isResizing, setIsResizing] = useState(false);
 
   useEffect(() => {
     const loadDatasetVariables = async () => {
@@ -128,6 +136,7 @@ const RDSetup: React.FC = () => {
         );
 
         const schemaData = schemaResponse.data;
+        setSchemaInfo(schemaData);
 
         // Transform schema data to our variable format
         const variablesFromSchema = schemaData.columns.map((col: any) => ({
@@ -155,6 +164,60 @@ const RDSetup: React.FC = () => {
   const canProceed = Boolean(
     runningVar && cutoff && outcomeVar && !isNaN(parseFloat(cutoff))
   );
+
+  const handleApplySuggestions = (suggestions: {
+    runningVar?: string;
+    outcomeVar?: string;
+    cutoff?: string;
+    treatmentSide?: 'above' | 'below';
+  }) => {
+    if (suggestions.runningVar) setRunningVar(suggestions.runningVar);
+    if (suggestions.outcomeVar) setOutcomeVar(suggestions.outcomeVar);
+    if (suggestions.cutoff != null) setCutoff(suggestions.cutoff);
+    if (suggestions.treatmentSide) setTreatmentSide(suggestions.treatmentSide);
+  };
+
+  // Resize handlers for AI sidebar
+  useEffect(() => {
+    let lastWidth = aiSidebarWidth;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      const container = document.querySelector('[data-rd-setup-layout]') as HTMLElement;
+      if (!container) return;
+      const containerRect = container.getBoundingClientRect();
+      const newWidth = containerRect.right - e.clientX;
+      const minWidth = COLLAPSE_THRESHOLD;
+      const maxWidth = 800;
+      const constrainedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+      lastWidth = constrainedWidth;
+      setAiSidebarWidth(constrainedWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
+
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+  };
 
   const handleRunAnalysis = async () => {
     if (!canProceed) return;
@@ -277,7 +340,9 @@ const RDSetup: React.FC = () => {
           </p>
         </div>
 
-        <div style={styles.mainContent}>
+        <div style={styles.mainContent} data-rd-setup-layout>
+          <div style={styles.contentWrapper}>
+            <div style={styles.leftContent}>
           <div style={styles.cardsContainer}>
             {/* Card 1: Running Variable */}
             <div style={styles.card}>
@@ -456,6 +521,51 @@ const RDSetup: React.FC = () => {
               {analyzing ? 'Running Analysis...' : 'Run RD Analysis'}
             </button>
           </div>
+            </div>
+
+            {/* AI Variable Suggestions Sidebar */}
+            {schemaInfo && (
+              <div
+                style={{
+                  ...styles.aiSidebar,
+                  width: `${aiSidebarWidth}px`,
+                  flex: `0 0 ${aiSidebarWidth}px`,
+                  position: 'sticky' as const,
+                  top: '90px',
+                  overflow: 'visible' as const,
+                }}
+              >
+                <div
+                  onMouseDown={handleResizeStart}
+                  style={{
+                    position: 'absolute',
+                    left: '-4px',
+                    top: 0,
+                    bottom: 0,
+                    width: '8px',
+                    cursor: 'col-resize',
+                    zIndex: 10,
+                    backgroundColor: isResizing ? 'rgba(79, 156, 249, 0.3)' : 'transparent',
+                    borderLeft: isResizing ? '2px solid #4F9CF9' : 'none',
+                  }}
+                  title="Drag to resize"
+                />
+                <div
+                  style={{
+                    maxHeight: 'calc(100vh - 200px)',
+                    overflowY: 'auto' as const,
+                    overflowX: 'hidden' as const,
+                    boxSizing: 'border-box' as const,
+                  }}
+                >
+                  <RDVariableSuggestions
+                    schemaInfo={schemaInfo}
+                    onApplySuggestions={handleApplySuggestions}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -559,9 +669,26 @@ const styles = {
     margin: 0,
   },
   mainContent: {
-    maxWidth: '800px',
+    maxWidth: '1400px',
     margin: '0 auto',
     padding: '0 20px',
+  },
+  contentWrapper: {
+    display: 'flex',
+    gap: '20px',
+    alignItems: 'flex-start',
+    position: 'relative' as const,
+    overflow: 'visible' as const,
+  },
+  leftContent: {
+    flex: '1',
+    minWidth: 0,
+  },
+  aiSidebar: {
+    flexShrink: 0,
+    position: 'relative' as const,
+    marginRight: '0',
+    zIndex: 1,
   },
   cardsContainer: {
     display: 'flex',

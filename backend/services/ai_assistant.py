@@ -195,7 +195,67 @@ Respond with JSON only:
 
         response = self._call_gemini(prompt)
         return self._parse_json_response(response)
-    
+
+    def suggest_rd_variable_roles(
+        self,
+        schema_info: Dict[str, Any],
+        causal_question: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Suggest which variables should be used for RD analysis: running variable, outcome, cutoff, treatment side.
+        """
+        question_context = f"\nUser's causal question: {causal_question}" if causal_question else ""
+
+        prompt = f"""You are a causal inference expert helping a user set up their Regression Discontinuity (RD) analysis.
+{question_context}
+
+Dataset columns:
+{json.dumps(schema_info.get('columns', []), indent=2)}
+
+RD requires THREE main inputs (different from DiD - no treatment/time/unit variables):
+1. RUNNING VARIABLE: The numeric variable that determines treatment assignment (e.g., test score, age, income, distance). MUST be numeric/continuous.
+2. CUTOFF THRESHOLD: A value on the running variable where treatment assignment changes. Suggest a plausible value based on variable semantics (e.g., test_score->70 for passing, age->18 for adulthood).
+3. OUTCOME VARIABLE: The variable being studied (e.g., earnings, GPA, sales). MUST be numeric/continuous.
+
+Additionally: Treatment side ("above" or "below") indicates which side of the cutoff receives treatment.
+
+INSTRUCTIONS:
+1. Suggest the best Running Variable (must be numeric).
+2. Suggest a plausible Cutoff Threshold value. If uncertain, use "user to specify".
+3. Suggest the best Outcome Variable based on the logical relationship of a variable with the running variable and the cutoff threshold. Consider the column names and types. If the variable is not numeric/continuous, suggest a numeric/continuous variable that is logically related to the running variable and the cutoff threshold.
+4. Suggest treatment_side: "above" or "below" based on typical policy designs. "Above" means the treatment is given to the units above the cutoff threshold. "Below" means the treatment is given to the units below the cutoff threshold.
+5. Be humble: You are guessing from column names/types. State assumptions clearly.
+6. Provide 1-2 alternative choices for running_var and outcome_var if applicable.
+7. Justify selections based on data type and inferred meaning.
+
+Respond with JSON only:
+{{
+    "running_var_suggestions": [
+        {{"column": "name", "confidence": 0-1, "reasoning": "reason", "assumptions": "assumptions"}}
+    ],
+    "outcome_var_suggestions": [
+        {{"column": "name", "confidence": 0-1, "reasoning": "reason", "assumptions": "assumptions"}}
+    ],
+    "cutoff_suggestion": {{
+        "value": 70,
+        "reasoning": "reason (e.g., 70 is common passing threshold for test scores)",
+        "assumptions": "assumptions"
+    }},
+    "treatment_side_suggestion": {{
+        "value": "above",
+        "reasoning": "reason"
+    }},
+    "alternative_options": {{
+        "running_var": ["alt1"],
+        "outcome_var": ["alt1"]
+    }},
+    "warnings": ["any concerns or caveats"],
+    "explanation": "Brief explanation of your selections"
+}}"""
+
+        response = self._call_gemini(prompt)
+        return self._parse_json_response(response)
+
     def recommend_method(
         self,
         data_description: Dict[str, Any],
