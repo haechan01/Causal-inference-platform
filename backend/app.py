@@ -3,7 +3,7 @@ from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from datetime import timedelta
 import os
-from dotenv import load_dotenv 
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
@@ -42,25 +42,36 @@ app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(seconds=int(JWT_REFRESH_TOKE
 jwt = JWTManager(app)
 
 # --- Database Configuration ---
+# Option 1: Use DATABASE_URL (recommended for Supabase)
+# Supabase: Project Settings → Database → Connection string (URI)
+# Format: postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+# Option 2: Use individual DB_* variables (for local PostgreSQL)
 DB_USER = os.environ.get('DB_USER')
 DB_PASSWORD = os.environ.get('DB_PASSWORD')
 DB_HOST = os.environ.get('DB_HOST', 'localhost')
 DB_PORT = os.environ.get('DB_PORT', '5432')
 DB_NAME = os.environ.get('DB_NAME')
 
-# Validate required database environment variables
-if not DB_USER:
-    raise ValueError("DB_USER environment variable is not set")
-if not DB_PASSWORD:
-    raise ValueError("DB_PASSWORD environment variable is not set")
-if not DB_NAME:
-    raise ValueError("DB_NAME environment variable is not set")
-
-# Configure PostgreSQL database
-app.config['SQLALCHEMY_DATABASE_URI'] = (
-    f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:"
-    f"{DB_PORT}/{DB_NAME}"
-)
+if DATABASE_URL:
+    # Use Supabase or any PostgreSQL connection string directly
+    # Supabase pooler uses port 6543; replace postgres:// with postgresql:// if needed
+    db_uri = DATABASE_URL
+    if db_uri.startswith('postgres://'):
+        db_uri = db_uri.replace('postgres://', 'postgresql://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
+elif DB_USER and DB_PASSWORD and DB_NAME:
+    # Fall back to individual variables (local PostgreSQL)
+    app.config['SQLALCHEMY_DATABASE_URI'] = (
+        f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:"
+        f"{DB_PORT}/{DB_NAME}"
+    )
+else:
+    raise ValueError(
+        "Database not configured. Set either DATABASE_URL (for Supabase) or "
+        "DB_USER, DB_PASSWORD, and DB_NAME (for local PostgreSQL)."
+    )
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Import db from models and initialize it
@@ -98,4 +109,5 @@ def health():
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()  # Create tables
-    app.run(debug=True, port=5001)
+    port = int(os.getenv('PORT', 5001))
+    app.run(host='0.0.0.0', port=port, debug=True)
