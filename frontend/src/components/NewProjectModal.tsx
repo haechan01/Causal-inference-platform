@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 
@@ -32,21 +32,7 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({
   const [loadingDatasets, setLoadingDatasets] = useState(false);
   const [selectedDatasetId, setSelectedDatasetId] = useState<number | null>(null);
 
-  // Load user's datasets when modal opens
-  useEffect(() => {
-    if (isOpen && accessToken) {
-      loadDatasets();
-    }
-  }, [isOpen, accessToken]);
-
-  // Set pre-selected dataset when provided
-  useEffect(() => {
-    if (preSelectedDatasetId) {
-      setSelectedDatasetId(preSelectedDatasetId);
-    }
-  }, [preSelectedDatasetId]);
-
-  const loadDatasets = async () => {
+  const loadDatasets = useCallback(async () => {
     setLoadingDatasets(true);
     try {
       const response = await axios.get('/projects/user/datasets', {
@@ -58,7 +44,21 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({
     } finally {
       setLoadingDatasets(false);
     }
-  };
+  }, [accessToken]);
+
+  // Load user's datasets when modal opens
+  useEffect(() => {
+    if (isOpen && accessToken) {
+      loadDatasets();
+    }
+  }, [isOpen, accessToken, loadDatasets]);
+
+  // Set pre-selected dataset when provided
+  useEffect(() => {
+    if (preSelectedDatasetId) {
+      setSelectedDatasetId(preSelectedDatasetId);
+    }
+  }, [preSelectedDatasetId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

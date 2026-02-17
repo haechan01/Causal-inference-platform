@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { LoginButton, SignUpButton, ProfileButton, LogoutButton, Logo } from './buttons';
+import { LoginButton, SignUpButton, LogoutButton, Logo } from './buttons';
 
 const Navbar: React.FC = () => {
     const { isAuthenticated } = useAuth();

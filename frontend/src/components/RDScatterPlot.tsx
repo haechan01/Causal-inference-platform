@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  ScatterChart,
   Scatter,
-  LineChart,
   Line,
   XAxis,
   YAxis,
@@ -145,7 +143,7 @@ const RDScatterPlot: React.FC<RDScatterPlotProps> = ({
     if (accessToken && datasetId) {
       fetchDataAndFit();
     }
-  }, [accessToken, datasetId, runningVar, outcomeVar, cutoff, bandwidth, polynomialOrder]);
+  }, [accessToken, datasetId, runningVar, outcomeVar, cutoff, bandwidth, polynomialOrder, treatmentSide]);
 
   // Simple polynomial regression fit for visualization
   const fitPolynomial = (

@@ -1,5 +1,5 @@
 // src/contexts/AuthContext.tsx
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import axios from 'axios';
 
 // API base URL - use REACT_APP_API_URL in production, fallback to localhost for dev
@@ -111,7 +111,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       axios.interceptors.request.eject(requestInterceptor);
       axios.interceptors.response.eject(responseInterceptor);
     };
-  }, [accessToken]);
+  }, [accessToken, refreshAccessToken, logout]);
 
   // Load authentication state from localStorage on app start
   useEffect(() => {
@@ -221,7 +221,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   // Logout function
-  const logout = (): void => {
+  const logout = useCallback((): void => {
     // Clear localStorage
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
@@ -230,10 +230,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setUser(null);
     setAccessToken(null);
     setRefreshToken(null);
-  };
+  }, []);
 
   // Refresh access token function
-  const refreshAccessToken = async (): Promise<void> => {
+  const refreshAccessToken = useCallback(async (): Promise<void> => {
     if (!refreshToken) {
       throw new Error('No refresh token available');
     }
@@ -254,7 +254,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       logout();
       throw error;
     }
-  };
+  }, [refreshToken, logout]);
 
   // Create the context value
   const value: AuthContextType = {
