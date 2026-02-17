@@ -14,8 +14,10 @@ RUN npm install
 COPY . .
 
 # Build-time API URL (override via --build-arg when using docker-compose)
+# If .env.production exists, it will be used automatically by react-scripts
 ARG REACT_APP_API_URL=http://localhost:5001/api
 ENV REACT_APP_API_URL=$REACT_APP_API_URL
+ENV NODE_ENV=production
 
 RUN npm run build
 

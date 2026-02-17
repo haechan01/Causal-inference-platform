@@ -92,14 +92,14 @@ def handle_500(error):
 
 @app.route('/')
 def index():
-    return "Hello, Causalytics AI is running!"
+    return "Hello, Causal Studio AI is running!"
 
 
 @app.route('/health')
 def health():
     return {
         "status": "healthy",
-        "message": "Causalytics API is running"
+        "message": "Causal Studio API is running"
     }
 
 if __name__ == "__main__":

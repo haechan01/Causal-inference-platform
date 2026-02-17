@@ -1,4 +1,4 @@
-# Causalytics Backend API
+# Causal Studio Backend API
 
 A Flask-based REST API with JWT authentication for causal analysis platform.
 

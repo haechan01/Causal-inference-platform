@@ -17,6 +17,7 @@ services:
       dockerfile: Dockerfile
       args:
         # API URL as seen from the browser (user's machine)
+        # For production with Railway backend, use: https://causal-studio-production.up.railway.app/api
         REACT_APP_API_URL: http://localhost:5001/api
     ports:
       - "3000:80"
