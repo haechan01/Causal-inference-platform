@@ -14,7 +14,14 @@ logger = logging.getLogger(__name__)
 
 # --- CORS Configuration ---
 allowed_origins = os.environ.get('CORS_ORIGINS', 'http://localhost:3000')
-CORS(app, origins=allowed_origins.split(','))
+# Split by comma and strip whitespace from each origin
+origins_list = [origin.strip() for origin in allowed_origins.split(',') if origin.strip()]
+logger.info(f"CORS allowed origins: {origins_list}")
+CORS(app, 
+     origins=origins_list,
+     supports_credentials=True,
+     allow_headers=['Content-Type', 'Authorization'],
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'])
 
 # --- Flask Configuration ---
 SECRET_KEY = os.environ.get('SECRET_KEY')
