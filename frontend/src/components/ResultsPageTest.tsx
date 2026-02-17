@@ -1,7 +1,6 @@
 import React from 'react';
 
 const ResultsPageTest: React.FC = () => {
-    console.log("=== RESULTS PAGE TEST COMPONENT LOADED ===");
     
     return (
         <div>

@@ -145,7 +145,6 @@ const VariableSelectionPage: React.FC = () => {
           ? datasets.find((d: any) => d.id === datasetId) || datasets[0]
           : datasets[0];
 
-        console.log('Selected dataset:', dataset);
         setSelectedDataset(dataset);
 
         // Load dataset schema/variables
@@ -342,12 +341,6 @@ ALWAYS BE PRECISE: Use the exact variable names from the parameters, never subst
         summary: dataSummary
       } : undefined;
 
-      // DEBUG: Log what we're sending to AI
-      console.log('=== AI CHAT DEBUG ===');
-      console.log('User message:', message);
-      console.log('Analysis Context:', JSON.stringify(analysisContext, null, 2));
-      console.log('Dataset Info:', datasetInfo ? `${datasetInfo.name} with ${datasetInfo.columns?.length} columns` : 'undefined');
-      console.log('====================');
 
       // Call chat API with aiService
       const response = await aiService.chat(
