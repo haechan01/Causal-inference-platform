@@ -284,8 +284,9 @@ const RDSetup: React.FC = () => {
         }
       }
 
-      // Navigate to results page
-      navigate('/rd-results', {
+      // Navigate to results page (include query params so results load when URL is bookmarked or opened in new tab)
+      const urlWithParams = `/rd-results?projectId=${projectId}&datasetId=${selectedDataset.id}`;
+      navigate(urlWithParams, {
         state: { projectId, datasetId: selectedDataset.id },
       });
     } catch (error: any) {
