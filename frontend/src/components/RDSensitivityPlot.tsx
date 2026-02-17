@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  LineChart,
   Line,
   XAxis,
   YAxis,
@@ -48,7 +47,6 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
   const [data, setData] = useState<SensitivityResult[]>([]);
   const [stabilityCoefficient, setStabilityCoefficient] = useState<number | null>(null);
   const [stabilityStd, setStabilityStd] = useState<number | null>(null);
-  const [stabilityRange, setStabilityRange] = useState<number | null>(null);
   const [interpretation, setInterpretation] = useState<any>(null);
 
   useEffect(() => {
@@ -79,7 +77,6 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
         setData(validResults);
         setStabilityCoefficient(response.data.stability_coefficient);
         setStabilityStd(response.data.stability_std);
-        setStabilityRange(response.data.stability_range);
         setInterpretation(response.data.interpretation);
       } catch (err: any) {
         console.error('Error fetching sensitivity analysis:', err);
