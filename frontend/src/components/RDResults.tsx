@@ -272,7 +272,10 @@ const RDResults: React.FC = () => {
 
   const handleOpenAiSection = () => {
     setIsAiSidebarCollapsed(false);
-    if (aiSidebarWidth <= COLLAPSE_THRESHOLD) setAiSidebarWidth(480);
+    // Always reset width when reopening: after drag-collapse, aiSidebarWidth is never
+    // updated (setAiSidebarWidth is only called when constrainedWidth > COLLAPSE_THRESHOLD),
+    // so aiSidebarWidth <= COLLAPSE_THRESHOLD would never pass. Reset to default.
+    setAiSidebarWidth(480);
   };
 
   const handleSendMessage = async () => {
