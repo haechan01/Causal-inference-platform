@@ -1,0 +1,25 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    env_file:
+      - ./backend/.env
+    environment:
+      - PORT=5001
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:80
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # API URL as seen from the browser (user's machine)
+        REACT_APP_API_URL: http://localhost:5001/api
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+

@@ -42,26 +42,36 @@ app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(seconds=int(JWT_REFRESH_TOKE
 jwt = JWTManager(app)
 
 # --- Database Configuration ---
+# Option 1: Supabase (use DATABASE_URL from Supabase Dashboard)
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+# Option 2: Local PostgreSQL (DB_USER, DB_PASSWORD, DB_NAME)
 DB_USER = os.environ.get('DB_USER')
 DB_PASSWORD = os.environ.get('DB_PASSWORD')
 DB_HOST = os.environ.get('DB_HOST', 'localhost')
 DB_PORT = os.environ.get('DB_PORT', '5432')
 DB_NAME = os.environ.get('DB_NAME')
 
-# Validate required database environment variables
-if not DB_USER:
-    raise ValueError("DB_USER environment variable is not set")
-if not DB_PASSWORD:
-    raise ValueError("DB_PASSWORD environment variable is not set")
-if not DB_NAME:
-    raise ValueError("DB_NAME environment variable is not set")
-
-# Configure PostgreSQL database
-app.config['SQLALCHEMY_DATABASE_URI'] = (
-    f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:"
-    f"{DB_PORT}/{DB_NAME}"
-)
+if DATABASE_URL:
+    db_uri = DATABASE_URL
+    if db_uri.startswith('postgres://'):
+        db_uri = db_uri.replace('postgres://', 'postgresql://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
+elif DB_USER and DB_PASSWORD and DB_NAME:
+    app.config['SQLALCHEMY_DATABASE_URI'] = (
+        f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:"
+        f"{DB_PORT}/{DB_NAME}"
+    )
+else:
+    raise ValueError(
+        "Database not configured. Set DATABASE_URL (Supabase) or "
+        "DB_USER, DB_PASSWORD, and DB_NAME (local PostgreSQL)."
+    )
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,   # Test connections before use
+    'pool_recycle': 300,     # Recycle connections every 5 min
+}
 
 # Import db from models and initialize it
 from models import db  # noqa: E402
