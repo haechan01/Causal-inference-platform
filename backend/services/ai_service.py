@@ -3,16 +3,25 @@ Simplified AI Service - Direct Google Gemini API Calls
 Focused on results interpretation for causal analysis
 """
 
+import json
+import math
 import os
 import sys
-import json
 import google.generativeai as genai
 from typing import Dict, Any, Optional
 
 
 def _safe_num(v: Any, default: float = 0) -> float:
-    """Coerce value for numeric formatting. Handles None from sanitize_for_json (NaN/Inf)."""
-    return default if v is None else v
+    """Coerce value for numeric formatting. Handles None, NaN, Inf, and non-numeric from sanitize_for_json."""
+    if v is None:
+        return default
+    try:
+        n = float(v)
+        if math.isnan(n) or math.isinf(n):
+            return default
+        return n
+    except (TypeError, ValueError):
+        return default
 
 
 class CausalAIService:

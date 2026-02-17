@@ -1174,12 +1174,6 @@ const styles = {
     color: '#043873',
     margin: 0,
   },
-  aiSectionTitle: {
-    fontSize: '20px',
-    fontWeight: 'bold',
-    color: '#043873',
-    margin: 0,
-  },
   getAiButton: {
     backgroundColor: '#6366f1',
     color: 'white',

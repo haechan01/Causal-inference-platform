@@ -179,8 +179,6 @@ const RDSetup: React.FC = () => {
 
   // Resize handlers for AI sidebar
   useEffect(() => {
-    let lastWidth = aiSidebarWidth;
-
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
       const container = document.querySelector('[data-rd-setup-layout]') as HTMLElement;
@@ -190,7 +188,6 @@ const RDSetup: React.FC = () => {
       const minWidth = COLLAPSE_THRESHOLD;
       const maxWidth = 800;
       const constrainedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
-      lastWidth = constrainedWidth;
       setAiSidebarWidth(constrainedWidth);
     };
 
@@ -285,7 +282,10 @@ const RDSetup: React.FC = () => {
       }
 
       // Navigate to results page (include query params so results load when URL is bookmarked or opened in new tab)
-      const urlWithParams = `/rd-results?projectId=${projectId}&datasetId=${selectedDataset.id}`;
+      const params = new URLSearchParams();
+      if (projectId != null) params.set('projectId', String(projectId));
+      params.set('datasetId', String(selectedDataset.id));
+      const urlWithParams = `/rd-results?${params.toString()}`;
       navigate(urlWithParams, {
         state: { projectId, datasetId: selectedDataset.id },
       });
