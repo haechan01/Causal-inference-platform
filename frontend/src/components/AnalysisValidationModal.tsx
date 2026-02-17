@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
 interface ValidationResult {
@@ -43,13 +43,7 @@ const AnalysisValidationModal: React.FC<Props> = ({
     }
   };
 
-  useEffect(() => {
-    if (isOpen) {
-      validateSetup();
-    }
-  }, [isOpen, parameters]);
-
-  const validateSetup = async () => {
+  const validateSetup = useCallback(async () => {
     setLoading(true);
     try {
       const response = await axios.post('/ai/validate-setup', {
@@ -69,7 +63,13 @@ const AnalysisValidationModal: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [parameters, dataSummary]);
+
+  useEffect(() => {
+    if (isOpen) {
+      validateSetup();
+    }
+  }, [isOpen, parameters, validateSetup]);
 
   if (!isOpen) return null;
 
