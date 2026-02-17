@@ -47,6 +47,42 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Check if user is authenticated
   const isAuthenticated = !!user && !!accessToken;
 
+  // Logout function
+  const logout = useCallback((): void => {
+    // Clear localStorage
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    
+    // Clear state
+    setUser(null);
+    setAccessToken(null);
+    setRefreshToken(null);
+  }, []);
+
+  // Refresh access token function
+  const refreshAccessToken = useCallback(async (): Promise<void> => {
+    if (!refreshToken) {
+      throw new Error('No refresh token available');
+    }
+
+    try {
+      const response = await authAxios.post('/auth/refresh', {}, {
+        headers: { Authorization: `Bearer ${refreshToken}` }
+      });
+
+      const { access_token } = response.data;
+      
+      // Update stored token
+      localStorage.setItem('accessToken', access_token);
+      setAccessToken(access_token);
+      
+    } catch (error) {
+      // Refresh failed, logout user
+      logout();
+      throw error;
+    }
+  }, [refreshToken, logout]);
+
   // Function to set up axios interceptors for automatic token refresh
   useEffect(() => {
     // Request interceptor - adds token to all requests except auth endpoints
@@ -219,42 +255,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsLoading(false);
     }
   };
-
-  // Logout function
-  const logout = useCallback((): void => {
-    // Clear localStorage
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    
-    // Clear state
-    setUser(null);
-    setAccessToken(null);
-    setRefreshToken(null);
-  }, []);
-
-  // Refresh access token function
-  const refreshAccessToken = useCallback(async (): Promise<void> => {
-    if (!refreshToken) {
-      throw new Error('No refresh token available');
-    }
-
-    try {
-      const response = await authAxios.post('/auth/refresh', {}, {
-        headers: { Authorization: `Bearer ${refreshToken}` }
-      });
-
-      const { access_token } = response.data;
-      
-      // Update stored token
-      localStorage.setItem('accessToken', access_token);
-      setAccessToken(access_token);
-      
-    } catch (error) {
-      // Refresh failed, logout user
-      logout();
-      throw error;
-    }
-  }, [refreshToken, logout]);
 
   // Create the context value
   const value: AuthContextType = {
