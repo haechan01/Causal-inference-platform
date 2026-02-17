@@ -193,13 +193,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setAccessToken(null);
       setRefreshToken(null);
       
-      console.log('Making login request with authAxios...');
-      console.log('Request data:', { email, password });
+
       const response = await authAxios.post('/auth/login', {
         email,
         password
       });
-      console.log('Login response:', response.data);
 
       const { user: userData, access_token, refresh_token } = response.data;
       

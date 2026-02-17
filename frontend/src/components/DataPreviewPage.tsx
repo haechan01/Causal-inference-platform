@@ -24,7 +24,6 @@ const DataPreviewPage: React.FC<DataPreviewProps> = () => {
     const loadPreview = async () => {
       const projectId = (location.state as any)?.projectId;
       if (!projectId) {
-        console.log('No projectId found in location state');
         setLoading(false);
         return;
       }

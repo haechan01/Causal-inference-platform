@@ -35,7 +35,6 @@ const DataManagement: React.FC<DataManagementProps> = ({ onReadyForNext }) => {
   // Handle successful file upload
   const handleUploadSuccess = (uploadedFile: any) => {
     // File upload was successful, FileList will refresh automatically
-    console.log('File uploaded successfully:', uploadedFile);
     setHasUploadedFiles(true);
   };
 
