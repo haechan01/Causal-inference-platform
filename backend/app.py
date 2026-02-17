@@ -42,31 +42,16 @@ app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(seconds=int(JWT_REFRESH_TOKE
 jwt = JWTManager(app)
 
 # --- Database Configuration ---
-# Option 1: Supabase (use DATABASE_URL from Supabase Dashboard)
+# Supabase: Project Settings → Database → Connection string (URI)
+# Use the "Transaction" pooler (port 6543)
 DATABASE_URL = os.environ.get('DATABASE_URL')
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is not set (Supabase connection string)")
 
-# Option 2: Local PostgreSQL (DB_USER, DB_PASSWORD, DB_NAME)
-DB_USER = os.environ.get('DB_USER')
-DB_PASSWORD = os.environ.get('DB_PASSWORD')
-DB_HOST = os.environ.get('DB_HOST', 'localhost')
-DB_PORT = os.environ.get('DB_PORT', '5432')
-DB_NAME = os.environ.get('DB_NAME')
-
-if DATABASE_URL:
-    db_uri = DATABASE_URL
-    if db_uri.startswith('postgres://'):
-        db_uri = db_uri.replace('postgres://', 'postgresql://', 1)
-    app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
-elif DB_USER and DB_PASSWORD and DB_NAME:
-    app.config['SQLALCHEMY_DATABASE_URI'] = (
-        f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:"
-        f"{DB_PORT}/{DB_NAME}"
-    )
-else:
-    raise ValueError(
-        "Database not configured. Set DATABASE_URL (Supabase) or "
-        "DB_USER, DB_PASSWORD, and DB_NAME (local PostgreSQL)."
-    )
+db_uri = DATABASE_URL
+if db_uri.startswith('postgres://'):
+    db_uri = db_uri.replace('postgres://', 'postgresql://', 1)
+app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_pre_ping': True,   # Test connections before use
