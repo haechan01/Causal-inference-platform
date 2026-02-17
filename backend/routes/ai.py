@@ -224,12 +224,16 @@ def suggest_variables():
         data = request.get_json()
         schema_info = data.get('schema_info')
         causal_question = data.get('causal_question')
+        method = data.get('method', 'did')  # 'did' or 'rd'
         
         if not schema_info:
             return jsonify({"error": "schema_info is required"}), 400
         
         assistant = get_ai_assistant()
-        suggestions = assistant.suggest_variable_roles(schema_info, causal_question)
+        if method == 'rd':
+            suggestions = assistant.suggest_rd_variable_roles(schema_info, causal_question)
+        else:
+            suggestions = assistant.suggest_variable_roles(schema_info, causal_question)
         
         return jsonify(suggestions), 200
     except Exception as e:

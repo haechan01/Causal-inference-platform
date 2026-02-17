@@ -2,9 +2,12 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import axios from 'axios';
 
+// API base URL - use REACT_APP_API_URL in production, fallback to localhost for dev
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+
 // Create a separate axios instance for auth requests without interceptors
 const authAxios = axios.create({
-  baseURL: 'http://localhost:5001/api'
+  baseURL: API_BASE_URL
 });
 
 // Define the shape of our user data
@@ -29,9 +32,6 @@ interface AuthContextType {
 
 // Create the context with default values
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// API base URL - this should match your Flask backend
-const API_BASE_URL = 'http://localhost:5001/api';
 
 // Configure axios defaults
 axios.defaults.baseURL = API_BASE_URL;
