@@ -209,14 +209,15 @@ const InteractiveEventStudyChart: React.FC<InteractiveEventStudyChartProps> = ({
             }}
           />
           <Tooltip
-            formatter={(value: number, name: string, props: any) => {
-              if (name === 'coefficient') {
+            formatter={(value: number | undefined, name?: string, props?: any) => {
+              if (value == null) return [value, name ?? ''];
+              if (name === 'coefficient' && props?.payload?.ciLower != null && props?.payload?.ciUpper != null) {
                 return [
                   `${value.toFixed(4)} [${props.payload.ciLower.toFixed(4)}, ${props.payload.ciUpper.toFixed(4)}]`,
                   'Coefficient (95% CI)'
                 ];
               }
-              return [value, name];
+              return [value, name ?? ''];
             }}
             labelFormatter={(label) => `Time: ${label}`}
           />
