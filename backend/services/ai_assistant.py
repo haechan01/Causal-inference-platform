@@ -195,7 +195,67 @@ Respond with JSON only:
 
         response = self._call_gemini(prompt)
         return self._parse_json_response(response)
-    
+
+    def suggest_rd_variable_roles(
+        self,
+        schema_info: Dict[str, Any],
+        causal_question: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Suggest which variables should be used for RD analysis: running variable, outcome, cutoff, treatment side.
+        """
+        question_context = f"\nUser's causal question: {causal_question}" if causal_question else ""
+
+        prompt = f"""You are a causal inference expert helping a user set up their Regression Discontinuity (RD) analysis.
+{question_context}
+
+Dataset columns:
+{json.dumps(schema_info.get('columns', []), indent=2)}
+
+RD requires THREE main inputs (different from DiD - no treatment/time/unit variables):
+1. RUNNING VARIABLE: The numeric variable that determines treatment assignment (e.g., test score, age, income, distance). MUST be numeric/continuous.
+2. CUTOFF THRESHOLD: A value on the running variable where treatment assignment changes. Suggest a plausible value based on variable semantics (e.g., test_score->70 for passing, age->18 for adulthood).
+3. OUTCOME VARIABLE: The variable being studied (e.g., earnings, GPA, sales). MUST be numeric/continuous.
+
+Additionally: Treatment side ("above" or "below") indicates which side of the cutoff receives treatment.
+
+INSTRUCTIONS:
+1. Suggest the best Running Variable (must be numeric).
+2. Suggest a plausible Cutoff Threshold value. If uncertain, use "user to specify".
+3. Suggest the best Outcome Variable based on the logical relationship of a variable with the running variable and the cutoff threshold. Consider the column names and types. If the variable is not numeric/continuous, suggest a numeric/continuous variable that is logically related to the running variable and the cutoff threshold.
+4. Suggest treatment_side: "above" or "below" based on typical policy designs. "Above" means the treatment is given to the units above the cutoff threshold. "Below" means the treatment is given to the units below the cutoff threshold.
+5. Be humble: You are guessing from column names/types. State assumptions clearly.
+6. Provide 1-2 alternative choices for running_var and outcome_var if applicable.
+7. Justify selections based on data type and inferred meaning.
+
+Respond with JSON only:
+{{
+    "running_var_suggestions": [
+        {{"column": "name", "confidence": 0-1, "reasoning": "reason", "assumptions": "assumptions"}}
+    ],
+    "outcome_var_suggestions": [
+        {{"column": "name", "confidence": 0-1, "reasoning": "reason", "assumptions": "assumptions"}}
+    ],
+    "cutoff_suggestion": {{
+        "value": 70,
+        "reasoning": "reason (e.g., 70 is common passing threshold for test scores)",
+        "assumptions": "assumptions"
+    }},
+    "treatment_side_suggestion": {{
+        "value": "above",
+        "reasoning": "reason"
+    }},
+    "alternative_options": {{
+        "running_var": ["alt1"],
+        "outcome_var": ["alt1"]
+    }},
+    "warnings": ["any concerns or caveats"],
+    "explanation": "Brief explanation of your selections"
+}}"""
+
+        response = self._call_gemini(prompt)
+        return self._parse_json_response(response)
+
     def recommend_method(
         self,
         data_description: Dict[str, Any],
@@ -398,30 +458,59 @@ Respond with JSON only:
             if analysis_context.get('parameters'):
                 params = analysis_context['parameters']
                 context_parts.append(f"Current Analysis Parameters:")
-                context_parts.append(f"- Outcome: {params.get('outcome', 'N/A')}")
-                context_parts.append(f"- Treatment: {params.get('treatment', 'N/A')}")
-                context_parts.append(f"- Time variable: {params.get('time', 'N/A')}")
+                # DiD parameters
+                if params.get('outcome'):
+                    context_parts.append(f"- Outcome: {params.get('outcome', 'N/A')}")
+                if params.get('treatment'):
+                    context_parts.append(f"- Treatment: {params.get('treatment', 'N/A')}")
+                if params.get('time'):
+                    context_parts.append(f"- Time variable: {params.get('time', 'N/A')}")
                 if params.get('treatment_start'):
                     context_parts.append(f"- Treatment start: {params.get('treatment_start', 'N/A')}")
                 if params.get('unit'):
                     context_parts.append(f"- Unit variable: {params.get('unit', 'N/A')}")
                 if params.get('controls'):
                     context_parts.append(f"- Control variables: {', '.join(params.get('controls', []))}")
+                # RD parameters
+                if params.get('running_var'):
+                    context_parts.append(f"- Running variable: {params.get('running_var', 'N/A')}")
+                if params.get('outcome_var'):
+                    context_parts.append(f"- Outcome variable: {params.get('outcome_var', 'N/A')}")
+                if params.get('cutoff') is not None:
+                    context_parts.append(f"- Cutoff: {params.get('cutoff', 'N/A')}")
+                if params.get('treatment_side'):
+                    context_parts.append(f"- Treatment side: {params.get('treatment_side', 'N/A')}")
             
             if analysis_context.get('results'):
                 results = analysis_context['results']
                 context_parts.append(f"\nAnalysis Results:")
+                # DiD results
                 if 'did_estimate' in results:
                     context_parts.append(f"- DiD Estimate: {results.get('did_estimate', 'N/A')}")
                 if 'standard_error' in results:
                     context_parts.append(f"- Standard Error: {results.get('standard_error', 'N/A')}")
+                # RD results
+                if 'treatment_effect' in results:
+                    context_parts.append(f"- RD Treatment Effect: {results.get('treatment_effect', 'N/A')}")
+                if 'se' in results:
+                    context_parts.append(f"- Standard Error: {results.get('se', 'N/A')}")
+                if 'ci_lower' in results and 'ci_upper' in results:
+                    context_parts.append(f"- 95% Confidence Interval: [{results.get('ci_lower', 'N/A')}, {results.get('ci_upper', 'N/A')}]")
+                elif 'confidence_interval' in results:
+                    ci = results.get('confidence_interval', {})
+                    context_parts.append(f"- 95% Confidence Interval: [{ci.get('lower', 'N/A')}, {ci.get('upper', 'N/A')}]")
                 if 'p_value' in results:
                     context_parts.append(f"- P-value: {results.get('p_value', 'N/A')}")
                 if 'is_significant' in results:
                     context_parts.append(f"- Significant: {results.get('is_significant', 'N/A')}")
-                if 'confidence_interval' in results:
-                    ci = results.get('confidence_interval', {})
-                    context_parts.append(f"- 95% Confidence Interval: [{ci.get('lower', 'N/A')}, {ci.get('upper', 'N/A')}]")
+                if 'n_treated' in results:
+                    context_parts.append(f"- N treated: {results.get('n_treated', 'N/A')}")
+                if 'n_control' in results:
+                    context_parts.append(f"- N control: {results.get('n_control', 'N/A')}")
+                if 'bandwidth_used' in results:
+                    context_parts.append(f"- Bandwidth used: {results.get('bandwidth_used', 'N/A')}")
+                if 'polynomial_order' in results:
+                    context_parts.append(f"- Polynomial order: {results.get('polynomial_order', 'N/A')}")
                 if 'statistics' in results:
                     stats = results.get('statistics', {})
                     context_parts.append(f"\nStatistical Summary:")
@@ -668,11 +757,18 @@ IMPORTANT: At the end of your response, include exactly 3 follow-up questions in
                     # Try to customize based on conversation
                     if analysis_context and analysis_context.get('parameters'):
                         params = analysis_context['parameters']
-                        default_questions = [
-                            f"What does the {params.get('outcome', 'outcome')} variable represent?",
-                            f"How does the {params.get('treatment', 'treatment')} variable work?",
-                            "What assumptions should I verify for this analysis?"
-                        ]
+                        if params.get('running_var'):
+                            default_questions = [
+                                f"What does the {params.get('outcome_var', 'outcome')} variable represent?",
+                                f"How does the cutoff at {params.get('cutoff', '?')} affect the design?",
+                                "What assumptions should I verify for this RD analysis?"
+                            ]
+                        else:
+                            default_questions = [
+                                f"What does the {params.get('outcome', 'outcome')} variable represent?",
+                                f"How does the {params.get('treatment', 'treatment')} variable work?",
+                                "What assumptions should I verify for this analysis?"
+                            ]
                     followup_questions = default_questions[:3]
                 
                 return {

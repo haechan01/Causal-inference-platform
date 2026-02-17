@@ -1,14 +1,16 @@
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from datetime import timedelta
 import os
-from dotenv import load_dotenv 
+import logging
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
 app = Flask(__name__)
+logger = logging.getLogger(__name__)
 
 # --- CORS Configuration ---
 allowed_origins = os.environ.get('CORS_ORIGINS', 'http://localhost:3000')
@@ -78,6 +80,16 @@ app.register_blueprint(datasets_bp)
 app.register_blueprint(ai_bp)
 
 
+@app.errorhandler(500)
+def handle_500(error):
+    """Avoid leaking internal error details in production."""
+    logger.exception("Unhandled server error")
+    is_debug = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
+    if is_debug:
+        return jsonify({"error": str(error)}), 500
+    return jsonify({"error": "An internal error occurred"}), 500
+
+
 @app.route('/')
 def index():
     return "Hello, Causalytics AI is running!"
@@ -93,4 +105,7 @@ def health():
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()  # Create tables
-    app.run(debug=True, port=5001)
+    port = int(os.getenv('PORT', 5001))
+    debug = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
+    host = '127.0.0.1' if debug else '0.0.0.0'
+    app.run(host=host, port=port, debug=debug)

@@ -55,26 +55,11 @@ interface RecommendMethodRequest {
 
 interface InterpretResultsRequest {
   analysis_results: {
-    results: {
-      did_estimate: number;
-      standard_error: number;
-      p_value: number;
-      is_significant: boolean;
-      confidence_interval: {
-        lower: number;
-        upper: number;
-      };
-      statistics: any;
-      parallel_trends_test?: any;
-    };
+    results: Record<string, any>; // DiD or RD format - backend extracts based on method
   };
   causal_question?: string;
   method?: string;
-  parameters: {
-    outcome: string;
-    treatment: string;
-    [key: string]: any;
-  };
+  parameters: Record<string, any>;
 }
 
 class AIService {
@@ -86,15 +71,7 @@ class AIService {
   ): Promise<ResultsInterpretation> {
     const requestData: InterpretResultsRequest = {
       analysis_results: {
-        results: {
-          did_estimate: analysisResults.did_estimate,
-          standard_error: analysisResults.standard_error,
-          p_value: analysisResults.p_value,
-          is_significant: analysisResults.is_significant,
-          confidence_interval: analysisResults.confidence_interval,
-          statistics: analysisResults.statistics,
-          parallel_trends_test: analysisResults.parallel_trends_test,
-        },
+        results: analysisResults, // Pass raw results - backend extracts based on method (DiD or RD)
       },
       causal_question: causalQuestion,
       method: method,

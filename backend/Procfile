@@ -1,0 +1,1 @@
+web: python -c "from app import app, db; app.app_context().push(); db.create_all(); print('Database tables ready')" && gunicorn -w 4 -b 0.0.0.0:${PORT:-8000} app:app
