@@ -9,7 +9,7 @@ services:
       - ./backend/.env
     environment:
       - PORT=5001
-      - CORS_ORIGINS=http://localhost:3000,http://localhost:80
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:80
 
   frontend:
     build:
