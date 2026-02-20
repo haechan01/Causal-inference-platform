@@ -1,6 +1,7 @@
 from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
+from werkzeug.routing import IntegerConverter
 from datetime import timedelta
 import os
 import logging
@@ -11,6 +12,12 @@ load_dotenv()
 
 app = Flask(__name__)
 logger = logging.getLogger(__name__)
+
+# Allow negative integers in URL routes (needed for sample dataset IDs like -1, -2)
+class SignedIntConverter(IntegerConverter):
+    regex = r'-?\d+'
+
+app.url_map.converters['int'] = SignedIntConverter
 
 # --- CORS Configuration ---
 allowed_origins = os.environ.get('CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000')

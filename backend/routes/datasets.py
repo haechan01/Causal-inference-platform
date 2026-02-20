@@ -19,6 +19,7 @@ import math
 from models import Dataset
 from utils.did_analysis import check_parallel_trends
 from analysis.rd_analysis import RDEstimator
+from sample_data_utils import get_sample_dataset_by_id, get_sample_file_path
 
 # Create blueprint
 datasets_bp = Blueprint('datasets', __name__, url_prefix='/api/datasets')
@@ -338,7 +339,64 @@ def get_dataset_schema(dataset_id):
         current_user_id = get_jwt_identity()
         if not isinstance(current_user_id, str):
             raise ValueError("Invalid token identity")
-        
+
+        # Handle built-in sample datasets (negative IDs) - accessible to all users
+        if dataset_id < 0:
+            sample = get_sample_dataset_by_id(dataset_id)
+            if not sample:
+                return jsonify({"error": f"Sample dataset {dataset_id} not found"}), 404
+            file_path = get_sample_file_path(sample["s3_key"])
+            if not file_path:
+                return jsonify({"error": "Sample dataset file not found on server"}), 404
+
+            df = pd.read_csv(file_path)
+            columns_info = []
+            for column in df.columns:
+                col_data = df[column]
+                if pd.api.types.is_numeric_dtype(col_data):
+                    col_type = 'numeric'
+                elif pd.api.types.is_datetime64_any_dtype(col_data):
+                    col_type = 'date'
+                elif pd.api.types.is_bool_dtype(col_data):
+                    col_type = 'boolean'
+                else:
+                    non_null_data = col_data.dropna()
+                    if len(non_null_data) > 0:
+                        numeric_converted = pd.to_numeric(non_null_data, errors='coerce')
+                        conversion_rate = numeric_converted.notna().sum() / len(non_null_data)
+                        col_type = 'numeric' if conversion_rate > 0.8 else 'categorical'
+                    else:
+                        col_type = 'categorical'
+
+                unique_values = None
+                if col_type in ['categorical', 'boolean']:
+                    unique_vals = col_data.dropna().unique()
+                    unique_values = [str(v) for v in (unique_vals if len(unique_vals) <= 100 else unique_vals[:100])]
+                elif col_type == 'numeric':
+                    unique_vals = col_data.dropna().unique()
+                    if len(unique_vals) <= 2:
+                        unique_values = [str(v) for v in unique_vals]
+                    elif column.lower() in ['treatment', 'treated', 'treatment_group', 'is_treated']:
+                        if len(unique_vals) <= 10:
+                            unique_values = [str(v) for v in unique_vals]
+
+                columns_info.append({
+                    'name': column,
+                    'type': col_type,
+                    'unique_values': unique_values,
+                    'unique_count': int(col_data.nunique()),
+                    'null_count': int(col_data.isnull().sum()),
+                    'total_count': len(col_data)
+                })
+
+            return jsonify({
+                "dataset_id": dataset_id,
+                "file_name": sample["file_name"],
+                "columns": columns_info,
+                "total_rows": len(df),
+                "total_columns": len(df.columns)
+            }), 200
+
         # Get dataset
         dataset = Dataset.query.get(dataset_id)
         if not dataset:
@@ -472,41 +530,47 @@ def get_dataset_preview(dataset_id):
     """Get data preview with summary statistics for a dataset."""
     try:
         current_user_id = get_jwt_identity()
-        
-        dataset = Dataset.query.get(dataset_id)
-        if not dataset:
-            return jsonify({"error": f"Dataset {dataset_id} not found"}), 404
-        
-        # Check if user has access to this dataset
-        has_access = False
-        if str(dataset.user_id) == str(current_user_id):
-            has_access = True
-        elif dataset.project and str(dataset.project.user_id) == str(current_user_id):
-            has_access = True
-        
-        if not has_access:
-            return jsonify({"error": "Access denied"}), 403
 
-        # Create S3 client
-        s3_client = boto3.client(
-            's3',
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-            region_name=AWS_REGION
-        )
-
-        temp_file_path = f"/tmp/preview_{dataset_id}.csv"
-        
+        # Resolve the DataFrame from either sample files or S3
+        temp_file_path = None
         try:
-            s3_client.download_file(S3_BUCKET_NAME, dataset.s3_key, temp_file_path)
-            df = pd.read_csv(temp_file_path)
-            
+            if dataset_id < 0:
+                # Built-in sample datasets - accessible to all users
+                sample = get_sample_dataset_by_id(dataset_id)
+                if not sample:
+                    return jsonify({"error": f"Sample dataset {dataset_id} not found"}), 404
+                file_path = get_sample_file_path(sample["s3_key"])
+                if not file_path:
+                    return jsonify({"error": "Sample dataset file not found on server"}), 404
+                df = pd.read_csv(file_path)
+            else:
+                dataset = Dataset.query.get(dataset_id)
+                if not dataset:
+                    return jsonify({"error": f"Dataset {dataset_id} not found"}), 404
+
+                has_access = (
+                    str(dataset.user_id) == str(current_user_id)
+                    or (dataset.project and str(dataset.project.user_id) == str(current_user_id))
+                )
+                if not has_access:
+                    return jsonify({"error": "Access denied"}), 403
+
+                s3_client = boto3.client(
+                    's3',
+                    aws_access_key_id=AWS_ACCESS_KEY_ID,
+                    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+                    region_name=AWS_REGION
+                )
+                temp_file_path = f"/tmp/preview_{dataset_id}.csv"
+                s3_client.download_file(S3_BUCKET_NAME, dataset.s3_key, temp_file_path)
+                df = pd.read_csv(temp_file_path)
+
             # Validate that the DataFrame has data
             if df.empty or len(df.columns) == 0:
                 return jsonify({
                     "error": "Dataset is empty. CSV file must contain at least one data row and one column."
                 }), 400
-            
+
             # Build column information with statistics
             columns_info = []
             for column in df.columns:
@@ -516,8 +580,7 @@ def get_dataset_preview(dataset_id):
                     'null_count': int(col_data.isnull().sum()),
                     'unique_count': int(col_data.nunique())
                 }
-                
-                # Check if already numeric
+
                 if pd.api.types.is_numeric_dtype(col_data):
                     col_info['type'] = 'numeric'
                     col_info['min'] = float(col_data.min()) if not pd.isna(col_data.min()) else None
@@ -527,19 +590,11 @@ def get_dataset_preview(dataset_id):
                 elif pd.api.types.is_datetime64_any_dtype(col_data):
                     col_info['type'] = 'date'
                 else:
-                    # Try to convert object/string columns to numeric if they appear to be numeric
-                    # This handles cases where CSV columns are read as strings but should be numeric
                     non_null_data = col_data.dropna()
                     if len(non_null_data) > 0:
-                        # Try converting to numeric
                         numeric_converted = pd.to_numeric(non_null_data, errors='coerce')
-                        # Count how many successfully converted
-                        successful_conversions = numeric_converted.notna().sum()
-                        conversion_rate = successful_conversions / len(non_null_data)
-                        
-                        # If >80% of non-null values can be converted to numeric, treat as numeric
+                        conversion_rate = numeric_converted.notna().sum() / len(non_null_data)
                         if conversion_rate > 0.8:
-                            # Convert the whole column to numeric for statistics
                             col_data_numeric = pd.to_numeric(col_data, errors='coerce')
                             col_info['type'] = 'numeric'
                             col_info['min'] = float(col_data_numeric.min()) if not pd.isna(col_data_numeric.min()) else None
@@ -552,42 +607,28 @@ def get_dataset_preview(dataset_id):
                             if len(unique_vals) <= 20:
                                 col_info['unique_values'] = [str(v) for v in unique_vals]
                     else:
-                        # All nulls - default to categorical
                         col_info['type'] = 'categorical'
-                
+
                 columns_info.append(col_info)
-            
-            # Summary statistics - safe calculation to prevent ZeroDivisionError
+
             num_rows = len(df)
             num_cols = len(df.columns)
-            
-            # Calculate total cells safely
-            if num_rows > 0 and num_cols > 0:
-                total_cells = num_rows * num_cols
-            else:
-                # This should not happen due to validation above, but defensive programming
-                total_cells = 1
-            
+            total_cells = num_rows * num_cols if num_rows > 0 and num_cols > 0 else 1
             missing_cells = int(df.isnull().sum().sum())
-            # Safe division - total_cells should never be 0 at this point, but check anyway
             missing_percentage = float((missing_cells / total_cells) * 100) if total_cells > 0 else 0.0
-            
+
             summary = {
-                'total_rows': len(df),
-                'total_columns': len(df.columns),
+                'total_rows': num_rows,
+                'total_columns': num_cols,
                 'numeric_columns': sum(1 for c in columns_info if c['type'] == 'numeric'),
                 'categorical_columns': sum(1 for c in columns_info if c['type'] == 'categorical'),
                 'missing_cells': missing_cells,
                 'missing_percentage': missing_percentage
             }
-            
-            # Preview rows (default 100, configurable via query param)
-            limit = request.args.get('limit', default=100, type=int)
-            # Cap at 10000 to prevent performance issues
-            limit = min(limit, 10000)
+
+            limit = min(request.args.get('limit', default=100, type=int), 10000)
             preview_rows = df.head(limit).fillna('').to_dict('records')
-            
-            # Use sanitize_for_json to handle any remaining NaNs or Infs
+
             response = {
                 "dataset_id": dataset_id,
                 "columns": columns_info,
@@ -595,11 +636,11 @@ def get_dataset_preview(dataset_id):
                 "rows": preview_rows
             }
             return jsonify(sanitize_for_json(response)), 200
-            
+
         finally:
-            if os.path.exists(temp_file_path):
+            if temp_file_path and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
-                
+
     except Exception as e:
         import traceback
         traceback.print_exc()

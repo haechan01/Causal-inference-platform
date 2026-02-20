@@ -616,19 +616,23 @@ def link_dataset_to_project(project_id):
 @jwt_required()
 def list_user_datasets():
     """
-    List all datasets uploaded by the current user (regardless of project).
+    List all datasets available to the current user.
+    Includes built-in sample datasets (bodycam, cct_data) for all users.
     """
     try:
         current_user_id = int(get_jwt_identity())
         
         from models import Dataset
+        from sample_data_utils import list_sample_datasets_for_user
         
         # Get all datasets for this user
         datasets = Dataset.query.filter_by(user_id=current_user_id).order_by(Dataset.created_at.desc()).all()
         
-        datasets_data = []
-        for dataset in datasets:
-            datasets_data.append(dataset.to_dict())
+        datasets_data = [dataset.to_dict() for dataset in datasets]
+        
+        # Prepend built-in sample datasets so every user sees them
+        sample_datasets = list_sample_datasets_for_user(current_user_id)
+        datasets_data = sample_datasets + datasets_data
         
         return jsonify({
             "datasets": datasets_data,
