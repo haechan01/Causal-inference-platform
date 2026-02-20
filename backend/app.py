@@ -13,15 +13,16 @@ app = Flask(__name__)
 logger = logging.getLogger(__name__)
 
 # --- CORS Configuration ---
-allowed_origins = os.environ.get('CORS_ORIGINS', 'http://localhost:3000')
+allowed_origins = os.environ.get('CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000')
 # Split by comma and strip whitespace from each origin
 origins_list = [origin.strip() for origin in allowed_origins.split(',') if origin.strip()]
 logger.info(f"CORS allowed origins: {origins_list}")
-CORS(app, 
+CORS(app,
      origins=origins_list,
      supports_credentials=True,
      allow_headers=['Content-Type', 'Authorization'],
-     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'])
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+     automatic_options=True)
 
 # --- Flask Configuration ---
 SECRET_KEY = os.environ.get('SECRET_KEY')
@@ -78,6 +79,13 @@ from routes.auth import auth_bp  # noqa: E402
 from routes.projects import projects_bp  # noqa: E402
 from routes.datasets import datasets_bp  # noqa: E402
 from routes.ai import ai_bp  # noqa: E402
+
+# Apply CORS to auth blueprint for explicit preflight handling
+CORS(auth_bp,
+     origins=origins_list,
+     supports_credentials=True,
+     allow_headers=['Content-Type', 'Authorization'],
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'])
 
 # API Routes (Blueprints)
 app.register_blueprint(auth_bp)
