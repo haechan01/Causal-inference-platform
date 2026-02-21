@@ -317,7 +317,7 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
 
       {/* Interpretation Note */}
       <div style={styles.noteBox}>
-        <strong>📊 How to interpret:</strong> A stable treatment effect across bandwidths
+        <strong>How to interpret:</strong> A stable treatment effect across bandwidths
         suggests robust results. Large variations may indicate sensitivity to bandwidth
         choice or model misspecification.
       </div>

@@ -30,6 +30,7 @@ const RDResults: React.FC = () => {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [datasetInfo, setDatasetInfo] = useState<any>(null);
+  const [expandedStat, setExpandedStat] = useState<'ci' | 'pvalue' | 'se' | null>(null);
   const [recommendedQuestions] = useState<string[]>([
     'What is the local continuity assumption in RD?',
     'How do I interpret my RD estimate?',
@@ -404,12 +405,6 @@ const RDResults: React.FC = () => {
             <div style={styles.effectValue}>
               {res.treatment_effect.toFixed(3)}
             </div>
-            <div style={styles.ciContainer}>
-              <span style={styles.ciLabel}>95% CI:</span>
-              <span style={styles.ciValue}>
-                [{res.ci_lower.toFixed(3)}, {res.ci_upper.toFixed(3)}]
-              </span>
-            </div>
             <div
               style={{
                 ...styles.significanceBadge,
@@ -420,31 +415,75 @@ const RDResults: React.FC = () => {
             >
               {isSignificant ? '✓ Statistically Significant' : 'Not Statistically Significant'}
             </div>
+            {/* 95% CI, P-Value, and Standard Error in one row; one explanation box below */}
+            <div style={styles.statsRow}>
+              <div style={styles.statRowItem}>
+                <span style={styles.statRowLabel}>95% CI</span>
+                <span style={{ ...styles.statRowValue, fontFamily: 'monospace' }}>
+                  [{res.ci_lower.toFixed(3)}, {res.ci_upper.toFixed(3)}]
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setExpandedStat((s) => (s === 'ci' ? null : 'ci'))}
+                  style={expandedStat === 'ci' ? styles.expandButtonActive : styles.expandButton}
+                >
+                  {expandedStat === 'ci' ? '▼ Hide' : '▶ How is this derived?'}
+                </button>
+              </div>
+              <div style={styles.statRowItem}>
+                <span style={styles.statRowLabel}>P-Value</span>
+                <span style={styles.statRowValue}>{res.p_value.toFixed(4)}</span>
+                <button
+                  type="button"
+                  onClick={() => setExpandedStat((s) => (s === 'pvalue' ? null : 'pvalue'))}
+                  style={expandedStat === 'pvalue' ? styles.expandButtonActive : styles.expandButton}
+                >
+                  {expandedStat === 'pvalue' ? '▼ Hide' : '▶ How is this derived?'}
+                </button>
+              </div>
+              <div style={styles.statRowItem}>
+                <span style={styles.statRowLabel}>Standard Error</span>
+                <span style={styles.statRowValue}>{res.se.toFixed(3)}</span>
+                <button
+                  type="button"
+                  onClick={() => setExpandedStat((s) => (s === 'se' ? null : 'se'))}
+                  style={expandedStat === 'se' ? styles.expandButtonActive : styles.expandButton}
+                >
+                  {expandedStat === 'se' ? '▼ Hide' : '▶ How is this derived?'}
+                </button>
+              </div>
+            </div>
+            {expandedStat && (
+              <div style={styles.singleExplanationBox}>
+                {expandedStat === 'ci' && (
+                  <p style={styles.singleExplanationText}>
+                    A 95% confidence interval (CI) is the range of values within which we are 95% confident the true treatment effect lies. If the interval does not include zero, the effect is typically considered statistically significant at the 5% level.
+                  </p>
+                )}
+                {expandedStat === 'pvalue' && (
+                  <p style={styles.singleExplanationText}>
+                    The p-value tests the null hypothesis that the true treatment effect is zero. It is derived from the t-statistic: t = (treatment effect − 0) / SE. In this study: t = {res.treatment_effect.toFixed(3)} / {res.se.toFixed(3)} ≈ {(res.treatment_effect / res.se).toFixed(2)}. The p-value of {res.p_value.toFixed(4)} is the probability of observing |t| at least this large when the true effect is zero (from the local polynomial regression). A p-value below 0.05 is typically considered statistically significant.
+                  </p>
+                )}
+                {expandedStat === 'se' && (
+                  <p style={styles.singleExplanationText}>
+                    The standard error (SE) for this study is {res.se.toFixed(3)}. It was computed from the local polynomial regression (order {res.polynomial_order}) with bandwidth {res.bandwidth_used.toFixed(3)}, using robust standard errors. The 95% CI is then: effect ± 1.96 × SE = {res.treatment_effect.toFixed(3)} ± 1.96 × {res.se.toFixed(3)} = [{res.ci_lower.toFixed(3)}, {res.ci_upper.toFixed(3)}]. A smaller SE means a more precise estimate.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Statistics Grid */}
-          <div style={styles.statsGrid}>
-            <div style={styles.statCard}>
-              <div style={styles.statLabel}>P-Value</div>
-              <div style={styles.statValue}>{res.p_value.toFixed(4)}</div>
-            </div>
-            <div style={styles.statCard}>
-              <div style={styles.statLabel}>Standard Error</div>
-              <div style={styles.statValue}>{res.se.toFixed(3)}</div>
-            </div>
-            <div style={styles.statCard}>
-              <div style={styles.statLabel}>
-                {parameters.treatment_side === 'below' ? 'Treated (Below)' : 'Treated (Above)'}
-              </div>
-              <div style={styles.statValue}>{res.n_treated}</div>
-            </div>
-            <div style={styles.statCard}>
-              <div style={styles.statLabel}>
-                {parameters.treatment_side === 'below' ? 'Control (Above)' : 'Control (Below)'}
-              </div>
-              <div style={styles.statValue}>{res.n_control}</div>
-            </div>
-          </div>
+          {/* RD Scatter Plot Visualization */}
+          <RDScatterPlot
+            datasetId={results.dataset_id}
+            runningVar={parameters.running_var}
+            outcomeVar={parameters.outcome_var}
+            cutoff={parameters.cutoff}
+            bandwidth={res.bandwidth_used}
+            polynomialOrder={res.polynomial_order}
+            treatmentSide={parameters.treatment_side}
+          />
 
           {/* Bandwidth Info */}
           <div style={styles.infoCard}>
@@ -479,6 +518,9 @@ const RDResults: React.FC = () => {
                 <span style={styles.infoValue}>Triangular</span>
               </div>
             </div>
+            <p style={styles.bandwidthExplanation}>
+              <strong>What is bandwidth?</strong> Bandwidth is the distance from the cutoff on the running variable within which observations are used to estimate the discontinuity. A smaller bandwidth uses only units very close to the cutoff (more local, often less bias but higher variance); a larger bandwidth uses more data (smoother estimates but possible bias if the relationship is not linear). The optimal bandwidth balances bias and variance.
+            </p>
           </div>
 
           {/* Warnings */}
@@ -501,16 +543,7 @@ const RDResults: React.FC = () => {
             </div>
           ) : null}
 
-          {/* RD Scatter Plot Visualization */}
-          <RDScatterPlot
-            datasetId={results.dataset_id}
-            runningVar={parameters.running_var}
-            outcomeVar={parameters.outcome_var}
-            cutoff={parameters.cutoff}
-            bandwidth={res.bandwidth_used}
-            polynomialOrder={res.polynomial_order}
-            treatmentSide={parameters.treatment_side}
-          />
+          
 
           {/* Sensitivity Analysis Visualization */}
           <RDSensitivityPlot
@@ -1051,24 +1084,13 @@ const styles = {
     color: '#043873',
     margin: '0 0 15px 0',
   },
-  ciContainer: {
-    fontSize: '16px',
-    color: '#666',
-    marginBottom: '20px',
-  },
-  ciLabel: {
-    fontWeight: '600',
-    marginRight: '8px',
-  },
-  ciValue: {
-    fontFamily: 'monospace',
-  },
   significanceBadge: {
-    display: 'inline-block',
+    display: 'block',
     padding: '10px 20px',
     borderRadius: '8px',
     fontSize: '14px',
     fontWeight: '600',
+    marginBottom: '8px',
   },
   significantBadge: {
     backgroundColor: '#d4edda',
@@ -1077,6 +1099,78 @@ const styles = {
   notSignificantBadge: {
     backgroundColor: '#f8d7da',
     color: '#721c24',
+  },
+  statsRow: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    gap: '24px',
+    marginTop: '24px',
+    paddingTop: '20px',
+    borderTop: '1px solid #eee',
+    justifyContent: 'center',
+  },
+  statRowItem: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    minWidth: '200px',
+  },
+  statRowLabel: {
+    fontSize: '14px',
+    color: '#666',
+    marginBottom: '4px',
+  },
+  statRowValue: {
+    fontSize: '20px',
+    fontWeight: 'bold',
+    color: '#043873',
+    marginBottom: '8px',
+  },
+  expandButton: {
+    padding: '4px 10px',
+    backgroundColor: 'transparent',
+    color: '#043873',
+    border: '1px solid #043873',
+    borderRadius: '6px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    textAlign: 'center' as const,
+  },
+  expandButtonActive: {
+    padding: '4px 10px',
+    backgroundColor: '#043873',
+    color: '#fff',
+    border: '1px solid #043873',
+    borderRadius: '6px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    textAlign: 'center' as const,
+  },
+  singleExplanationBox: {
+    marginTop: '16px',
+    padding: '16px 20px',
+    backgroundColor: '#f8f9fa',
+    borderRadius: '10px',
+    border: '1px solid #e9ecef',
+    width: '100%',
+    boxSizing: 'border-box' as const,
+  },
+  singleExplanationText: {
+    margin: 0,
+    fontSize: '14px',
+    color: '#333',
+    lineHeight: 1.6,
+    textAlign: 'left' as const,
+  },
+  bandwidthExplanation: {
+    margin: '20px 0 0 0',
+    padding: '16px',
+    backgroundColor: '#f8f9fa',
+    borderRadius: '8px',
+    fontSize: '14px',
+    color: '#333',
+    lineHeight: 1.6,
+    borderTop: '1px solid #eee',
   },
   statsGrid: {
     display: 'grid',

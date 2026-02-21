@@ -29,13 +29,13 @@ const Navbar: React.FC = () => {
             {isAuthenticated ? (
               <>
                 <button onClick={handleHomeClick} style={styles.homeButton}>
-                  🏠 Home
+                  Home
                 </button>
                 <button onClick={handleDataClick} style={styles.navButton}>
-                  📊 Data
+                  Data
                 </button>
                 <button onClick={handleProjectsClick} style={styles.navButton}>
-                  📁 Projects
+                  Projects
                 </button>
                 <LogoutButton style={styles.logoutButton} />
               </>
