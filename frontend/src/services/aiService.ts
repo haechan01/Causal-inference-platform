@@ -16,6 +16,8 @@ export interface MethodRecommendation {
   recommended_method: string;
   method_code: string;
   explanation: string;
+  why_not_others: string;
+  key_assumption: string;
   alternatives: Array<{
     method: string;
     code: string;
@@ -48,9 +50,14 @@ export interface DataQualityAssessment {
 interface RecommendMethodRequest {
   treatment_variable: string;
   outcome_variable: string;
-  is_time_series: boolean;
-  has_control_treatment_groups: boolean;
   causal_question?: string;
+  q1_cutoff?: 'yes' | 'no' | 'unsure';
+  q2_time_change?: 'yes' | 'no' | 'unsure';
+  q3_instrument?: 'yes' | 'no' | 'unsure';
+  // legacy
+  is_time_series?: boolean;
+  has_control_treatment_groups?: boolean;
+  potential_instrument?: string;
 }
 
 interface InterpretResultsRequest {
@@ -88,16 +95,18 @@ class AIService {
   async recommendMethod(
     treatmentVariable: string,
     outcomeVariable: string,
-    isTimeSeries: boolean,
-    hasControlTreatmentGroups: boolean,
-    causalQuestion?: string
+    causalQuestion?: string,
+    q1Cutoff?: 'yes' | 'no' | 'unsure',
+    q2TimeChange?: 'yes' | 'no' | 'unsure',
+    q3Instrument?: 'yes' | 'no' | 'unsure'
   ): Promise<MethodRecommendation> {
     const requestData: RecommendMethodRequest = {
       treatment_variable: treatmentVariable,
       outcome_variable: outcomeVariable,
-      is_time_series: isTimeSeries,
-      has_control_treatment_groups: hasControlTreatmentGroups,
       causal_question: causalQuestion,
+      q1_cutoff: q1Cutoff,
+      q2_time_change: q2TimeChange,
+      q3_instrument: q3Instrument,
     };
 
     const response = await axios.post<MethodRecommendation>(
