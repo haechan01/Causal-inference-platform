@@ -42,6 +42,7 @@ const ProjectsPage: React.FC = () => {
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [isReadyForNext, setIsReadyForNext] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   // Pre-selected dataset from DataUploadPage
   const preSelectedDatasetId = (location.state as any)?.selectedDatasetId || null;
@@ -204,33 +205,28 @@ const ProjectsPage: React.FC = () => {
 
   // Custom next handler that passes project ID - go to saved step or method selection
   const handleNext = async () => {
-    if (checkedProject && checkedProject.datasets && checkedProject.datasets.length > 0) {
-      const navState = {
-        projectId: checkedProject.id,
-        datasetId: checkedProject.datasets[0].id
-      };
-
-      // Check if project has saved state - navigate to where user left off
-      try {
-        const project = await projectStateService.loadProject(checkedProject.id, accessToken!);
-
-        // Save that we're at project selection step
-        await projectStateService.saveState(checkedProject.id, {
-          currentStep: 'projects'
-        }, accessToken!);
-
-        if (project.currentStep && project.currentStep !== 'projects') {
-          // Navigate to saved step (pass selectedMethod for correct RD vs DiD routing)
-          const stepPath = projectStateService.getStepPath(project.currentStep, project.selectedMethod);
-          navigate(stepPath, { state: navState });
-        } else {
-          // Default to method selection
-          navigate('/method-selection', { state: navState });
-        }
-      } catch (error) {
-        console.warn('Failed to load project state, going to method selection:', error);
+    if (!checkedProject || !checkedProject.datasets || checkedProject.datasets.length === 0) return;
+    setIsNavigating(true);
+    const navState = {
+      projectId: checkedProject.id,
+      datasetId: checkedProject.datasets[0].id
+    };
+    try {
+      const project = await projectStateService.loadProject(checkedProject.id, accessToken!);
+      await projectStateService.saveState(checkedProject.id, {
+        currentStep: 'projects'
+      }, accessToken!);
+      if (project.currentStep && project.currentStep !== 'projects') {
+        const stepPath = projectStateService.getStepPath(project.currentStep, project.selectedMethod);
+        navigate(stepPath, { state: navState });
+      } else {
         navigate('/method-selection', { state: navState });
       }
+    } catch (error) {
+      console.warn('Failed to load project state, going to method selection:', error);
+      navigate('/method-selection', { state: navState });
+    } finally {
+      setIsNavigating(false);
     }
   };
 
@@ -240,6 +236,16 @@ const ProjectsPage: React.FC = () => {
       <div style={styles.loadingContainer}>
         <div style={styles.loadingSpinner}></div>
         <p style={styles.loadingText}>Loading...</p>
+      </div>
+    );
+  }
+
+  // Show loading page when user clicked Next (loading project state and navigating)
+  if (isNavigating) {
+    return (
+      <div style={styles.loadingContainer}>
+        <div style={styles.loadingSpinner}></div>
+        <p style={styles.loadingText}>Loading project...</p>
       </div>
     );
   }

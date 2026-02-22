@@ -358,7 +358,7 @@ const RDScatterPlot: React.FC<RDScatterPlotProps> = ({
       </div>
 
       <div style={styles.noteBox}>
-        <strong>📊 How to interpret:</strong> The vertical red line marks the cutoff.
+        <strong>How to interpret:</strong> The vertical red line marks the cutoff.
         Points in blue are the <strong>treated units</strong> ({treatmentSide === 'below' ? 'below' : 'above'} the cutoff),
         and points in gray are the <strong>control units</strong>.
         The fitted lines show the local polynomial regression on each side.

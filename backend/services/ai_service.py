@@ -544,35 +544,100 @@ Return JSON only with these exact fields:
         self,
         treatment_variable: str,
         outcome_variable: str,
-        is_time_series: bool,
-        has_control_treatment_groups: bool,
-        causal_question: Optional[str] = None
+        causal_question: Optional[str] = None,
+        q1_cutoff: Optional[str] = None,
+        q2_time_change: Optional[str] = None,
+        q3_instrument: Optional[str] = None,
+        # Legacy params kept for backward compatibility
+        is_time_series: bool = False,
+        has_control_treatment_groups: bool = False,
+        potential_instrument: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Recommend the most appropriate causal inference method based on study characteristics.
-        
+        Recommend one of: Regression Discontinuity, Difference-in-Differences, or Instrumental Variables.
+
+        Decision logic (in priority order):
+          Q1 (cutoff-based) = yes  →  Regression Discontinuity
+          Q2 (time-change)  = yes  →  Difference-in-Differences
+          Q3 (instrument)   = yes  →  Instrumental Variables
+          else                     →  explain that more info is needed, pick best guess
+
         Args:
             treatment_variable: Name of the treatment/intervention variable
             outcome_variable: Name of the outcome variable
-            is_time_series: Whether the data is time series (longitudinal)
-            has_control_treatment_groups: Whether there are distinct control and treatment groups
             causal_question: Optional research question
-        
-        Returns:
-            Dictionary with recommended method, explanation, and alternatives
+            q1_cutoff: 'yes' | 'no' | 'unsure' — treatment assigned by crossing a clear cutoff/rule
+            q2_time_change: 'yes' | 'no' | 'unsure' — treatment started/changed at a specific time for some groups
+            q3_instrument: 'yes' | 'no' | 'unsure' — there is a variable that affects treatment but not outcome directly
+            is_time_series: legacy param (mapped to q2 if q2 not provided)
+            has_control_treatment_groups: legacy param
+            potential_instrument: legacy param (mapped to q3 if q3 not provided)
         """
-        # Build concise prompt
-        q = f"Research question: {causal_question}\n" if causal_question else ""
-        prompt = f"""Recommend causal inference method. {q}Treatment: {treatment_variable}, Outcome: {outcome_variable}, Time series: {is_time_series}, Control/treatment groups: {has_control_treatment_groups}
+        # Map legacy params to question answers when new ones are not supplied
+        if q1_cutoff is None:
+            q1_cutoff = 'unsure'
+        if q2_time_change is None:
+            if is_time_series and has_control_treatment_groups:
+                q2_time_change = 'yes'
+            elif is_time_series or has_control_treatment_groups:
+                q2_time_change = 'unsure'
+            else:
+                q2_time_change = 'unsure'
+        if q3_instrument is None:
+            q3_instrument = 'yes' if potential_instrument else 'unsure'
 
-Available methods: Difference-in-Differences (DiD), Regression Discontinuity Design (RDD), Instrumental Variables (IV), Synthetic Control, Matching, Panel Fixed Effects.
+        def fmt(val: Optional[str]) -> str:
+            mapping = {'yes': 'YES', 'no': 'NO', 'unsure': 'UNSURE/Not answered'}
+            return mapping.get((val or '').lower(), 'UNSURE/Not answered')
 
-Return JSON only:
-{{"recommended_method":"method name","method_code":"did/rdd/iv/etc","explanation":"2-3 sentences why","alternatives":[{{"method":"name","code":"code","when_appropriate":"1 sentence"}}],"key_assumptions":["assumption1","assumption2"]}}"""
-        
+        q_str = f"Research question: {causal_question}\n" if causal_question else ""
+
+        prompt = f"""You are an econometrics research design assistant. Recommend the most appropriate causal inference method.
+
+You must choose EXACTLY ONE of:
+- Regression Discontinuity (RD) — method_code: "rdd"
+- Difference-in-Differences (DiD) — method_code: "did"
+- Instrumental Variables (IV) — method_code: "iv"
+
+STUDY CONTEXT:
+Treatment variable: {treatment_variable}
+Outcome variable: {outcome_variable}
+{q_str}
+USER'S ANSWERS TO THE THREE DESIGN QUESTIONS:
+Q1 — Is treatment determined by crossing a clear cutoff or rule?
+      (e.g. income above a threshold, age above 65, test score above a cutoff)
+      Answer: {fmt(q1_cutoff)}
+
+Q2 — Did treatment start or change at a specific time for some groups but not others?
+      (e.g. a new law, a policy in some regions, a program rolled out in certain schools)
+      Answer: {fmt(q2_time_change)}
+
+Q3 — Is there something that strongly affects who receives treatment but does NOT directly affect the outcome?
+      (e.g. lottery assignment, distance to a facility, administrative rules, encouragement letters)
+      Answer: {fmt(q3_instrument)}
+
+DECISION LOGIC (apply strictly in this priority order):
+1. If Q1 = YES  →  Recommend Regression Discontinuity (rdd)
+2. Else if Q2 = YES  →  Recommend Difference-in-Differences (did)
+3. Else if Q3 = YES  →  Recommend Instrumental Variables (iv)
+4. If multiple are YES, explain which is primary and why
+5. If none are YES, pick the best guess based on context and explain what additional info is needed
+
+OUTPUT FORMAT — Return JSON only:
+{{
+  "recommended_method": "full method name",
+  "method_code": "rdd/did/iv",
+  "explanation": "2-3 sentences in plain, non-technical language explaining why this method fits the user's specific situation, referencing their treatment and outcome variables",
+  "why_not_others": "1 sentence for each of the two non-recommended methods explaining why they are less appropriate here",
+  "key_assumption": "The single most important assumption for the recommended method, stated in plain language",
+  "alternatives": [
+    {{"method": "full name", "code": "rdd/did/iv", "when_appropriate": "1 sentence"}}
+  ],
+  "key_assumptions": ["assumption 1", "assumption 2"]
+}}"""
+
         response = self._call_gemini(prompt)
-        
-        # Clean response (remove markdown code blocks if present)
+
         response = response.strip()
         if response.startswith('```json'):
             response = response[7:]
@@ -581,25 +646,58 @@ Return JSON only:
         if response.endswith('```'):
             response = response[:-3]
         response = response.strip()
-        
-        # Parse JSON response
+
         try:
             recommendation = json.loads(response)
+            method_code = recommendation.get('method_code', '').lower().strip()
+            if method_code not in ('did', 'rdd', 'iv'):
+                # Apply decision logic as fallback
+                if q1_cutoff == 'yes':
+                    method_code = 'rdd'
+                elif q2_time_change == 'yes':
+                    method_code = 'did'
+                elif q3_instrument == 'yes':
+                    method_code = 'iv'
+                else:
+                    method_code = 'rdd'
             return {
                 'recommended_method': recommendation.get('recommended_method', 'Unknown'),
-                'method_code': recommendation.get('method_code', ''),
+                'method_code': method_code,
                 'explanation': recommendation.get('explanation', ''),
-                'alternatives': recommendation.get('alternatives', []),
+                'why_not_others': recommendation.get('why_not_others', ''),
+                'key_assumption': recommendation.get('key_assumption', ''),
+                'alternatives': [
+                    alt for alt in recommendation.get('alternatives', [])
+                    if alt.get('code', '').lower() in ('did', 'rdd', 'iv')
+                ],
                 'key_assumptions': recommendation.get('key_assumptions', [])
             }
         except json.JSONDecodeError:
-            # Return fallback
+            # Deterministic fallback using decision logic
+            if q1_cutoff == 'yes':
+                code, name = 'rdd', 'Regression Discontinuity'
+                explanation = f'Treatment of "{treatment_variable}" appears to be assigned based on a cutoff or rule, which is exactly the setting where Regression Discontinuity is most powerful.'
+                assumption = 'Units just above and below the cutoff are comparable in all other respects.'
+            elif q2_time_change == 'yes':
+                code, name = 'did', 'Difference-in-Differences'
+                explanation = f'Treatment of "{treatment_variable}" started at a specific time for some groups, which is the classic setting for Difference-in-Differences.'
+                assumption = 'Without the treatment, the treated and control groups would have followed similar trends over time (parallel trends).'
+            elif q3_instrument == 'yes':
+                code, name = 'iv', 'Instrumental Variables'
+                explanation = f'There is an external factor that affects "{treatment_variable}" but not "{outcome_variable}" directly — this is the instrument needed for IV estimation.'
+                assumption = 'The instrument affects the outcome only through its effect on the treatment (exclusion restriction).'
+            else:
+                code, name = 'rdd', 'Regression Discontinuity'
+                explanation = 'Based on the available information, Regression Discontinuity may be a candidate if a clear cutoff exists. Please provide more context about how treatment was assigned.'
+                assumption = 'Units near the cutoff are comparable in all other characteristics.'
             return {
-                'recommended_method': 'Difference-in-Differences',
-                'method_code': 'did',
-                'explanation': 'Unable to parse AI response. Based on your inputs, Difference-in-Differences may be appropriate if you have time series data with control and treatment groups.',
+                'recommended_method': name,
+                'method_code': code,
+                'explanation': explanation,
+                'why_not_others': '',
+                'key_assumption': assumption,
                 'alternatives': [],
-                'key_assumptions': []
+                'key_assumptions': [assumption]
             }
 
     def assess_data_quality(

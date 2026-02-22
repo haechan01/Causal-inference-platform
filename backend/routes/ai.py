@@ -162,15 +162,21 @@ def recommend_method():
         
         treatment_variable = data.get('treatment_variable', '').strip()
         outcome_variable = data.get('outcome_variable', '').strip()
+        causal_question = data.get('causal_question', '').strip() or None
+        # New structured question answers
+        q1_cutoff = data.get('q1_cutoff', None)         # 'yes' | 'no' | 'unsure' | None
+        q2_time_change = data.get('q2_time_change', None)
+        q3_instrument = data.get('q3_instrument', None)
+        # Legacy params for backward compatibility
         is_time_series = data.get('is_time_series', False)
         has_control_treatment_groups = data.get('has_control_treatment_groups', False)
-        causal_question = data.get('causal_question', '').strip() or None
-        
+        potential_instrument = data.get('potential_instrument', '').strip() or None
+
         if not treatment_variable or not outcome_variable:
             print("ERROR: treatment_variable and outcome_variable are required")
             return jsonify({"error": "treatment_variable and outcome_variable are required"}), 400
-        
-        print(f"AI: Received recommendation request - treatment={treatment_variable}, outcome={outcome_variable}, time_series={is_time_series}, groups={has_control_treatment_groups}")
+
+        print(f"AI: Received recommendation request - treatment={treatment_variable}, outcome={outcome_variable}, q1={q1_cutoff}, q2={q2_time_change}, q3={q3_instrument}")
         
         # Get AI service
         try:
@@ -192,9 +198,13 @@ def recommend_method():
             recommendation = ai_service.recommend_method(
                 treatment_variable=treatment_variable,
                 outcome_variable=outcome_variable,
+                causal_question=causal_question,
+                q1_cutoff=q1_cutoff,
+                q2_time_change=q2_time_change,
+                q3_instrument=q3_instrument,
                 is_time_series=is_time_series,
                 has_control_treatment_groups=has_control_treatment_groups,
-                causal_question=causal_question
+                potential_instrument=potential_instrument
             )
             print("AI: Method recommendation completed successfully")
         except Exception as e:
