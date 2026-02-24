@@ -31,7 +31,63 @@ def sanitize_for_json(obj):
     else:
         return obj
 
-def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_time, unit_col=None):
+# =============================================================================
+# STAGGERED TREATMENT HELPERS
+# =============================================================================
+
+def _get_unit_treatment_times(df, treatment_col, time_col, unit_col):
+    """
+    For each unit, find the first time period when treatment_col == 1.
+    Returns a dict: {unit_id -> first_treatment_period} for treated units only.
+
+    Works for both:
+    - Time-varying treatment (treatment_col turns on at unit-specific times)
+    - Static treatment groups (all treated have treatment_col=1 in all periods,
+      in which case all units share the same min time → not staggered)
+    """
+    if unit_col not in df.columns:
+        return {}
+    treated_data = df[df[treatment_col] == 1]
+    if treated_data.empty:
+        return {}
+    return treated_data.groupby(unit_col)[time_col].min().to_dict()
+
+
+def _detect_staggered_treatment(df, treatment_col, time_col, unit_col):
+    """
+    Detect whether treatment is staggered (treated units have different
+    first-treatment periods).
+
+    Returns:
+        is_staggered (bool),
+        unit_treatment_times (dict: unit -> first treated period),
+        cohort_info (dict: treatment_period -> n_units entering then)
+    """
+    if unit_col is None or unit_col not in df.columns:
+        return False, {}, {}
+    unit_times = _get_unit_treatment_times(df, treatment_col, time_col, unit_col)
+    if not unit_times:
+        return False, {}, {}
+    unique_entry_times = set(unit_times.values())
+    is_staggered = len(unique_entry_times) > 1
+    cohort_info = {}
+    for t in unique_entry_times:
+        cohort_info[t] = sum(1 for v in unit_times.values() if v == t)
+    return is_staggered, unit_times, cohort_info
+
+
+def _quote(col):
+    """Wrap column name in Q() if it contains spaces or special characters."""
+    if ' ' in col or not col.replace('_', '').isalnum():
+        return f"Q('{col}')"
+    return col
+
+
+# =============================================================================
+# PARALLEL TRENDS (AND EVENT STUDY)
+# =============================================================================
+
+def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_time, unit_col=None, unit_treatment_times=None):
     """
     Check the parallel trends assumption for Difference-in-Differences.
     
@@ -123,7 +179,8 @@ def check_parallel_trends(df, treatment_col, time_col, outcome_col, treatment_ti
     
     try:
         event_study = _run_event_study(
-            df, treatment_col, time_col, outcome_col, treatment_time, unit_col=unit_col
+            df, treatment_col, time_col, outcome_col, treatment_time,
+            unit_col=unit_col, unit_treatment_times=unit_treatment_times
         )
         logger.debug(f"[check_parallel_trends] Event study returned: {type(event_study)}")
         logger.debug(f"[check_parallel_trends] Event study keys: {list(event_study.keys()) if isinstance(event_study, dict) else 'Not a dict'}")
@@ -359,7 +416,7 @@ def _run_statistical_test(pre_data, treatment_col, time_col, outcome_col):
 # EVENT STUDY ANALYSIS
 # =============================================================================
 
-def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time, unit_col=None):
+def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time, unit_col=None, unit_treatment_times=None):
     """
     Calculate event study coefficients.
     
@@ -419,39 +476,54 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time, u
         else:
             treatment_time = str(treatment_time)
         
-        # Create relative time: periods before treatment are negative
-        # Example: if treatment_time = 2020
-        #   2018 → -2, 2019 → -1, 2020 → 0, 2021 → +1
-        # If unit_col is provided and units have different treatment times, use unit-specific timing
-        if unit_col and unit_col in analysis_df.columns:
-            # For staggered treatment: each unit may have different treatment time
-            # For now, we'll use the global treatment_time, but log if there's variation
-            unit_treatment_times = analysis_df.groupby(unit_col)[time_col].min()
-            if len(unit_treatment_times.unique()) > 1:
-                logger.debug(f"    Detected staggered treatment: {len(unit_treatment_times.unique())} unique treatment times")
-                # Use unit-specific relative time
-                analysis_df = analysis_df.merge(
-                    unit_treatment_times.reset_index().rename(columns={time_col: 'unit_treatment_time'}),
-                    on=unit_col,
-                    how='left'
-                )
-                analysis_df['relative_time'] = analysis_df[time_col] - analysis_df['unit_treatment_time']
-                analysis_df = analysis_df.drop(columns=['unit_treatment_time'])
+        # Create relative time: periods before treatment are negative.
+        # For staggered treatment, use unit-specific treatment times so that
+        # each treated unit's pre/post is measured from *their own* treatment entry.
+        # Control units receive fillna(treatment_time) which is irrelevant because
+        # the event-study dummies check "ever_treated == 1".
+        is_staggered_event = bool(
+            unit_col
+            and unit_col in analysis_df.columns
+            and unit_treatment_times
+            and len(set(unit_treatment_times.values())) > 1
+        )
+
+        if unit_col and unit_col in analysis_df.columns and unit_treatment_times:
+            logger.debug(
+                f"    Event study: using unit-specific treatment times "
+                f"({'staggered' if is_staggered_event else 'uniform'})"
+            )
+            # Map each unit to its own first treatment period.
+            analysis_df['_unit_treat_time'] = analysis_df[unit_col].map(unit_treatment_times)
+            # Control units (NaN) fall back to global treatment_time; they won't
+            # contribute to any treatment dummy anyway.
+            analysis_df['relative_time'] = (
+                analysis_df[time_col]
+                - analysis_df['_unit_treat_time'].fillna(treatment_time)
+            ).astype(int)
+            analysis_df = analysis_df.drop(columns=['_unit_treat_time'])
+
+            # For staggered DiD the "treated" indicator for dummies must be
+            # "ever treated" (static), NOT the time-varying treatment_col, because
+            # treatment_col == 0 for treated units in their own pre-treatment periods.
+            if is_staggered_event:
+                ever_treated = set(unit_treatment_times.keys())
+                analysis_df['_event_treated'] = analysis_df[unit_col].isin(ever_treated).astype(int)
+                treatment_indicator_col = '_event_treated'
             else:
-                # All units treated at same time
-                analysis_df['relative_time'] = analysis_df[time_col] - treatment_time
+                treatment_indicator_col = treatment_col
         else:
-            # No unit column - use global treatment_time
+            # No unit column (or no treatment times passed) — use global treatment_time.
             try:
-                analysis_df['relative_time'] = analysis_df[time_col] - treatment_time
+                analysis_df['relative_time'] = (
+                    analysis_df[time_col] - treatment_time
+                ).astype(int)
             except Exception as e:
                 logger.error(f"    Error creating relative_time: {str(e)}")
                 logger.error(f"    Time column type: {analysis_df[time_col].dtype}")
                 logger.error(f"    Treatment time type: {type(treatment_time)}, value: {treatment_time}")
                 raise
-        
-        # Convert relative_time to integer to avoid float column names (e.g., -7.0)
-        analysis_df['relative_time'] = analysis_df['relative_time'].astype(int)
+            treatment_indicator_col = treatment_col
         periods = sorted(analysis_df['relative_time'].unique())
         logger.debug(f"    Unique relative times (as integers): {periods}")
         
@@ -479,10 +551,12 @@ def _run_event_study(df, treatment_col, time_col, outcome_col, treatment_time, u
             t_int = int(t)
             col_name = f'rel_time_{t_int}' if t_int < 0 else f'rel_time_plus_{t_int}'
             
-            # This dummy = 1 only for treated units in period t
+            # This dummy = 1 only for (ever-)treated units in period t.
+            # For staggered DiD we use 'ever treated' so pre-treatment periods
+            # of treated units are correctly captured.
             analysis_df[col_name] = (
-                (analysis_df['relative_time'] == t) & 
-                (analysis_df[treatment_col] == 1)
+                (analysis_df['relative_time'] == t) &
+                (analysis_df[treatment_indicator_col] == 1)
             ).astype(int)
             
             dummy_cols.append(col_name)
@@ -1105,100 +1179,228 @@ def _fig_to_base64(fig):
 def run_did(df, treatment_col, time_col, outcome_col, treatment_time, unit_col=None):
     """
     Run Difference-in-Differences analysis.
-    
+
     Parameters:
     -----------
     df : pandas DataFrame
-        Panel data with units observed over time
+        Panel data with units observed over time.
     treatment_col : str
-        Column name for treatment indicator (0 = control, 1 = treated)
+        Column with treatment indicator (0 = control / not yet treated, 1 = treated).
+        For staggered DiD this should be time-varying (turns to 1 when treatment starts).
     time_col : str
-        Column name for time period
+        Column for time period.
     outcome_col : str
-        Column name for the outcome variable
+        Column for the outcome variable.
     treatment_time : int/float
-        The time period when treatment begins
+        The time period when treatment begins (used for non-staggered / cross-sectional).
     unit_col : str, optional
-        Column name for unit identifier (e.g., state_id, person_id)
-        If provided, enables unit fixed effects and clustered standard errors
-        
+        Column for unit identifier (e.g. state_id, person_id).
+        When provided:
+        - Enables unit fixed effects.
+        - Enables clustered standard errors (by unit).
+        - Triggers staggered-treatment detection.
+
     Returns:
     --------
-    dict with DiD estimate, statistics, and parallel trends test results
+    dict with DiD estimate, statistics, SE method, staggered diagnostics,
+    and parallel trends test results.
+
+    Estimation logic:
+    -----------------
+    Case A  (unit_col provided, staggered detected):
+        Two-Way Fixed Effects (TWFE) with unit-specific D_it indicator.
+        D_it = 1 when unit i has been treated by time t.
+        Formula: outcome ~ D_it + C(unit) + C(time)
+        SEs: clustered by unit.
+
+    Case B  (unit_col provided, no staggered):
+        Standard DiD with unit FEs and clustered SEs.
+        Formula: outcome ~ treatment + post + interaction + C(unit)
+        SEs: clustered by unit.
+
+    Case C  (no unit_col):
+        Simple cross-sectional DiD, plain OLS.
+        Formula: outcome ~ treatment + post + interaction
     """
     analysis_df = df.copy()
-    
-    # Create post-treatment indicator
-    analysis_df["post"] = (analysis_df[time_col] >= treatment_time).astype(int)
-    
-    # Create the DiD interaction term
-    analysis_df["interaction"] = analysis_df["post"] * analysis_df[treatment_col]
-    
-    # Build regression formula
-    # outcome = β0 + β1(treatment) + β2(post) + β3(treatment × post) + ε
-    # β3 is the DiD estimate (Average Treatment Effect on Treated)
-    
-    if unit_col:
-        # With unit fixed effects: use C() to create unit dummies
-        # Note: This is a simplified approach. For clustered SEs, you'd need
-        # statsmodels' panel data tools or linearmodels package
-        # Wrap column names in Q() if they contain spaces or special characters
-        outcome_term = f"Q('{outcome_col}')" if ' ' in outcome_col or not outcome_col.replace('_', '').isalnum() else outcome_col
-        treatment_term = f"Q('{treatment_col}')" if ' ' in treatment_col or not treatment_col.replace('_', '').isalnum() else treatment_col
-        unit_term = f"C(Q('{unit_col}'))" if ' ' in unit_col or not unit_col.replace('_', '').isalnum() else f"C({unit_col})"
-        formula = f"{outcome_term} ~ {treatment_term} + post + interaction + {unit_term}"
+    staggered_warnings = []
+
+    # =========================================================
+    # STEP 1: Detect staggered treatment
+    # =========================================================
+    is_staggered = False
+    unit_treatment_times: dict = {}
+    cohort_info: dict = {}
+    n_clusters: int | None = None
+
+    if unit_col and unit_col in df.columns:
+        is_staggered, unit_treatment_times, cohort_info = _detect_staggered_treatment(
+            df, treatment_col, time_col, unit_col
+        )
+        n_clusters = int(analysis_df[unit_col].nunique())
+
+    # =========================================================
+    # STEP 2: Build formula and fit model
+    # =========================================================
+
+    if is_staggered:
+        # --- Case A: Staggered DiD — TWFE with unit-specific D_it ---
+        # D_it = 1 when unit i's treatment has "switched on" by time t.
+        analysis_df['_unit_treat_time'] = analysis_df[unit_col].map(unit_treatment_times)
+        analysis_df['D_it'] = (
+            analysis_df['_unit_treat_time'].notna()
+            & (analysis_df[time_col] >= analysis_df['_unit_treat_time'])
+        ).astype(int)
+        analysis_df = analysis_df.drop(columns=['_unit_treat_time'])
+
+        unit_fe = f"C({_quote(unit_col)})"
+        time_fe = f"C({_quote(time_col)})"
+        formula = f"{_quote(outcome_col)} ~ D_it + {unit_fe} + {time_fe}"
+
+        model = smf.ols(formula, data=analysis_df).fit(
+            cov_type='cluster',
+            cov_kwds={'groups': analysis_df[unit_col]}
+        )
+        coef_key = 'D_it'
+
+        if n_clusters is not None and n_clusters < 30:
+            staggered_warnings.append(
+                f"Only {n_clusters} units (clusters) found. "
+                "Clustered standard errors may be unreliable with fewer than 30 clusters. "
+                "Interpret confidence intervals with caution."
+            )
+        staggered_warnings.append(
+            f"Staggered treatment detected across {len(cohort_info)} cohorts. "
+            "Using Two-Way Fixed Effects (TWFE) estimator. "
+            "TWFE can produce biased estimates when treatment effects are heterogeneous "
+            "across cohorts or over time. For more robust inference consider the "
+            "Callaway-Sant'Anna (2021) estimator."
+        )
+
+    elif unit_col and unit_col in df.columns:
+        # --- Case B: Standard panel DiD with unit FEs + clustered SEs ---
+        analysis_df["post"] = (analysis_df[time_col] >= treatment_time).astype(int)
+        analysis_df["interaction"] = analysis_df["post"] * analysis_df[treatment_col]
+
+        unit_fe = f"C({_quote(unit_col)})"
+        formula = (
+            f"{_quote(outcome_col)} ~ {_quote(treatment_col)} + post + interaction + {unit_fe}"
+        )
+        model = smf.ols(formula, data=analysis_df).fit(
+            cov_type='cluster',
+            cov_kwds={'groups': analysis_df[unit_col]}
+        )
+        coef_key = 'interaction'
+
+        if n_clusters is not None and n_clusters < 30:
+            staggered_warnings.append(
+                f"Only {n_clusters} units (clusters) found. "
+                "Clustered standard errors may be unreliable with fewer than 30 clusters. "
+                "Interpret confidence intervals with caution."
+            )
+
     else:
-        # Wrap column names in Q() if they contain spaces or special characters
-        outcome_term = f"Q('{outcome_col}')" if ' ' in outcome_col or not outcome_col.replace('_', '').isalnum() else outcome_col
-        treatment_term = f"Q('{treatment_col}')" if ' ' in treatment_col or not treatment_col.replace('_', '').isalnum() else treatment_col
-        formula = f"{outcome_term} ~ {treatment_term} + post + interaction"
-    
-    # Fit OLS regression
-    model = smf.ols(formula, data=analysis_df).fit()
-    
-    # Extract results
-    coef = model.params["interaction"]
-    conf_int = model.conf_int().loc["interaction"].tolist()
-    
-    # Calculate sample statistics
-    treated_obs = len(analysis_df[analysis_df[treatment_col] == 1])
-    control_obs = len(analysis_df[analysis_df[treatment_col] == 0])
-    
-    # Count unique units if unit_col is provided
-    treated_units = len(analysis_df[analysis_df[treatment_col] == 1][unit_col].unique()) if unit_col else treated_obs
-    control_units = len(analysis_df[analysis_df[treatment_col] == 0][unit_col].unique()) if unit_col else control_obs
-    
-    # Run parallel trends analysis
+        # --- Case C: Simple cross-sectional DiD ---
+        analysis_df["post"] = (analysis_df[time_col] >= treatment_time).astype(int)
+        analysis_df["interaction"] = analysis_df["post"] * analysis_df[treatment_col]
+
+        formula = (
+            f"{_quote(outcome_col)} ~ {_quote(treatment_col)} + post + interaction"
+        )
+        model = smf.ols(formula, data=analysis_df).fit()
+        coef_key = 'interaction'
+
+    # =========================================================
+    # STEP 3: Extract estimates
+    # =========================================================
+    coef = float(model.params[coef_key])
+    se = float(model.bse[coef_key])
+    pval = float(model.pvalues[coef_key])
+    conf_int = model.conf_int().loc[coef_key].tolist()
+
+    # =========================================================
+    # STEP 4: Sample statistics
+    # =========================================================
+    if is_staggered:
+        # Treated obs = rows where D_it == 1
+        treated_obs = int(analysis_df['D_it'].sum())
+        control_obs = int(len(analysis_df) - treated_obs)
+        treated_units = int(len(unit_treatment_times))
+        control_units = int(analysis_df[unit_col].nunique() - len(unit_treatment_times))
+    else:
+        treated_obs = int(len(analysis_df[analysis_df[treatment_col] == 1]))
+        control_obs = int(len(analysis_df[analysis_df[treatment_col] == 0]))
+        if unit_col and unit_col in df.columns:
+            treated_units = int(
+                analysis_df[analysis_df[treatment_col] == 1][unit_col].nunique()
+            )
+            control_units = int(
+                analysis_df[analysis_df[treatment_col] == 0][unit_col].nunique()
+            )
+        else:
+            treated_units = None
+            control_units = None
+
+    # =========================================================
+    # STEP 5: Parallel trends
+    # =========================================================
     parallel_trends = check_parallel_trends(
-        df, treatment_col, time_col, outcome_col, treatment_time
+        df, treatment_col, time_col, outcome_col, treatment_time,
+        unit_col=unit_col,
+        unit_treatment_times=unit_treatment_times if is_staggered else None,
     )
-    
+
+    # =========================================================
+    # STEP 6: Return results
+    # =========================================================
     return {
         # Main DiD results
         "did_estimate": round(coef, 4),
-        "standard_error": round(model.bse["interaction"], 4),
-        "p_value": round(model.pvalues["interaction"], 4),
-        "is_significant": model.pvalues["interaction"] < 0.05,
+        "standard_error": round(se, 4),
+        "p_value": round(pval, 4),
+        "is_significant": bool(pval < 0.05),
         "confidence_interval": {
-            "lower": round(conf_int[0], 4),
-            "upper": round(conf_int[1], 4)
+            "lower": round(float(conf_int[0]), 4),
+            "upper": round(float(conf_int[1]), 4),
         },
-        
+
+        # Estimation metadata
+        "se_method": (
+            "clustered_by_unit" if unit_col and unit_col in df.columns else "ols"
+        ),
+        "estimator": (
+            "twfe_staggered" if is_staggered
+            else ("twfe_panel" if unit_col and unit_col in df.columns else "ols_did")
+        ),
+
         # Sample statistics
         "statistics": {
-            "total_observations": len(df),
+            "total_observations": int(len(df)),
             "treated_observations": treated_obs,
             "control_observations": control_obs,
-            "treated_units": treated_units if unit_col else None,
-            "control_units": control_units if unit_col else None,
-            "pre_treatment_periods": len(df[df[time_col] < treatment_time][time_col].unique()),
-            "post_treatment_periods": len(df[df[time_col] >= treatment_time][time_col].unique()),
-            "r_squared": round(model.rsquared, 4)
+            "treated_units": treated_units,
+            "control_units": control_units,
+            "n_clusters": n_clusters,
+            "pre_treatment_periods": int(
+                len(df[df[time_col] < treatment_time][time_col].unique())
+            ),
+            "post_treatment_periods": int(
+                len(df[df[time_col] >= treatment_time][time_col].unique())
+            ),
+            "r_squared": round(float(model.rsquared), 4),
         },
-        
+
+        # Staggered treatment info
+        "is_staggered": is_staggered,
+        "staggered_warnings": staggered_warnings,
+        "cohort_info": (
+            {str(k): v for k, v in sorted(cohort_info.items())}
+            if cohort_info else None
+        ),
+
         # Parallel trends results
         "parallel_trends": parallel_trends,
-        
+
         # Full model summary (for advanced users)
-        "model_summary": model.summary().as_text()
+        "model_summary": model.summary().as_text(),
     }
