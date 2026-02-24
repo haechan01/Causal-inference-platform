@@ -47,6 +47,43 @@ const STATIC_EXPLANATIONS: Record<string, {
     simple_explanation: 'This optional step allows you to manually specify which units belong to the treatment group and which belong to the control group. If skipped, the system will automatically assign groups based on your Treatment Variable and Value.',
     example: 'If your data has a "State" column, you can manually select "California" and "New York" as treatment units, and "Texas" and "Florida" as control units.',
     why_it_matters: 'Manual assignment gives you full control if the automatic logic doesn\'t perfectly match your study design, or if you want to exclude specific units from the analysis.'
+  },
+  // ── IV-specific concepts ──────────────────────────────────────────────────
+  'endogenous treatment in iv': {
+    title: 'Endogenous Treatment Variable',
+    simple_explanation: 'A variable is "endogenous" when it is correlated with unobserved factors (the error term) that also affect the outcome. This causes ordinary regression (OLS) to give biased estimates of the causal effect.',
+    example: 'Education level is endogenous in a wages regression — smarter or more motivated people both get more education AND earn higher wages, making it hard to isolate education\'s true effect on wages.',
+    why_it_matters: 'If you use OLS with an endogenous treatment, your estimate will be biased (typically upward or downward). IV/2SLS corrects this by using the instrument to isolate only the variation in treatment that is "clean" (unrelated to the confounders).'
+  },
+  'instrumental variable': {
+    title: 'Instrumental Variable (Instrument)',
+    simple_explanation: 'An instrument is a variable that (1) strongly predicts the treatment variable, but (2) affects the outcome ONLY through the treatment — it has no direct effect on the outcome itself.',
+    example: 'Draft lottery numbers are a classic instrument for military service in studies of veterans\' wages: lottery assignment strongly predicts who served, but the lottery number itself has no direct effect on wages other than through military service.',
+    why_it_matters: 'A valid instrument lets you isolate the "clean" variation in treatment — the part driven only by the instrument, not by confounders. This allows you to estimate the causal effect even when randomised assignment was not possible.'
+  },
+  'exclusion restriction': {
+    title: 'Exclusion Restriction',
+    simple_explanation: 'The exclusion restriction is the assumption that the instrument affects the outcome ONLY through the treatment — it is "excluded" from the outcome equation. It cannot be statistically verified; it requires domain knowledge and careful justification.',
+    example: 'If using quarter of birth as an instrument for education, the exclusion restriction means that being born in a particular quarter affects wages only because it affects how much schooling you get — not through any other channel (e.g., seasonal health effects at birth).',
+    why_it_matters: 'Violating the exclusion restriction means your instrument is invalid and your 2SLS estimates will be biased. This is the most common and hardest-to-defend assumption in IV analyses.'
+  },
+  'two-stage least squares': {
+    title: 'Two-Stage Least Squares (2SLS)',
+    simple_explanation: '2SLS is the standard IV estimation method. Stage 1: regress the treatment on the instruments (and controls) to get predicted treatment values. Stage 2: regress the outcome on the predicted treatment values (and controls). The Stage 2 coefficient is the causal estimate.',
+    example: 'To estimate the effect of education on wages using quarter-of-birth as an instrument: Stage 1 predicts education from quarter of birth. Stage 2 regresses wages on the predicted education. The coefficient is the IV estimate of returns to education.',
+    why_it_matters: '2SLS produces a consistent estimate of the causal effect when the instrument is valid (relevant + excludable + independent). The standard errors must be computed correctly using the structural residuals, not the second-stage fitted residuals.'
+  },
+  'local average treatment effect': {
+    title: 'Local Average Treatment Effect (LATE)',
+    simple_explanation: 'With a binary instrument, 2SLS estimates the LATE — the causal effect for "compliers": units whose treatment status changes because of the instrument. This may differ from the Average Treatment Effect (ATE) for the full population.',
+    example: 'In a study using a job-training lottery as an instrument for training participation, the LATE is the effect of training on wages for people who enrolled because they won the lottery — not for people who would have enrolled regardless or those who never would.',
+    why_it_matters: 'Understanding LATE is crucial for interpreting 2SLS results. If compliers are not representative of the full population, the LATE may not generalise. You should assess whether compliers are the policy-relevant group for your research question.'
+  },
+  'sensitivity analysis in iv': {
+    title: 'Sensitivity Analysis in IV',
+    simple_explanation: 'Sensitivity analysis tests how robust your IV results are to potential violations of assumptions. For just-identified IV (1 instrument), this produces Anderson-Rubin confidence intervals that remain valid even with weak instruments. For over-identified IV (multiple instruments), it runs leave-one-out analysis to check if results depend on any single instrument.',
+    example: 'If you have 3 instruments and the main 2SLS estimate is 0.5, leave-one-out analysis might show estimates of 0.48, 0.52, 0.49 when each instrument is dropped — confirming the result is not driven by one potentially invalid instrument.',
+    why_it_matters: 'IV assumptions (especially exclusion restriction) cannot be fully tested. Sensitivity analysis builds credibility by showing results are stable. Weak-instrument-robust Anderson-Rubin CIs are particularly important when the first-stage F-statistic is below the Stock-Yogo threshold.'
   }
 };
 

@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import pandas as pd
 from utils.did_analysis import run_did
+from analysis.iv_analysis import IVEstimator
 
 analysis_bp = Blueprint('analysis', __name__, url_prefix='/api/analysis')
 
@@ -294,3 +295,203 @@ def suggest_columns():
             }
     
     return jsonify(suggestions)
+
+
+# =============================================================================
+# INSTRUMENTAL VARIABLES (IV / 2SLS)
+# =============================================================================
+
+@analysis_bp.route("/iv", methods=["POST"])
+@jwt_required()
+def analyze_iv():
+    """
+    Run Two-Stage Least Squares (2SLS) IV estimation.
+
+    Required form fields:
+    - file        : CSV file
+    - outcome     : outcome / dependent variable column
+    - treatment   : endogenous treatment column
+    - instruments : comma-separated list of instrument columns
+
+    Optional form fields:
+    - controls    : comma-separated list of exogenous control columns
+    - run_sensitivity : "true" to run sensitivity analysis (leave-one-out /
+                        Anderson-Rubin CI). Defaults to false.
+
+    Returns:
+    - 2SLS treatment effect with 95% CI
+    - First-stage F-statistic and instrument-strength assessment
+    - Wu-Hausman endogeneity test
+    - Sargan-Hansen overidentification test (if >1 instrument)
+    - OLS comparison estimate
+    - Sensitivity analysis (optional)
+    """
+    current_user_id = get_jwt_identity()
+
+    # =========================================================
+    # STEP 1: Validate required fields
+    # =========================================================
+    required_fields = ["outcome", "treatment", "instruments"]
+    missing_fields = [f for f in required_fields if f not in request.form]
+    if missing_fields:
+        return jsonify({
+            "error": f"Missing required fields: {', '.join(missing_fields)}"
+        }), 400
+
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    # =========================================================
+    # STEP 2: Extract parameters
+    # =========================================================
+    file = request.files["file"]
+    outcome_col = request.form["outcome"].strip()
+    treatment_col = request.form["treatment"].strip()
+
+    # instruments and controls are comma-separated column names
+    instruments_raw = request.form["instruments"].strip()
+    instrument_cols = [c.strip() for c in instruments_raw.split(",") if c.strip()]
+    if not instrument_cols:
+        return jsonify({"error": "At least one instrument column must be specified."}), 400
+
+    controls_raw = request.form.get("controls", "").strip()
+    control_cols = [c.strip() for c in controls_raw.split(",") if c.strip()] or None
+
+    run_sensitivity = request.form.get("run_sensitivity", "false").lower() == "true"
+
+    # =========================================================
+    # STEP 3: Load and validate data
+    # =========================================================
+    try:
+        df = pd.read_csv(file)
+    except Exception as e:
+        return jsonify({"error": f"Could not read CSV file: {str(e)}"}), 400
+
+    # Verify all referenced columns exist
+    required_columns = [outcome_col, treatment_col] + instrument_cols + (control_cols or [])
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        return jsonify({
+            "error": f"Columns not found in data: {', '.join(missing_columns)}",
+            "available_columns": list(df.columns),
+        }), 400
+
+    # Sanity: instruments must differ from treatment and outcome
+    for z in instrument_cols:
+        if z == treatment_col:
+            return jsonify({
+                "error": f"Instrument '{z}' is the same as the treatment column. "
+                         "Instruments must be distinct from the endogenous treatment."
+            }), 400
+        if z == outcome_col:
+            return jsonify({
+                "error": f"Instrument '{z}' is the same as the outcome column."
+            }), 400
+
+    # =========================================================
+    # STEP 4: Run analysis
+    # =========================================================
+    try:
+        estimator = IVEstimator(
+            data=df,
+            outcome_var=outcome_col,
+            treatment_var=treatment_col,
+            instrument_vars=instrument_cols,
+            control_vars=control_cols,
+        )
+        result = estimator.estimate()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Analysis failed: {str(e)}"}), 500
+
+    # =========================================================
+    # STEP 5: Optional sensitivity analysis
+    # =========================================================
+    if run_sensitivity:
+        try:
+            result["sensitivity_analysis"] = estimator.sensitivity_analysis()
+        except Exception as e:
+            result["sensitivity_analysis"] = {"error": str(e)}
+
+    # =========================================================
+    # STEP 6: Add metadata and return
+    # =========================================================
+    result["metadata"] = {
+        "user_id": current_user_id,
+        "columns_used": {
+            "outcome": outcome_col,
+            "treatment": treatment_col,
+            "instruments": instrument_cols,
+            "controls": control_cols,
+        },
+    }
+
+    return jsonify(result)
+
+
+@analysis_bp.route("/iv/validate", methods=["POST"])
+@jwt_required()
+def validate_iv_data_route():
+    """
+    Validate uploaded data and return column information to help the user
+    select appropriate outcome, treatment, instrument, and control columns.
+
+    Returns column summaries with suggested roles.
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    file = request.files["file"]
+    try:
+        df = pd.read_csv(file)
+    except Exception as e:
+        return jsonify({"error": f"Could not read CSV file: {str(e)}"}), 400
+
+    columns_info = []
+    for col in df.columns:
+        col_data = df[col].dropna()
+        numeric = pd.api.types.is_numeric_dtype(col_data)
+
+        info = {
+            "name": col,
+            "dtype": str(df[col].dtype),
+            "unique_values": int(col_data.nunique()),
+            "null_count": int(df[col].isnull().sum()),
+            "sample_values": col_data.head(5).tolist(),
+            "is_numeric": numeric,
+        }
+
+        col_lower = col.lower()
+
+        # Suggest role heuristics
+        if set(col_data.unique()).issubset({0, 1}):
+            info["suggested_role"] = "treatment"
+            info["suggestion_reason"] = "Binary variable (0/1)"
+        elif numeric and col_data.nunique() > 20:
+            if any(w in col_lower for w in ["outcome", "result", "wage", "earn", "income",
+                                             "score", "rate", "amount", "value", "gdp"]):
+                info["suggested_role"] = "outcome"
+                info["suggestion_reason"] = "Continuous numeric, name suggests outcome"
+            elif any(w in col_lower for w in ["instrument", "iv", "distance", "lottery",
+                                               "assign", "random", "quarter", "birth"]):
+                info["suggested_role"] = "instrument"
+                info["suggestion_reason"] = "Name suggests a potential instrument"
+            else:
+                info["suggested_role"] = "outcome_or_control"
+                info["suggestion_reason"] = "Continuous numeric variable"
+        elif not numeric:
+            info["suggested_role"] = "identifier"
+            info["suggestion_reason"] = "Non-numeric, likely an identifier"
+        else:
+            info["suggested_role"] = "control_or_instrument"
+            info["suggestion_reason"] = "Low-cardinality numeric"
+
+        columns_info.append(info)
+
+    return jsonify({
+        "row_count": len(df),
+        "column_count": len(df.columns),
+        "columns": columns_info,
+        "preview": df.head(10).to_dict(orient="records"),
+    })

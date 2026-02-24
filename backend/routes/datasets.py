@@ -19,6 +19,7 @@ import math
 from models import Dataset
 from utils.did_analysis import check_parallel_trends
 from analysis.rd_analysis import RDEstimator
+from analysis.iv_analysis import IVEstimator
 from sample_data_utils import get_sample_dataset_by_id, get_sample_file_path
 
 # Create blueprint
@@ -1620,4 +1621,128 @@ def run_rd_sensitivity_analysis(dataset_id):
         return jsonify({
             "error": f"Failed to run RD sensitivity analysis: {str(e)}"
         }), 500
+
+
+@datasets_bp.route('/<int:dataset_id>/analyze/iv', methods=['POST'])
+@jwt_required()
+def run_iv_analysis(dataset_id):
+    """Run Instrumental Variable (2SLS) analysis on a dataset."""
+    print("=== IV ANALYSIS STARTED ===")
+    try:
+        current_user_id = get_jwt_identity()
+        if not isinstance(current_user_id, str):
+            raise ValueError("Invalid token identity")
+
+        # Get dataset
+        dataset = Dataset.query.get(dataset_id)
+        if not dataset:
+            return jsonify({"error": f"Dataset {dataset_id} not found"}), 404
+
+        # Access check
+        has_access = (
+            str(dataset.user_id) == str(current_user_id)
+            or (dataset.project and str(dataset.project.user_id) == str(current_user_id))
+        )
+        if not has_access:
+            return jsonify({"error": "Access denied"}), 403
+
+        # Parse request
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No analysis parameters provided"}), 400
+
+        outcome_var    = data.get('outcome')
+        treatment_var  = data.get('treatment')
+        instrument_vars = data.get('instruments', [])
+        control_vars   = data.get('controls') or []
+        run_sensitivity = bool(data.get('run_sensitivity', False))
+
+        print(f"  outcome:     {outcome_var}")
+        print(f"  treatment:   {treatment_var}")
+        print(f"  instruments: {instrument_vars}")
+        print(f"  controls:    {control_vars}")
+        print(f"  sensitivity: {run_sensitivity}")
+
+        # Validate required parameters
+        if not outcome_var:
+            return jsonify({"error": "Missing required parameter: outcome"}), 400
+        if not treatment_var:
+            return jsonify({"error": "Missing required parameter: treatment"}), 400
+        if not instrument_vars or not isinstance(instrument_vars, list):
+            return jsonify({"error": "instruments must be a non-empty list of column names"}), 400
+
+        # Download file from S3
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            region_name=AWS_REGION
+        )
+        temp_file_path = f"/tmp/iv_analysis_{dataset_id}.csv"
+
+        try:
+            s3_client.download_file(S3_BUCKET_NAME, dataset.s3_key, temp_file_path)
+            df = pd.read_csv(temp_file_path)
+
+            print(f"Dataset shape: {df.shape}")
+            print(f"Columns: {list(df.columns)}")
+
+            # Validate all columns exist
+            all_cols = [outcome_var, treatment_var] + instrument_vars + control_vars
+            missing_cols = [c for c in all_cols if c not in df.columns]
+            if missing_cols:
+                return jsonify({
+                    "error": f"Columns not found in dataset: {', '.join(missing_cols)}"
+                }), 400
+
+            # Run IV estimation
+            estimator = IVEstimator(
+                data=df,
+                outcome_var=outcome_var,
+                treatment_var=treatment_var,
+                instrument_vars=instrument_vars,
+                control_vars=control_vars if control_vars else None,
+            )
+
+            try:
+                result = estimator.estimate()
+            except ValueError as ve:
+                return jsonify({"error": str(ve)}), 400
+
+            # Optional sensitivity analysis
+            sensitivity = None
+            if run_sensitivity:
+                try:
+                    sensitivity = estimator.sensitivity_analysis()
+                except Exception as se:
+                    sensitivity = {"error": str(se)}
+
+            # Build response
+            response_data = {
+                'analysis_type': 'instrumental_variable',
+                'dataset_id': dataset_id,
+                'parameters': {
+                    'outcome_var': outcome_var,
+                    'treatment_var': treatment_var,
+                    'instrument_vars': instrument_vars,
+                    'control_vars': control_vars,
+                },
+                'results': result,
+                'sensitivity_analysis': sensitivity,
+            }
+
+            response_data = sanitize_for_json(response_data)
+            return jsonify(response_data), 200
+
+        finally:
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+
+    except ValueError:
+        return jsonify({"error": "Invalid token identity"}), 401
+    except Exception as e:
+        print(f"ERROR in run_iv_analysis: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to run IV analysis: {str(e)}"}), 500
 

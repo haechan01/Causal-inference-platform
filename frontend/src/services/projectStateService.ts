@@ -21,6 +21,10 @@ export interface AnalysisConfig {
   bandwidth?: string;
   polynomialOrder?: number;
   treatmentSide?: 'above' | 'below';
+  // IV-specific
+  treatmentVar?: string;
+  instruments?: string[];
+  runSensitivity?: boolean;
 }
 
 export interface ProjectState {

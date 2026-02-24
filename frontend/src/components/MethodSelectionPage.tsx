@@ -107,8 +107,13 @@ const MethodSelectionPage: React.FC = () => {
                 try { await projectStateService.saveState(projectId, { currentStep: 'rd-setup', selectedMethod }, accessToken); } catch { }
             }
             navigate('/rd-setup', { state: { projectId, datasetId } });
+        } else if (selectedMethod === 'iv') {
+            if (projectId && accessToken) {
+                try { await projectStateService.saveState(projectId, { currentStep: 'iv-setup', selectedMethod }, accessToken); } catch { }
+            }
+            navigate('/iv-setup', { state: { projectId, datasetId } });
         } else {
-            alert("This method is coming soon! Please select Difference-in-Differences or Regression Discontinuity for now.");
+            alert("This method is coming soon! Please select one of the available methods.");
         }
     };
 
@@ -246,10 +251,10 @@ const MethodSelectionPage: React.FC = () => {
                             </div>
 
                             <div
-                                style={{ ...styles.methodCard, ...styles.methodCardDisabled, ...(selectedMethod === 'iv' ? styles.selectedCard : {}) }}
+                                style={{ ...styles.methodCard, ...(selectedMethod === 'iv' ? styles.selectedCard : {}) }}
                                 onClick={() => handleMethodSelect('iv')}
                             >
-                                <div style={styles.comingSoonBadge}>Coming Soon</div>
+                                <div style={styles.statusBadge}>Available</div>
                                 <div style={styles.cardContent}>
                                     <div style={styles.icon}>🎻</div>
                                     <h3 style={styles.cardTitle}>Instrumental Variables</h3>
@@ -439,7 +444,7 @@ const MethodSelectionPage: React.FC = () => {
                 steps={steps}
                 onPrev={goToPreviousStep}
                 onNext={handleNext}
-                canGoNext={selectedMethod === 'did' || selectedMethod === 'rdd'}
+                canGoNext={selectedMethod === 'did' || selectedMethod === 'rdd' || selectedMethod === 'iv'}
                 onStepClick={(path) => navigate(path, { state: { projectId, datasetId } })}
             />
         </div>
@@ -761,9 +766,57 @@ const IVDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> =
                 <div style={styles.whenToUseItem}><span style={styles.whenToUseIcon}>🔒</span><span>The instrument only affects the outcome through treatment</span></div>
             </div>
         </div>
-        <div style={styles.comingSoonContent}>
-            <p style={styles.comingSoonText}>🚧 Full analysis coming soon!</p>
-            <p style={{ color: '#666', fontSize: '14px' }}>IV uses an external "instrument" that affects treatment but has no direct effect on the outcome.</p>
+        <div style={styles.explanationContent}>
+            <div style={styles.conceptsSection}>
+                <h4 style={styles.sectionTitle}>Key Concepts</h4>
+                <div style={styles.conceptsGrid}>
+                    {[
+                        { icon: '🎯', title: 'Relevance', text: 'The instrument must be strongly correlated with the treatment variable (first-stage F > 10).' },
+                        { icon: '🔒', title: 'Exclusion Restriction', text: 'The instrument affects the outcome only through treatment — no direct effect allowed.' },
+                        { icon: '🎲', title: 'Independence', text: 'The instrument must be uncorrelated with unobserved confounders (ideally "as-good-as-random").' },
+                        { icon: '📐', title: 'LATE', text: '2SLS estimates the Local Average Treatment Effect for "compliers" — units who comply with treatment due to the instrument.' }
+                    ].map((c, i) => (
+                        <div key={i} style={styles.conceptCard}>
+                            <div style={styles.conceptIcon}>{c.icon}</div>
+                            <h5 style={styles.conceptTitle}>{c.title}</h5>
+                            <p style={styles.conceptText}>{c.text}</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+            <div style={styles.exampleSection}>
+                <h4 style={styles.sectionTitle}>📖 Example: Returns to Education</h4>
+                <div style={styles.exampleBox}>
+                    <div style={styles.exampleScenario}><p><strong>Question:</strong> Does education increase wages, correcting for ability bias?</p></div>
+                    <div style={styles.exampleSteps}>
+                        {[
+                            { label: 'Outcome', text: 'Wages (what we want to explain)' },
+                            { label: 'Treatment', text: 'Years of education (endogenous — correlated with ability)' },
+                            { label: 'Instrument', text: 'Quarter of birth (affects school entry age, but not wages directly)' },
+                            { label: 'Result', text: 'Angrist & Krueger (1991) found a positive return to education after correcting for endogeneity' }
+                        ].map((s, i) => (
+                            <div key={i} style={styles.exampleStep}>
+                                <div style={styles.stepNumber}>{i + 1}</div>
+                                <div><strong>{s.label}:</strong> {s.text}</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+            <div style={styles.formulaSection}>
+                <h4 style={styles.sectionTitle}>🧮 The Math (Simplified)</h4>
+                <div style={styles.formulaBox}>
+                    <div style={styles.formula}>
+                        <span style={styles.formulaHighlight}>2SLS Effect</span> =
+                        <span style={styles.formulaChange}> Cov(Y, Z)</span> /
+                        <span style={styles.formulaBaseline}> Cov(D, Z)</span>
+                    </div>
+                    <div style={styles.formulaLegend}>
+                        <span><span style={styles.formulaChange}>■</span> Reduced form (Z → Y)</span>
+                        <span><span style={styles.formulaBaseline}>■</span> First stage (Z → D)</span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 );

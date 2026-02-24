@@ -67,6 +67,15 @@ const VariableSelectionPage: React.FC = () => {
   const MAX_MESSAGE_LENGTH = 2000;
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Dataset preview state
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<{
+    columns: Array<{ name: string; type: string }>;
+    rows: Record<string, any>[];
+    summary: { total_rows: number; total_columns: number };
+  } | null>(null);
+  const [previewSearch, setPreviewSearch] = useState('');
+
   const [selection, setSelection] = useState<VariableSelection>({
     outcome: '',
     treatment: '',
@@ -171,6 +180,7 @@ const VariableSelectionPage: React.FC = () => {
             headers: { Authorization: `Bearer ${accessToken}` }
           });
           setDataSummary(previewResponse.data.summary);
+          setPreviewData(previewResponse.data);
         } catch (err) {
           console.warn("Failed to fetch data summary:", err);
         }
@@ -544,6 +554,172 @@ ALWAYS BE PRECISE: Use the exact variable names from the parameters, never subst
 
         <div style={styles.mainContent} data-variable-selection-layout>
           <div style={styles.contentWrapper}>
+
+            {/* ── Data Preview Panel (far-left, collapsible) ── */}
+            {!previewOpen ? (
+              /* Collapsed tab */
+              <div
+                style={styles.previewCollapsedTab}
+                onClick={() => setPreviewOpen(true)}
+                title="Open dataset preview"
+              >
+                <span style={styles.previewTabEmoji}>📊</span>
+                <span style={styles.previewTabText}>Data Preview</span>
+              </div>
+            ) : (
+              /* Open panel */
+              <div style={styles.previewPanel}>
+                {/* Header */}
+                <div style={styles.previewPanelHeader}>
+                  <span style={styles.previewPanelTitle}>📊 Data Preview</span>
+                  <button
+                    style={styles.previewCloseBtn}
+                    onClick={() => setPreviewOpen(false)}
+                    title="Close preview"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Dataset info row */}
+                {selectedDataset && (
+                  <div style={styles.previewDatasetInfo}>
+                    <strong style={{ color: '#043873' }}>{selectedDataset.name}</strong>
+                    {previewData && (
+                      <span style={{ color: '#666' }}>
+                        {' '}· {previewData.summary.total_rows.toLocaleString()} rows ·{' '}
+                        {previewData.summary.total_columns} cols
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Color legend */}
+                <div style={styles.previewLegend}>
+                  {[
+                    { label: 'Y  Outcome',   bg: '#d1fae5', border: '#059669' },
+                    { label: 'T  Treatment', bg: '#dbeafe', border: '#2563eb' },
+                    { label: 'G  Time',      bg: '#fce7f3', border: '#db2777' },
+                    { label: 'U  Unit',      bg: '#ffedd5', border: '#ea580c' },
+                    { label: 'C  Control',   bg: '#fef9c3', border: '#ca8a04' },
+                  ].map(({ label, bg, border }) => (
+                    <span key={label} style={styles.legendItem}>
+                      <span style={{ ...styles.legendDot, backgroundColor: bg, borderColor: border }} />
+                      {label}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Column filter */}
+                <div style={styles.previewSearchWrapper}>
+                  <input
+                    type="text"
+                    placeholder="🔍  Filter columns…"
+                    value={previewSearch}
+                    onChange={(e) => setPreviewSearch(e.target.value)}
+                    style={styles.previewSearchInput}
+                  />
+                </div>
+
+                {/* Table area */}
+                <div style={styles.previewTableWrapper}>
+                  {!previewData ? (
+                    <div style={styles.previewLoadingState}>
+                      <div style={styles.previewSpinner} />
+                      <span>Loading preview…</span>
+                    </div>
+                  ) : (() => {
+                    const colNames = previewData.columns.map((c) => c.name);
+                    const filteredCols = colNames.filter((c) =>
+                      !previewSearch || c.toLowerCase().includes(previewSearch.toLowerCase())
+                    );
+                    const roleOf = (col: string) =>
+                      col === selection.outcome ? 'outcome'
+                        : col === selection.treatment ? 'treatment'
+                        : col === selection.time ? 'time'
+                        : col === selection.unit ? 'unit'
+                        : selection.controls.includes(col) ? 'control'
+                        : 'none';
+                    const headerBg: Record<string, string> = {
+                      outcome: '#d1fae5', treatment: '#dbeafe', time: '#fce7f3',
+                      unit: '#ffedd5', control: '#fef9c3', none: '#f1f5f9',
+                    };
+                    const headerBorder: Record<string, string> = {
+                      outcome: '#059669', treatment: '#2563eb', time: '#db2777',
+                      unit: '#ea580c', control: '#ca8a04', none: 'transparent',
+                    };
+                    const cellBg: Record<string, string> = {
+                      outcome: '#f0fdf4', treatment: '#eff6ff', time: '#fdf2f8',
+                      unit: '#fff7ed', control: '#fefce8', none: 'transparent',
+                    };
+                    const roleLabel: Record<string, string> = {
+                      outcome: 'Y', treatment: 'T', time: 'G', unit: 'U', control: 'C', none: '',
+                    };
+                    return (
+                      <table style={styles.previewTable}>
+                        <thead>
+                          <tr>
+                            <th style={styles.previewRowNumTh}>#</th>
+                            {filteredCols.map((col) => {
+                              const role = roleOf(col);
+                              return (
+                                <th
+                                  key={col}
+                                  style={{
+                                    ...styles.previewTh,
+                                    backgroundColor: headerBg[role],
+                                    borderBottom: `3px solid ${headerBorder[role]}`,
+                                  }}
+                                  title={col}
+                                >
+                                  {col.length > 14 ? col.slice(0, 13) + '…' : col}
+                                  {role !== 'none' && (
+                                    <span style={styles.previewRoleTag}>{roleLabel[role]}</span>
+                                  )}
+                                </th>
+                              );
+                            })}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {previewData.rows.map((row, rowIdx) => (
+                            <tr
+                              key={rowIdx}
+                              style={rowIdx % 2 === 1 ? { backgroundColor: '#f9fafb' } : {}}
+                            >
+                              <td style={styles.previewRowNumTd}>{rowIdx + 1}</td>
+                              {filteredCols.map((col) => {
+                                const role = roleOf(col);
+                                const raw = row[col];
+                                const display =
+                                  raw === null || raw === undefined || raw === ''
+                                    ? null
+                                    : String(raw).length > 13
+                                    ? String(raw).slice(0, 12) + '…'
+                                    : String(raw);
+                                return (
+                                  <td
+                                    key={col}
+                                    style={{
+                                      ...styles.previewTd,
+                                      backgroundColor: cellBg[role],
+                                    }}
+                                    title={raw !== null && raw !== undefined ? String(raw) : ''}
+                                  >
+                                    {display ?? <span style={{ color: '#ccc' }}>—</span>}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
             <div style={styles.leftContent}>
               <div style={styles.cardsContainer}>
                 {/* Card 1: Outcome Variable */}
@@ -1704,5 +1880,221 @@ const styles = {
     border: '1px solid #e0e0e0',
     width: '100%',
     boxSizing: 'border-box' as const
-  }
+  },
+  // ── Data Preview Panel ─────────────────────────────────────────────────────
+  previewCollapsedTab: {
+    width: '38px',
+    flexShrink: 0,
+    backgroundColor: 'white',
+    borderRadius: '12px',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
+    border: '1px solid #e0e0e0',
+    borderLeft: '4px solid #043873',
+    cursor: 'pointer',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: '10px',
+    padding: '18px 0',
+    position: 'sticky' as const,
+    top: '90px',
+    alignSelf: 'flex-start',
+    minHeight: '130px',
+    transition: 'box-shadow 0.2s',
+  },
+  previewTabEmoji: {
+    fontSize: '16px',
+    lineHeight: '1',
+  },
+  previewTabText: {
+    fontSize: '11px',
+    color: '#043873',
+    fontWeight: '700' as const,
+    writingMode: 'vertical-rl' as const,
+    textOrientation: 'mixed' as const,
+    transform: 'rotate(180deg)',
+    letterSpacing: '0.6px',
+    userSelect: 'none' as const,
+  },
+  previewPanel: {
+    width: '350px',
+    flexShrink: 0,
+    backgroundColor: 'white',
+    borderRadius: '12px',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+    border: '1px solid #e0e0e0',
+    position: 'sticky' as const,
+    top: '90px',
+    alignSelf: 'flex-start',
+    maxHeight: 'calc(100vh - 180px)',
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column' as const,
+  },
+  previewPanelHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '12px 16px',
+    borderBottom: '1px solid #e9ecef',
+    backgroundColor: '#f8f9fa',
+    borderRadius: '12px 12px 0 0',
+    flexShrink: 0,
+  },
+  previewPanelTitle: {
+    fontSize: '14px',
+    fontWeight: 'bold' as const,
+    color: '#043873',
+  },
+  previewCloseBtn: {
+    background: 'none',
+    border: 'none',
+    fontSize: '16px',
+    cursor: 'pointer',
+    color: '#666',
+    padding: '0 2px',
+    lineHeight: '1',
+  },
+  previewDatasetInfo: {
+    padding: '8px 16px',
+    fontSize: '12px',
+    borderBottom: '1px solid #f0f0f0',
+    flexShrink: 0,
+  },
+  previewLegend: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    gap: '6px',
+    padding: '8px 12px',
+    borderBottom: '1px solid #f0f0f0',
+    flexShrink: 0,
+  },
+  legendItem: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontSize: '11px',
+    color: '#444',
+    fontWeight: '500' as const,
+  },
+  legendDot: {
+    width: '10px',
+    height: '10px',
+    borderRadius: '2px',
+    border: '1.5px solid',
+    display: 'inline-block',
+    flexShrink: 0,
+  },
+  previewSearchWrapper: {
+    padding: '8px 12px',
+    borderBottom: '1px solid #f0f0f0',
+    flexShrink: 0,
+  },
+  previewSearchInput: {
+    width: '100%',
+    padding: '6px 10px',
+    fontSize: '13px',
+    border: '1px solid #e0e0e0',
+    borderRadius: '6px',
+    outline: 'none',
+    boxSizing: 'border-box' as const,
+    fontFamily: 'inherit',
+  },
+  previewTableWrapper: {
+    flex: 1,
+    overflowX: 'auto' as const,
+    overflowY: 'auto' as const,
+  },
+  previewTable: {
+    width: 'max-content',
+    minWidth: '100%',
+    borderCollapse: 'collapse' as const,
+    fontSize: '12px',
+  },
+  previewTh: {
+    padding: '8px 10px',
+    textAlign: 'left' as const,
+    fontWeight: '600' as const,
+    color: '#333',
+    whiteSpace: 'nowrap' as const,
+    position: 'sticky' as const,
+    top: 0,
+    zIndex: 1,
+    borderBottom: '1px solid #dee2e6',
+    fontSize: '12px',
+  },
+  previewRowNumTh: {
+    padding: '8px 8px',
+    backgroundColor: '#f1f5f9',
+    textAlign: 'center' as const,
+    fontWeight: '600' as const,
+    color: '#64748b',
+    position: 'sticky' as const,
+    top: 0,
+    left: 0,
+    zIndex: 2,
+    borderBottom: '1px solid #dee2e6',
+    borderRight: '1px solid #dee2e6',
+    fontSize: '11px',
+    minWidth: '32px',
+  },
+  previewTd: {
+    padding: '5px 10px',
+    borderBottom: '1px solid #f0f0f0',
+    color: '#333',
+    whiteSpace: 'nowrap' as const,
+    fontSize: '12px',
+  },
+  previewRowNumTd: {
+    padding: '5px 8px',
+    borderBottom: '1px solid #f0f0f0',
+    color: '#94a3b8',
+    textAlign: 'center' as const,
+    backgroundColor: '#f8fafc',
+    position: 'sticky' as const,
+    left: 0,
+    borderRight: '1px solid #e9ecef',
+    fontSize: '11px',
+    fontWeight: '500' as const,
+  },
+  previewRoleTag: {
+    marginLeft: '5px',
+    fontSize: '10px',
+    fontWeight: 'bold' as const,
+    backgroundColor: 'rgba(0,0,0,0.12)',
+    borderRadius: '3px',
+    padding: '1px 4px',
+    letterSpacing: '0.3px',
+  },
+  previewLoadingState: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '40px 20px',
+    color: '#666',
+    fontSize: '14px',
+    gap: '12px',
+    minHeight: '120px',
+  },
+  previewSpinner: {
+    width: '28px',
+    height: '28px',
+    border: '3px solid #f3f3f3',
+    borderTop: '3px solid #043873',
+    borderRadius: '50%',
+    animation: 'spin 1s linear infinite',
+  },
+  previewErrorState: {
+    padding: '20px 16px',
+    color: '#dc3545',
+    fontSize: '13px',
+  },
+  previewEmptyState: {
+    padding: '30px 16px',
+    color: '#888',
+    fontSize: '13px',
+    textAlign: 'center' as const,
+  },
 };
