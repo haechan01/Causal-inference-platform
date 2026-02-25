@@ -548,7 +548,6 @@ SENSITIVITY ANALYSIS:
   const allVars = variables;
 
   // Vars already claimed by outcome / treatment / instruments
-  const claimedByInstruments = new Set(instruments);
   const claimedForControls = new Set([
     outcomeVar,
     treatmentVar,
