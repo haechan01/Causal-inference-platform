@@ -33,6 +33,9 @@ const RDResults: React.FC = () => {
   const [expandedStat, setExpandedStat] = useState<'ci' | 'pvalue' | 'se' | null>(null);
   const [showCode, setShowCode] = useState(false);
   const [codeLanguage, setCodeLanguage] = useState<'python' | 'r'>('python');
+  const [showAssumptions, setShowAssumptions] = useState(false);
+  const [activeAssumption, setActiveAssumption] = useState<'continuity' | 'manipulation' | 'late'>('continuity');
+  const [showDesignType, setShowDesignType] = useState(false);
   const [recommendedQuestions] = useState<string[]>([
     'What is the local continuity assumption in RD?',
     'How do I interpret my RD estimate?',
@@ -710,6 +713,122 @@ print(sensitivity)
             )}
           </div>
 
+          {/* ── Key Assumptions ── */}
+          <div style={styles.assumptionsCard}>
+            <div style={styles.assumptionsHeader}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <h2 style={styles.assumptionsTitle}>📋 Key Assumptions</h2>
+                <span style={styles.sharpBadge}>Sharp RDD</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAssumptions((s) => !s)}
+                style={styles.assumptionsToggle}
+              >
+                {showAssumptions ? '▲ Hide' : '▼ Show'}
+              </button>
+            </div>
+            <p style={styles.assumptionsSub}>
+              RD estimates are only valid when these assumptions hold. Review each one carefully before interpreting your results.
+            </p>
+
+            {showAssumptions && (
+              <div style={{ marginTop: '20px' }}>
+                {/* Tab buttons */}
+                <div style={styles.assumptionTabs}>
+                  {(
+                    [
+                      { key: 'continuity', icon: '📈', label: 'Continuity' },
+                      { key: 'manipulation', icon: '🔍', label: 'No Manipulation' },
+                      { key: 'late', icon: '📍', label: 'Local Validity' },
+                    ] as const
+                  ).map(({ key, icon, label }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setActiveAssumption(key)}
+                      style={{
+                        ...styles.assumptionTab,
+                        ...(activeAssumption === key ? styles.assumptionTabActive : {}),
+                      }}
+                    >
+                      {icon} {label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Continuity */}
+                {activeAssumption === 'continuity' && (
+                  <div style={styles.assumptionContent}>
+                    <h3 style={styles.assumptionContentTitle}>RD Continuity Assumption</h3>
+                    <p style={styles.assumptionText}>
+                      The core identifying assumption of RDD is <strong>continuity</strong>: had units just below the cutoff not received treatment, their average potential outcome would form a smooth, uninterrupted line through the cutoff point. In other words, nothing else changes abruptly at the cutoff except treatment assignment.
+                    </p>
+                    <p style={styles.assumptionText}>
+                      Since potential outcomes are unobservable, we test a concrete implication: <strong>observable characteristics (covariates) should not jump at the cutoff</strong>. If age, income, gender, or other pre-treatment variables are smooth across {parameters.cutoff}, it supports the assumption that unobservables are smooth too — just like in a randomized experiment where treated and control units are comparable on average.
+                    </p>
+                    <div style={styles.assumptionTip}>
+                      <span style={styles.assumptionTipIcon}>💡</span>
+                      <span>
+                        <strong>How to check:</strong> Run placebo RD regressions using your covariates as outcome variables. If none jump significantly at {parameters.cutoff}, the continuity assumption is supported. The code section includes commented covariate balance checks you can run on your own data.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* No manipulation */}
+                {activeAssumption === 'manipulation' && (
+                  <div style={styles.assumptionContent}>
+                    <h3 style={styles.assumptionContentTitle}>No Manipulation / No Bunching</h3>
+                    <p style={styles.assumptionText}>
+                      RDD requires that units cannot precisely manipulate their value of <strong>{parameters.running_var}</strong> to sort themselves to the desired side of the cutoff ({parameters.cutoff}). If units can game the system — for example, submitting paperwork in a way that ensures they land just above or just below the threshold — the groups near the cutoff will no longer be comparable.
+                    </p>
+                    <p style={styles.assumptionText}>
+                      A classic warning sign is a suspicious spike or gap in the <strong>density of the running variable exactly at the cutoff</strong>. This is called <em>bunching</em> or <em>sorting</em>. A well-known example: a Colombian welfare program initially showed smooth density around its poverty-score cutoff, but after a few years a sharp cliff appeared as households learned how to report characteristics that kept their score just below the eligibility threshold.
+                    </p>
+                    <div style={styles.assumptionTip}>
+                      <span style={styles.assumptionTipIcon}>💡</span>
+                      <span>
+                        <strong>How to check:</strong> Plot a histogram of <em>{parameters.running_var}</em> and look for unusual spikes or gaps at {parameters.cutoff}. Formally, use the <strong>McCrary/rddensity test</strong> — it tests whether the density of the running variable is continuous at the cutoff. The replication code in the section below includes this test (Step 4: Manipulation test).
+                      </span>
+                    </div>
+                    <div style={{ ...styles.assumptionTip, backgroundColor: '#fff3cd', borderColor: '#ffc107', marginTop: '10px' }}>
+                      <span style={styles.assumptionTipIcon}>⚠️</span>
+                      <span>
+                        Unlike the continuity assumption, manipulation is directly testable. If the density test rejects (p &lt; 0.05), the RD estimate may be biased and caution is warranted.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* LATE */}
+                {activeAssumption === 'late' && (
+                  <div style={styles.assumptionContent}>
+                    <h3 style={styles.assumptionContentTitle}>Local Validity — The Estimate is a LATE</h3>
+                    <p style={styles.assumptionText}>
+                      The treatment effect estimated by RDD is a <strong>Local Average Treatment Effect (LATE)</strong>. It is local in the sense that it only applies to units whose value of <em>{parameters.running_var}</em> is close to the cutoff ({parameters.cutoff}), specifically within the bandwidth of <strong>{res.bandwidth_used?.toFixed(3)}</strong> used in this analysis.
+                    </p>
+                    <p style={styles.assumptionText}>
+                      Units far from the cutoff — those with very high or very low values of {parameters.running_var} — are not part of this comparison and the estimated effect may not generalize to them. This is sometimes called the <em>external validity</em> limitation of RDD.
+                    </p>
+                    <div style={styles.assumptionTip}>
+                      <span style={styles.assumptionTipIcon}>💡</span>
+                      <span>
+                        <strong>Practical implication:</strong> Be modest when describing your results. Instead of saying "the treatment affects outcomes in the population," say "the treatment affects outcomes for units near the cutoff of {parameters.cutoff} on {parameters.running_var}." This is not a failure of the design — it is a feature. The local comparison is precisely what makes RDD credible.
+                      </span>
+                    </div>
+                    <div style={{ ...styles.assumptionTip, backgroundColor: '#e8f5e9', borderColor: '#4caf50', marginTop: '10px' }}>
+                      <span style={styles.assumptionTipIcon}>✓</span>
+                      <span>
+                        The bandwidth sensitivity analysis below shows how the estimate changes as you widen or narrow the window. Stability across bandwidths gives more confidence in the LATE estimate.
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* RD Scatter Plot Visualization */}
           <RDScatterPlot
             datasetId={results.dataset_id}
@@ -757,6 +876,72 @@ print(sensitivity)
             <p style={styles.bandwidthExplanation}>
               <strong>What is bandwidth?</strong> Bandwidth is the distance from the cutoff on the running variable within which observations are used to estimate the discontinuity. A smaller bandwidth uses only units very close to the cutoff (more local, often less bias but higher variance); a larger bandwidth uses more data (smoother estimates but possible bias if the relationship is not linear). The optimal bandwidth balances bias and variance.
             </p>
+          </div>
+
+          {/* ── Sharp vs Fuzzy RDD ── */}
+          <div style={styles.designTypeCard}>
+            <div style={styles.designTypeHeader}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <h3 style={styles.designTypeTitle}>Design Type</h3>
+                <span style={styles.sharpBadge}>Sharp RDD</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDesignType((s) => !s)}
+                style={styles.assumptionsToggle}
+              >
+                {showDesignType ? '▲ Hide' : '▼ Sharp vs Fuzzy'}
+              </button>
+            </div>
+            <p style={{ fontSize: '14px', color: '#555', margin: '6px 0 0 0', lineHeight: 1.5 }}>
+              This analysis uses <strong>Sharp RDD</strong>, meaning treatment is fully determined by whether {parameters.running_var} is {parameters.treatment_side === 'above' ? 'at or above' : 'below'} the cutoff ({parameters.cutoff}).
+            </p>
+
+            {showDesignType && (
+              <div style={{ marginTop: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                {/* Sharp column */}
+                <div style={styles.designTypeBox}>
+                  <div style={styles.designTypeBoxHeader}>
+                    <span style={styles.sharpBadge}>Sharp RDD</span>
+                    <span style={styles.designTypeCurrentTag}>✓ Current</span>
+                  </div>
+                  <p style={styles.designTypeText}>
+                    The cutoff rule is <strong>perfectly enforced</strong>. Every unit at or above the cutoff receives the treatment; every unit below does not. Treatment status is a deterministic step function of the running variable.
+                  </p>
+                  <ul style={styles.designTypeList}>
+                    <li>Assignment ≡ receipt of treatment</li>
+                    <li>Estimated directly as the discontinuity in the outcome</li>
+                    <li>Example: scholarship eligibility tied to a hard GPA cutoff</li>
+                  </ul>
+                  <div style={{ marginTop: '12px', padding: '10px', backgroundColor: '#e8f5e9', borderRadius: '6px', fontSize: '13px', color: '#1b5e20' }}>
+                    ✓ This is what the current analysis assumes and estimates.
+                  </div>
+                </div>
+
+                {/* Fuzzy column */}
+                <div style={{ ...styles.designTypeBox, borderColor: '#dee2e6', backgroundColor: '#fafafa' }}>
+                  <div style={styles.designTypeBoxHeader}>
+                    <span style={{ ...styles.sharpBadge, backgroundColor: '#fff3cd', color: '#856404' }}>Fuzzy RDD</span>
+                  </div>
+                  <p style={styles.designTypeText}>
+                    The cutoff only <strong>probabilistically determines</strong> treatment. Some units above the cutoff may not receive treatment; some below may still receive it. The cutoff is suggestive, not binding.
+                  </p>
+                  <ul style={styles.designTypeList}>
+                    <li>Assignment ≠ receipt of treatment (non-compliance)</li>
+                    <li>Uses a Wald formula: (jump in outcome) ÷ (jump in treatment rate) — analogous to an IV/LATE estimator</li>
+                    <li>Requires a separate treatment-status variable in your data</li>
+                    <li>Example: minimum drinking age — crossing 21 raises the probability of drinking, but doesn't guarantee it</li>
+                  </ul>
+                  <div style={{ marginTop: '12px', padding: '10px', backgroundColor: '#fff3cd', borderRadius: '6px', fontSize: '13px', color: '#856404' }}>
+                    ⚠ If treatment receipt in your study is imperfect, Fuzzy RDD is more appropriate. The replication code can be extended by adding a first-stage regression.
+                  </div>
+                </div>
+
+                <div style={{ gridColumn: '1 / -1', padding: '14px 16px', backgroundColor: '#f0f7ff', borderRadius: '8px', border: '1px solid #b3d4f7', fontSize: '13px', color: '#043873', lineHeight: 1.6 }}>
+                  <strong>How to decide:</strong> Check whether all units {parameters.treatment_side === 'above' ? 'at or above' : 'below'} the cutoff ({parameters.cutoff}) actually received the treatment in your data. If compliance is perfect (or very close), Sharp RDD is appropriate. If a meaningful share of units do not comply, use Fuzzy RDD by adding a treatment-status indicator and applying the Wald estimator.
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Warnings */}
@@ -1795,6 +1980,165 @@ const styles = {
     overflow: 'auto' as const,
     maxHeight: '500px',
     fontFamily: "'Fira Code', 'Consolas', 'Monaco', monospace",
+  },
+
+  // ── Assumptions card ─────────────────────────────────────────────────────
+  assumptionsCard: {
+    backgroundColor: 'white',
+    borderRadius: '16px',
+    padding: '28px 36px',
+    marginBottom: '30px',
+    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
+    border: '1px solid #e9ecef',
+    borderTop: '4px solid #6366f1',
+  },
+  assumptionsHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '8px',
+  },
+  assumptionsTitle: {
+    fontSize: '20px',
+    fontWeight: 'bold' as const,
+    color: '#043873',
+    margin: 0,
+  },
+  assumptionsSub: {
+    fontSize: '14px',
+    color: '#666',
+    margin: 0,
+    lineHeight: 1.5,
+  },
+  assumptionsToggle: {
+    backgroundColor: '#f8f9fa',
+    color: '#212529',
+    border: '1px solid #dee2e6',
+    borderRadius: '8px',
+    padding: '8px 18px',
+    fontSize: '13px',
+    fontWeight: '600' as const,
+    cursor: 'pointer',
+  },
+  sharpBadge: {
+    display: 'inline-block',
+    padding: '3px 10px',
+    backgroundColor: '#e8f5e9',
+    color: '#1b5e20',
+    borderRadius: '20px',
+    fontSize: '12px',
+    fontWeight: '600' as const,
+  },
+  assumptionTabs: {
+    display: 'flex',
+    gap: '8px',
+    marginBottom: '20px',
+    flexWrap: 'wrap' as const,
+  },
+  assumptionTab: {
+    backgroundColor: '#f8f9fa',
+    color: '#495057',
+    border: '2px solid #e9ecef',
+    borderRadius: '8px',
+    padding: '10px 20px',
+    fontSize: '14px',
+    fontWeight: '600' as const,
+    cursor: 'pointer',
+  },
+  assumptionTabActive: {
+    backgroundColor: '#6366f1',
+    color: 'white',
+    borderColor: '#6366f1',
+  },
+  assumptionContent: {
+    padding: '20px',
+    backgroundColor: '#f8f9fa',
+    borderRadius: '12px',
+    border: '1px solid #e9ecef',
+  },
+  assumptionContentTitle: {
+    fontSize: '16px',
+    fontWeight: 'bold' as const,
+    color: '#043873',
+    margin: '0 0 12px 0',
+  },
+  assumptionText: {
+    fontSize: '14px',
+    color: '#333',
+    lineHeight: 1.7,
+    margin: '0 0 12px 0',
+  },
+  assumptionTip: {
+    display: 'flex',
+    gap: '10px',
+    alignItems: 'flex-start',
+    padding: '12px 14px',
+    backgroundColor: '#e8f4fd',
+    borderRadius: '8px',
+    border: '1px solid #b3d4f7',
+    fontSize: '13px',
+    color: '#1a4a7a',
+    lineHeight: 1.6,
+  },
+  assumptionTipIcon: {
+    fontSize: '16px',
+    flexShrink: 0,
+  },
+
+  // ── Sharp vs Fuzzy RDD card ───────────────────────────────────────────────
+  designTypeCard: {
+    backgroundColor: 'white',
+    borderRadius: '16px',
+    padding: '28px 36px',
+    marginBottom: '30px',
+    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
+    border: '1px solid #e9ecef',
+    borderTop: '4px solid #043873',
+  },
+  designTypeHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '6px',
+  },
+  designTypeTitle: {
+    fontSize: '18px',
+    fontWeight: 'bold' as const,
+    color: '#043873',
+    margin: 0,
+  },
+  designTypeCurrentTag: {
+    fontSize: '12px',
+    fontWeight: '600' as const,
+    color: '#1b5e20',
+    backgroundColor: '#e8f5e9',
+    padding: '2px 8px',
+    borderRadius: '4px',
+  },
+  designTypeBox: {
+    padding: '20px',
+    backgroundColor: '#f0f7ff',
+    borderRadius: '10px',
+    border: '2px solid #4F9CF9',
+  },
+  designTypeBoxHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    marginBottom: '12px',
+  },
+  designTypeText: {
+    fontSize: '14px',
+    color: '#333',
+    lineHeight: 1.6,
+    margin: '0 0 10px 0',
+  },
+  designTypeList: {
+    margin: '0',
+    paddingLeft: '18px',
+    fontSize: '13px',
+    color: '#444',
+    lineHeight: 1.8,
   },
 };
 
