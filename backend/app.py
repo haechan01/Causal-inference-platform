@@ -79,6 +79,10 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 from models import db  # noqa: E402
 db.init_app(app)
 
+# --- Rate Limiter ---
+from utils.rate_limiter import limiter  # noqa: E402
+limiter.init_app(app)
+
 # Import blueprints after db initialization
 # Models are imported within routes to avoid circular imports
 from routes.analysis import analysis_bp  # noqa: E402
@@ -100,6 +104,21 @@ app.register_blueprint(analysis_bp)
 app.register_blueprint(projects_bp)
 app.register_blueprint(datasets_bp)
 app.register_blueprint(ai_bp)
+
+
+@app.errorhandler(429)
+def handle_rate_limit(error):
+    """Return a structured JSON response when a rate limit is exceeded."""
+    retry_after = getattr(error, 'retry_after', None)
+    response = jsonify({
+        "error": "Too many requests. Please slow down.",
+        "error_type": "rate_limit_exceeded",
+        "retry_after": int(retry_after) if retry_after else None,
+    })
+    response.status_code = 429
+    if retry_after:
+        response.headers["Retry-After"] = str(int(retry_after))
+    return response
 
 
 @app.errorhandler(500)

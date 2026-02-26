@@ -21,6 +21,8 @@ from flask_jwt_extended import (
 import re
 import logging
 
+from utils.rate_limiter import limiter
+
 # Configure logger for this module
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,7 @@ def validate_password(password):
 
 
 @auth_bp.route('/register', methods=['POST'])
+@limiter.limit("5 per minute; 20 per hour")
 def register():
     """
     Register a new user
@@ -141,6 +144,7 @@ def register():
 
 
 @auth_bp.route('/login', methods=['POST'])
+@limiter.limit("10 per minute; 50 per hour")
 def login():
     """
     Login user
@@ -199,6 +203,7 @@ def login():
 
 
 @auth_bp.route('/refresh', methods=['POST'])
+@limiter.limit("30 per minute")
 @jwt_required(refresh=True)
 def refresh():
     """
