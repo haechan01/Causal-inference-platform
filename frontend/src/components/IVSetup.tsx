@@ -1225,7 +1225,7 @@ const styles = {
     margin: '0 0 10px 0',
   },
   subtitle: { fontSize: '18px', color: '#666', margin: 0 },
-  mainContent: { maxWidth: '1400px', margin: '0 auto', padding: '0 20px' },
+  mainContent: { maxWidth: '1400px', margin: '0 auto', padding: '0 8px 0 20px' },
   contentWrapper: {
     display: 'flex',
     gap: '20px',

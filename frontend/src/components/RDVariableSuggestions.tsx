@@ -77,26 +77,26 @@ const RDVariableSuggestions: React.FC<RDVariableSuggestionsProps> = ({
         <div style={styles.headerLeft}>
           <h3 style={styles.title}>RD AI Variable Assistant</h3>
         </div>
-
-        {!suggestions && !loading && (
-          <button
-            onClick={fetchSuggestions}
-            style={styles.getHelpButton}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#4f46e5';
-              e.currentTarget.style.transform = 'translateY(-1px)';
-              e.currentTarget.style.boxShadow = '0 4px 8px rgba(99, 102, 241, 0.4)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#6366f1';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 2px 4px rgba(99, 102, 241, 0.3)';
-            }}
-          >
-            Get AI Suggestions
-          </button>
-        )}
       </div>
+
+      {!expanded && !loading && (
+        <button
+          onClick={suggestions ? () => setExpanded(true) : fetchSuggestions}
+          style={styles.getHelpButton}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = '#4f46e5';
+            e.currentTarget.style.transform = 'translateY(-1px)';
+            e.currentTarget.style.boxShadow = '0 4px 8px rgba(99, 102, 241, 0.4)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = '#6366f1';
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 2px 4px rgba(99, 102, 241, 0.3)';
+          }}
+        >
+          {suggestions ? 'Show Suggestions' : 'Get AI Suggestions'}
+        </button>
+      )}
 
       {loading && (
         <div style={styles.loading}>
@@ -298,6 +298,8 @@ const styles = {
     cursor: 'pointer',
     transition: 'all 0.2s ease',
     boxShadow: '0 2px 4px rgba(99, 102, 241, 0.3)',
+    marginTop: '12px',
+    display: 'block',
   },
   loading: {
     display: 'flex',

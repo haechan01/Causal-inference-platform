@@ -58,7 +58,7 @@ const MethodSelectionPage: React.FC = () => {
     }, [projectId, accessToken, location.search]);
 
     // ── Chat state ──────────────────────────────────────────────────────────
-    const [inputMode, setInputMode] = useState<'chat' | 'recommend'>('chat');
+    const [inputMode, setInputMode] = useState<'chat' | 'recommend'>('recommend');
     const [chatInput, setChatInput] = useState('');
     const [chatLoading, setChatLoading] = useState(false);
 
@@ -332,16 +332,16 @@ const MethodSelectionPage: React.FC = () => {
                             {/* Mode tabs */}
                             <div style={styles.modeTabs}>
                                 <button
-                                    style={{ ...styles.modeTab, ...(inputMode === 'chat' ? styles.modeTabActive : {}) }}
-                                    onClick={() => setInputMode('chat')}
-                                >
-                                    💬 Chat
-                                </button>
-                                <button
                                     style={{ ...styles.modeTab, ...(inputMode === 'recommend' ? styles.modeTabActive : {}) }}
                                     onClick={() => { setInputMode('recommend'); setRecError(null); }}
                                 >
                                     🎯 Recommend
+                                </button>
+                                <button
+                                    style={{ ...styles.modeTab, ...(inputMode === 'chat' ? styles.modeTabActive : {}) }}
+                                    onClick={() => setInputMode('chat')}
+                                >
+                                    💬 Chat
                                 </button>
                             </div>
 
@@ -549,11 +549,7 @@ const DiDDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> 
         </div>
         <div style={styles.whenToUseSection}>
             <h4 style={styles.whenToUseTitle}>✓ When to use this method</h4>
-            <div style={styles.whenToUseGrid}>
-                <div style={styles.whenToUseItem}><span>You have data from before and after a policy or event was introduced</span></div>
-                <div style={styles.whenToUseItem}><span>Some people or places were affected by it while others weren't</span></div>
-                <div style={styles.whenToUseItem}><span>The treated and untreated groups were following similar trends before the event</span></div>
-            </div>
+            <p style={styles.whenToUseText}>Use DiD when a policy or event affected some groups but not others and you have data from before and after the change. The key requirement is that treated and control groups were trending similarly before treatment.</p>
         </div>
         <div style={styles.explanationContent}>
             <div style={styles.chartSection}>
@@ -592,15 +588,25 @@ const DiDDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> 
                 <p style={styles.chartCaption}>DiD compares the change over time in the treatment group to the change in the control group. The <strong style={{ color: '#27ae60' }}>causal effect</strong> is the difference between what happened vs. what <em>would have happened</em> without treatment.</p>
             </div>
             <div style={styles.conceptsSection}>
-                <h4 style={styles.sectionTitle}>Key Concepts</h4>
+                <h4 style={styles.sectionTitle}>Requirements</h4>
                 <div style={styles.conceptsGrid}>
                     {[
-                        { icon: '🔀', title: 'Parallel Trends', text: 'Without treatment, both groups would have followed similar trends over time.' },
-                        { icon: '⏰', title: 'Before & After', text: 'You need observations from both before and after the treatment.' },
-                        { icon: '👥', title: 'Treatment & Control', text: 'One group receives treatment while the other provides a comparison baseline.' },
-                        { icon: '📐', title: 'The "Double Difference"', text: 'Effect = (Treated After−Before) − (Control After−Before).' }
+                        { title: 'Before & After Data', text: 'You need observations from both before and after the treatment event for all groups.' },
+                        { title: 'Treatment & Control Groups', text: 'One group receives treatment while the other serves as a comparison baseline.' },
                     ].map((c, i) => (
                         <div key={i} style={styles.conceptCard}>
+                            <h5 style={styles.conceptTitle}>{c.title}</h5>
+                            <p style={styles.conceptText}>{c.text}</p>
+                        </div>
+                    ))}
+                </div>
+                <h4 style={{ ...styles.sectionTitle, marginTop: '20px' }}>Key Assumptions</h4>
+                <div style={styles.conceptsGrid}>
+                    {[
+                        { title: 'Parallel Trends', text: 'Without treatment, both groups would have followed similar outcome trends over time.' },
+                        { title: 'No Anticipation', text: 'Units did not change behavior before the treatment began in anticipation of it.' },
+                    ].map((c, i) => (
+                        <div key={i} style={{ ...styles.conceptCard, borderLeft: '3px solid #f59e0b' }}>
                             <h5 style={styles.conceptTitle}>{c.title}</h5>
                             <p style={styles.conceptText}>{c.text}</p>
                         </div>
@@ -652,11 +658,7 @@ const RDDDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> 
         </div>
         <div style={styles.whenToUseSection}>
             <h4 style={styles.whenToUseTitle}>✓ When to use this method</h4>
-            <div style={styles.whenToUseGrid}>
-                <div style={styles.whenToUseItem}><span>Treatment is given to everyone above (or below) a specific score or cutoff — e.g. GPA ≥ 3.5, age ≥ 65</span></div>
-                <div style={styles.whenToUseItem}><span>People just above and just below the cutoff are nearly identical in all other ways</span></div>
-                <div style={styles.whenToUseItem}><span>Nothing else jumps sharply at that exact threshold</span></div>
-            </div>
+            <p style={styles.whenToUseText}>Use RDD when treatment is determined by whether a continuous running variable crosses a known threshold (e.g. GPA ≥ 3.5, age ≥ 65). Units just above and below the cutoff serve as natural treatment and control groups.</p>
         </div>
         <div style={styles.explanationContent}>
             <div style={styles.chartSection}>
@@ -698,15 +700,25 @@ const RDDDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> 
                 <p style={styles.chartCaption}>RDD exploits a sharp cutoff in treatment assignment. Units just above and below the threshold are nearly identical, so the <strong style={{ color: '#27ae60' }}>jump at the cutoff</strong> reveals the causal effect.</p>
             </div>
             <div style={styles.conceptsSection}>
-                <h4 style={styles.sectionTitle}>Key Concepts</h4>
+                <h4 style={styles.sectionTitle}>Requirements</h4>
                 <div style={styles.conceptsGrid}>
                     {[
-                        { icon: '✂️', title: 'Sharp Cutoff', text: 'Treatment assigned by a clear threshold in a running variable (e.g., score ≥ 70).' },
-                        { icon: '🎯', title: 'Local Comparison', text: 'Units just above and below are nearly identical — a natural experiment.' },
-                        { icon: '📊', title: 'Continuity Assumption', text: 'Without treatment the outcome would change smoothly through the cutoff.' },
-                        { icon: '🔍', title: 'The Discontinuity', text: 'Any jump at the cutoff is attributed to the causal effect of treatment.' }
+                        { title: 'Running Variable', text: 'A continuous score that strictly determines treatment assignment at a known cutoff value.' },
+                        { title: 'Sufficient Density Near Cutoff', text: 'Enough observations just above and below the threshold to estimate the jump reliably.' },
                     ].map((c, i) => (
                         <div key={i} style={styles.conceptCard}>
+                            <h5 style={styles.conceptTitle}>{c.title}</h5>
+                            <p style={styles.conceptText}>{c.text}</p>
+                        </div>
+                    ))}
+                </div>
+                <h4 style={{ ...styles.sectionTitle, marginTop: '20px' }}>Key Assumptions</h4>
+                <div style={styles.conceptsGrid}>
+                    {[
+                        { title: 'Continuity', text: 'Potential outcomes change smoothly through the cutoff — any jump is entirely due to treatment.' },
+                        { title: 'No Manipulation', text: 'Units cannot precisely sort themselves to one side of the threshold to receive or avoid treatment.' },
+                    ].map((c, i) => (
+                        <div key={i} style={{ ...styles.conceptCard, borderLeft: '3px solid #f59e0b' }}>
                             <h5 style={styles.conceptTitle}>{c.title}</h5>
                             <p style={styles.conceptText}>{c.text}</p>
                         </div>
@@ -758,15 +770,11 @@ const IVDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> =
         </div>
         <div style={styles.whenToUseSection}>
             <h4 style={styles.whenToUseTitle}>✓ When to use this method</h4>
-            <div style={styles.whenToUseGrid}>
-                <div style={styles.whenToUseItem}><span>Something hidden affects both who gets treated and the outcome, making a direct comparison misleading</span></div>
-                <div style={styles.whenToUseItem}><span>You have an external factor that nudges people into treatment but has no direct effect on the outcome (e.g. a lottery, distance to a facility, etc)</span></div>
-                <div style={styles.whenToUseItem}><span>You want to use that external encouragement to isolate the true effect of treatment, free from the hidden bias</span></div>
-            </div>
+            <p style={styles.whenToUseText}>Use IV when treatment is correlated with unobserved confounders and you have an external instrument that strongly predicts treatment but has no direct effect on the outcome.</p>
         </div>
         <div style={styles.explanationContent}>
             <div style={styles.chartSection}>
-                <h4 style={styles.sectionTitle}>The Key Idea: Causal Structure (DAG)</h4>
+                <h4 style={styles.sectionTitle}>The Key Idea</h4>
                 <div style={styles.chartContainer}>
                     <svg viewBox="0 0 520 290" style={styles.didChart}>
                         <defs>
@@ -819,15 +827,25 @@ const IVDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> =
                 </p>
             </div>
             <div style={styles.conceptsSection}>
-                <h4 style={styles.sectionTitle}>Key Concepts</h4>
+                <h4 style={styles.sectionTitle}>Requirements</h4>
                 <div style={styles.conceptsGrid}>
                     {[
-                        { title: 'Relevance', text: 'The instrument must be strongly correlated with the treatment variable (first-stage F > 10).' },
-                        { title: 'Exclusion Restriction', text: 'The instrument affects the outcome only through treatment — no direct effect allowed.' },
-                        { title: 'Independence', text: 'The instrument must be uncorrelated with unobserved confounders (ideally "as-good-as-random").' },
-                        { title: 'LATE', text: '2SLS estimates the Local Average Treatment Effect for "compliers" — units who comply with treatment due to the instrument.' }
+                        { title: 'Valid Instrument', text: 'An external variable that strongly predicts treatment assignment.' },
+                        { title: 'Strong First Stage', text: 'The instrument must have a statistically significant effect on treatment (F-statistic > 10).' },
                     ].map((c, i) => (
                         <div key={i} style={styles.conceptCard}>
+                            <h5 style={styles.conceptTitle}>{c.title}</h5>
+                            <p style={styles.conceptText}>{c.text}</p>
+                        </div>
+                    ))}
+                </div>
+                <h4 style={{ ...styles.sectionTitle, marginTop: '20px' }}>Key Assumptions</h4>
+                <div style={styles.conceptsGrid}>
+                    {[
+                        { title: 'Exclusion Restriction', text: 'The instrument affects the outcome only through treatment — there is no direct path from instrument to outcome.' },
+                        { title: 'Independence', text: 'The instrument is uncorrelated with unobserved confounders — ideally assigned "as-good-as-random".' },
+                    ].map((c, i) => (
+                        <div key={i} style={{ ...styles.conceptCard, borderLeft: '3px solid #f59e0b' }}>
                             <h5 style={styles.conceptTitle}>{c.title}</h5>
                             <p style={styles.conceptText}>{c.text}</p>
                         </div>
@@ -876,9 +894,9 @@ export default MethodSelectionPage;
 // ── Styles ────────────────────────────────────────────────────────────────────
 const styles: Record<string, React.CSSProperties> = {
     contentContainer: {
-        paddingTop: '70px',
-        paddingBottom: '80px',
-        minHeight: 'calc(100vh - 70px)',
+        paddingTop: '80px',
+        paddingBottom: '100px',
+        minHeight: 'calc(100vh - 80px)',
         backgroundColor: '#f5f5f5'
     },
     // Always a two-column row
@@ -886,7 +904,7 @@ const styles: Record<string, React.CSSProperties> = {
         display: 'flex',
         flexDirection: 'row',
         gap: '24px',
-        padding: '24px 24px',
+        padding: '16px 0 16px 24px',
         maxWidth: '1400px',
         margin: '0 auto',
         width: '100%',
@@ -962,11 +980,11 @@ const styles: Record<string, React.CSSProperties> = {
 
     // ── AI Panel ──────────────────────────────────────────────────────────────
     aiPanel: {
-        flex: '0 0 400px',
-        width: '400px',
+        flex: '0 0 380px',
+        width: '380px',
         position: 'sticky',
-        top: '90px',
-        height: 'calc(100vh - 170px)',
+        top: '80px',
+        height: 'calc(100vh - 196px)',
         display: 'flex',
         flexDirection: 'column',
         backgroundColor: 'white',
@@ -1226,9 +1244,8 @@ const styles: Record<string, React.CSSProperties> = {
         backgroundColor: '#f0f7ff', borderRadius: '10px',
         padding: '18px 22px', marginBottom: '26px', border: '1px solid #d4e5f7'
     },
-    whenToUseTitle: { fontSize: '15px', fontWeight: '600', color: '#043873', margin: '0 0 14px 0' },
-    whenToUseGrid: { display: 'flex', flexDirection: 'column', gap: '10px' },
-    whenToUseItem: { display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: '#334155' },
+    whenToUseTitle: { fontSize: '15px', fontWeight: '600', color: '#043873', margin: '0 0 10px 0' },
+    whenToUseText: { fontSize: '13.5px', color: '#334155', lineHeight: '1.65', margin: 0 },
     explanationContent: { display: 'flex', flexDirection: 'column', gap: '30px' },
     chartSection: { textAlign: 'center' },
     sectionTitle: {

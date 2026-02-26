@@ -1602,7 +1602,7 @@ const styles = {
   mainContent: {
     maxWidth: '1400px',
     margin: '0 auto',
-    padding: '0 20px'
+    padding: '0 8px 0 20px'
   },
   contentWrapper: {
     display: 'flex',

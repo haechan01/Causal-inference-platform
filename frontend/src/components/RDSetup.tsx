@@ -762,9 +762,24 @@ const RDSetup: React.FC = () => {
                 <div style={styles.advancedSection}>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Bandwidth (optional)</label>
-                    <p style={styles.helperTextSmall}>
-                      Leave empty to auto-calculate optimal bandwidth using Imbens-Kalyanaraman method.
-                    </p>
+                    <div style={styles.bandwidthExplainer}>
+                      <p style={styles.bandwidthExplainerText}>
+                        <strong>What is bandwidth?</strong> Bandwidth defines the window of running-variable values around the cutoff that are included in the estimation. Only observations within <em>[cutoff − h, cutoff + h]</em> are used, where <em>h</em> is the bandwidth.
+                      </p>
+                      <div style={styles.bandwidthTradeoff}>
+                        <div style={styles.bandwidthTradeoffItem}>
+                          <span style={styles.bandwidthTradeoffLabel}>Narrower →</span>
+                          <span style={styles.bandwidthTradeoffDesc}>Units near cutoff are more comparable, but fewer observations means higher variance.</span>
+                        </div>
+                        <div style={styles.bandwidthTradeoffItem}>
+                          <span style={styles.bandwidthTradeoffLabel}>Wider →</span>
+                          <span style={styles.bandwidthTradeoffDesc}>More observations reduce variance, but units farther from the cutoff may differ in other ways, introducing bias.</span>
+                        </div>
+                      </div>
+                      <p style={styles.bandwidthRecommendation}>
+                        💡 Leave empty to let the Imbens-Kalyanaraman algorithm automatically find the optimal bias-variance trade-off.
+                      </p>
+                    </div>
                     <input
                       type="number"
                       style={styles.textInput}
@@ -1044,6 +1059,46 @@ const styles = {
     color: '#666',
     margin: '5px 0 10px 0',
     lineHeight: '1.4',
+  },
+  bandwidthExplainer: {
+    backgroundColor: '#f0f7ff',
+    border: '1px solid #bfdbfe',
+    borderRadius: '8px',
+    padding: '12px 14px',
+    margin: '6px 0 12px 0',
+  },
+  bandwidthExplainerText: {
+    fontSize: '13px',
+    color: '#1e3a5f',
+    margin: '0 0 10px 0',
+    lineHeight: '1.55',
+  },
+  bandwidthTradeoff: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '6px',
+    marginBottom: '10px',
+  },
+  bandwidthTradeoffItem: {
+    display: 'flex',
+    gap: '6px',
+    fontSize: '12.5px',
+    lineHeight: '1.45',
+  },
+  bandwidthTradeoffLabel: {
+    fontWeight: '700' as const,
+    color: '#043873',
+    flexShrink: 0,
+    minWidth: '72px',
+  },
+  bandwidthTradeoffDesc: {
+    color: '#475569',
+  },
+  bandwidthRecommendation: {
+    fontSize: '12.5px',
+    color: '#1e40af',
+    margin: 0,
+    lineHeight: '1.45',
   },
   select: {
     width: '100%',
