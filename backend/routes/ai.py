@@ -3,24 +3,59 @@ AI-powered analysis assistance endpoints
 Focused on results interpretation
 """
 
+import os
+from datetime import datetime
+
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
+
+from models import db, AIUsageLog
 from services.ai_service import get_ai_service
 from services.ai_assistant import get_ai_assistant
-from datetime import datetime, timedelta
-from collections import defaultdict
+from utils.rate_limiter import limiter
 
 ai_bp = Blueprint('ai', __name__, url_prefix='/api/ai')
 
-# Simple in-memory rate limiter for chat
-# Format: {user_id: [list of timestamps]}
-_chat_rate_limiter = defaultdict(list)
-CHAT_RATE_LIMIT = 20  # Max requests per window
-CHAT_RATE_WINDOW = 60  # Time window in seconds
+# ---------------------------------------------------------------------------
+# AI daily usage limits (configurable via environment variables)
+# ---------------------------------------------------------------------------
+# Maximum AI calls per user per day for each logical endpoint group.
+# Override in .env, e.g. AI_DAILY_LIMIT_CHAT=100
+AI_DAILY_LIMIT_CHAT = int(os.environ.get("AI_DAILY_LIMIT_CHAT", 50))
+AI_DAILY_LIMIT_INTERPRET = int(os.environ.get("AI_DAILY_LIMIT_INTERPRET", 20))
+AI_DAILY_LIMIT_RECOMMEND = int(os.environ.get("AI_DAILY_LIMIT_RECOMMEND", 30))
+AI_DAILY_LIMIT_GENERAL = int(os.environ.get("AI_DAILY_LIMIT_GENERAL", 30))
+
+
+def _check_and_increment_daily_limit(user_id: int, endpoint: str, daily_limit: int):
+    """
+    Check whether *user_id* has exceeded *daily_limit* calls for *endpoint*
+    today.  If not, increment the counter atomically.
+
+    Returns (allowed: bool, current_count: int, daily_limit: int).
+    """
+    current = AIUsageLog.get_daily_count(user_id, endpoint)
+    if current >= daily_limit:
+        return False, current, daily_limit
+    new_count = AIUsageLog.increment(db.session, user_id, endpoint)
+    return True, new_count, daily_limit
+
+
+def _daily_limit_error(endpoint: str, current: int, limit: int):
+    return jsonify({
+        "error": (
+            f"Daily AI usage limit reached for '{endpoint}' "
+            f"({current}/{limit}). Resets at midnight UTC."
+        ),
+        "error_type": "daily_limit_exceeded",
+        "current_usage": current,
+        "daily_limit": limit,
+    }), 429
 
 
 @ai_bp.route('/interpret-results', methods=['POST'])
 @jwt_required()
+@limiter.limit("30 per minute; 100 per hour")
 def interpret_results():
     """
     AI interpretation of analysis results.
@@ -48,6 +83,15 @@ def interpret_results():
     """
     try:
         print("=== AI INTERPRET RESULTS ENDPOINT CALLED ===")
+
+        # Daily usage limit check
+        user_id = int(get_jwt_identity())
+        allowed, count, limit = _check_and_increment_daily_limit(
+            user_id, "interpret_results", AI_DAILY_LIMIT_INTERPRET
+        )
+        if not allowed:
+            return _daily_limit_error("interpret-results", count, limit)
+
         data = request.get_json()
         
         if not data:
@@ -139,6 +183,7 @@ def interpret_results():
 
 @ai_bp.route('/recommend-method', methods=['POST'])
 @jwt_required()
+@limiter.limit("30 per minute; 100 per hour")
 def recommend_method():
     """
     AI Interpretation for causal inference method based on study characteristics.
@@ -154,6 +199,15 @@ def recommend_method():
     """
     try:
         print("=== AI RECOMMEND METHOD ENDPOINT CALLED ===")
+
+        # Daily usage limit check
+        user_id = int(get_jwt_identity())
+        allowed, count, limit = _check_and_increment_daily_limit(
+            user_id, "recommend_method", AI_DAILY_LIMIT_RECOMMEND
+        )
+        if not allowed:
+            return _daily_limit_error("recommend-method", count, limit)
+
         data = request.get_json()
         
         if not data:
@@ -228,9 +282,17 @@ def recommend_method():
 
 @ai_bp.route('/suggest-variables', methods=['POST'])
 @jwt_required()
+@limiter.limit("30 per minute; 100 per hour")
 def suggest_variables():
     """AI-powered variable role suggestions."""
     try:
+        user_id = int(get_jwt_identity())
+        allowed, count, limit = _check_and_increment_daily_limit(
+            user_id, "general_ai", AI_DAILY_LIMIT_GENERAL
+        )
+        if not allowed:
+            return _daily_limit_error("suggest-variables", count, limit)
+
         data = request.get_json()
         schema_info = data.get('schema_info')
         causal_question = data.get('causal_question')
@@ -252,9 +314,17 @@ def suggest_variables():
 
 @ai_bp.route('/validate-setup', methods=['POST'])
 @jwt_required()
+@limiter.limit("30 per minute; 100 per hour")
 def validate_setup():
     """Validate analysis setup before running."""
     try:
+        user_id = int(get_jwt_identity())
+        allowed, count, limit = _check_and_increment_daily_limit(
+            user_id, "general_ai", AI_DAILY_LIMIT_GENERAL
+        )
+        if not allowed:
+            return _daily_limit_error("validate-setup", count, limit)
+
         data = request.get_json()
         parameters = data.get('parameters')
         data_summary = data.get('data_summary')
@@ -272,9 +342,17 @@ def validate_setup():
 
 @ai_bp.route('/explain', methods=['POST'])
 @jwt_required()
+@limiter.limit("30 per minute; 100 per hour")
 def explain_concept():
     """Get AI explanation of a concept."""
     try:
+        user_id = int(get_jwt_identity())
+        allowed, count, limit = _check_and_increment_daily_limit(
+            user_id, "general_ai", AI_DAILY_LIMIT_GENERAL
+        )
+        if not allowed:
+            return _daily_limit_error("explain", count, limit)
+
         data = request.get_json()
         concept = data.get('concept')
         user_level = data.get('level', 'beginner')
@@ -292,9 +370,17 @@ def explain_concept():
 
 @ai_bp.route('/next-steps', methods=['POST'])
 @jwt_required()
+@limiter.limit("30 per minute; 100 per hour")
 def get_next_steps():
     """Get recommended next steps after analysis."""
     try:
+        user_id = int(get_jwt_identity())
+        allowed, count, limit = _check_and_increment_daily_limit(
+            user_id, "general_ai", AI_DAILY_LIMIT_GENERAL
+        )
+        if not allowed:
+            return _daily_limit_error("next-steps", count, limit)
+
         data = request.get_json()
         analysis_results = data.get('analysis_results')
         interpretation = data.get('interpretation', {})
@@ -312,6 +398,7 @@ def get_next_steps():
 
 @ai_bp.route('/data-quality-check', methods=['POST'])
 @jwt_required()
+@limiter.limit("30 per minute; 100 per hour")
 def data_quality_check():
     """
     AI-powered data quality assessment for causal analysis.
@@ -333,6 +420,15 @@ def data_quality_check():
     """
     try:
         print("=== AI DATA QUALITY CHECK ENDPOINT CALLED ===")
+
+        # Daily usage limit check
+        user_id = int(get_jwt_identity())
+        allowed, count, limit = _check_and_increment_daily_limit(
+            user_id, "general_ai", AI_DAILY_LIMIT_GENERAL
+        )
+        if not allowed:
+            return _daily_limit_error("data-quality-check", count, limit)
+
         data = request.get_json()
         
         if not data:
@@ -364,10 +460,11 @@ def data_quality_check():
 
 @ai_bp.route('/chat', methods=['POST'])
 @jwt_required()
+@limiter.limit("20 per minute; 200 per hour")
 def chat():
     """
     Chat with AI about the study, dataset, or causal inference concepts.
-    
+
     Expected request body:
     {
         "message": "What is the parallel trends assumption?",
@@ -380,11 +477,15 @@ def chat():
             "results": {...}
         }
     }
-    
-    Rate limit: 20 requests per minute per user
+
+    Rate limit: 20 requests per minute (via flask-limiter) +
+                AI_DAILY_LIMIT_CHAT requests per day (via db usage log).
     """
     try:
-        user_id = get_jwt_identity()
+        user_id_str = get_jwt_identity()
+        user_id = int(user_id_str)
+        now = datetime.now()
+
         data = request.get_json()
         
         if not data:
@@ -400,26 +501,14 @@ def chat():
             return jsonify({
                 "error": f"Message too long. Maximum {MAX_MESSAGE_LENGTH} characters allowed."
             }), 400
-        
-        # Rate limiting check
-        now = datetime.now()
-        user_requests = _chat_rate_limiter[user_id]
-        
-        # Remove requests outside the time window
-        user_requests[:] = [req_time for req_time in user_requests 
-                           if (now - req_time).total_seconds() < CHAT_RATE_WINDOW]
-        
-        # Check if user has exceeded rate limit
-        if len(user_requests) >= CHAT_RATE_LIMIT:
-            return jsonify({
-                "error": f"Rate limit exceeded. Maximum {CHAT_RATE_LIMIT} requests per {CHAT_RATE_WINDOW} seconds.",
-                "error_type": "rate_limit_exceeded",
-                "retry_after": CHAT_RATE_WINDOW
-            }), 429
-        
-        # Add current request to rate limiter
-        user_requests.append(now)
-        
+
+        # Daily usage limit check
+        allowed, count, limit = _check_and_increment_daily_limit(
+            user_id, "chat", AI_DAILY_LIMIT_CHAT
+        )
+        if not allowed:
+            return _daily_limit_error("chat", count, limit)
+
         # Get conversation history, context, and dataset info
         conversation_history = data.get('conversation_history', [])
         analysis_context = data.get('analysis_context', {})
@@ -483,3 +572,52 @@ def chat():
         print(f"ERROR: Chat endpoint error: {str(e)}")
         traceback.print_exc()
         return jsonify({"error": f"Chat endpoint error: {str(e)}"}), 500
+
+
+@ai_bp.route('/usage', methods=['GET'])
+@jwt_required()
+def get_usage():
+    """
+    Return the current user's AI usage for today across all endpoint groups.
+
+    Response example:
+    {
+        "date": "2026-02-26",
+        "usage": {
+            "chat":             {"used": 5,  "limit": 50},
+            "interpret_results":{"used": 2,  "limit": 20},
+            "recommend_method": {"used": 0,  "limit": 30},
+            "general_ai":       {"used": 3,  "limit": 30}
+        }
+    }
+    """
+    try:
+        from datetime import date
+        user_id = int(get_jwt_identity())
+        today = date.today()
+
+        usage = {
+            "chat": {
+                "used": AIUsageLog.get_daily_count(user_id, "chat", today),
+                "limit": AI_DAILY_LIMIT_CHAT,
+            },
+            "interpret_results": {
+                "used": AIUsageLog.get_daily_count(user_id, "interpret_results", today),
+                "limit": AI_DAILY_LIMIT_INTERPRET,
+            },
+            "recommend_method": {
+                "used": AIUsageLog.get_daily_count(user_id, "recommend_method", today),
+                "limit": AI_DAILY_LIMIT_RECOMMEND,
+            },
+            "general_ai": {
+                "used": AIUsageLog.get_daily_count(user_id, "general_ai", today),
+                "limit": AI_DAILY_LIMIT_GENERAL,
+            },
+        }
+
+        return jsonify({"date": today.isoformat(), "usage": usage}), 200
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to fetch usage: {str(e)}"}), 500

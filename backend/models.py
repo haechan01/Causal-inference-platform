@@ -1,6 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash
-from datetime import datetime
+from datetime import datetime, date
 
 # Initialize db here to avoid circular imports
 db = SQLAlchemy()
@@ -135,3 +135,39 @@ class Analysis(db.Model):
     config = db.Column(db.JSON, nullable=True)
     results = db.Column(db.JSON, nullable=True)
     ai_summary = db.Column(db.Text, nullable=True)
+
+
+class AIUsageLog(db.Model):
+    """Tracks daily AI API calls per user for usage-limit enforcement."""
+    __tablename__ = 'ai_usage_logs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    endpoint = db.Column(db.String(80), nullable=False)
+    usage_date = db.Column(db.Date, nullable=False, default=date.today, index=True)
+    request_count = db.Column(db.Integer, nullable=False, default=1)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'endpoint', 'usage_date', name='uq_ai_usage_per_day'),
+    )
+
+    @classmethod
+    def get_daily_count(cls, user_id: int, endpoint: str, for_date: date | None = None) -> int:
+        """Return the number of AI calls made by *user_id* for *endpoint* today."""
+        if for_date is None:
+            for_date = date.today()
+        row = cls.query.filter_by(user_id=user_id, endpoint=endpoint, usage_date=for_date).first()
+        return row.request_count if row else 0
+
+    @classmethod
+    def increment(cls, db_session, user_id: int, endpoint: str) -> int:
+        """Atomically increment the daily counter and return the new count."""
+        today = date.today()
+        row = cls.query.filter_by(user_id=user_id, endpoint=endpoint, usage_date=today).first()
+        if row:
+            row.request_count += 1
+        else:
+            row = cls(user_id=user_id, endpoint=endpoint, usage_date=today, request_count=1)
+            db_session.add(row)
+        db_session.commit()
+        return row.request_count
