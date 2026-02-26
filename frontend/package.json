@@ -48,6 +48,7 @@
     ]
   },
   "devDependencies": {
-    "@types/html2canvas": "^0.5.35"
+    "@types/html2canvas": "^0.5.35",
+    "eslint": "^8.57.1"
   }
 }

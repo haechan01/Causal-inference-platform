@@ -759,9 +759,9 @@ const IVDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> =
         <div style={styles.whenToUseSection}>
             <h4 style={styles.whenToUseTitle}>✓ When to use this method</h4>
             <div style={styles.whenToUseGrid}>
-                <div style={styles.whenToUseItem}><span>Something hidden — like ability or motivation — affects both who gets treated and the outcome, making a direct comparison misleading</span></div>
-                <div style={styles.whenToUseItem}><span>You have an external factor that nudges people into treatment but has no direct effect on the outcome (e.g. a lottery, distance to a facility, policy rollout timing)</span></div>
-                <div style={styles.whenToUseItem}><span>You want to use that external nudge to isolate the true effect of treatment, free from the hidden bias</span></div>
+                <div style={styles.whenToUseItem}><span>Something hidden affects both who gets treated and the outcome, making a direct comparison misleading</span></div>
+                <div style={styles.whenToUseItem}><span>You have an external factor that nudges people into treatment but has no direct effect on the outcome (e.g. a lottery, distance to a facility, etc)</span></div>
+                <div style={styles.whenToUseItem}><span>You want to use that external encouragement to isolate the true effect of treatment, free from the hidden bias</span></div>
             </div>
         </div>
         <div style={styles.explanationContent}>
