@@ -1270,8 +1270,10 @@ def run_rd_analysis(dataset_id):
         cutoff = data.get('cutoff')
         bandwidth = data.get('bandwidth')  # Optional
         polynomial_order = data.get('polynomial_order', 1)  # Default to 1
-        treatment_side = data.get('treatment_side', 'above') # Default to above
-        
+        treatment_side = data.get('treatment_side', 'above')  # Default to above
+        rd_type = data.get('rd_type', 'sharp')  # 'sharp' or 'fuzzy'
+        treatment_var = data.get('treatment_var')  # Required for fuzzy RDD only
+
         print("Received RD parameters:")
         print(f"  running_var: {running_var}")
         print(f"  outcome_var: {outcome_var}")
@@ -1279,7 +1281,9 @@ def run_rd_analysis(dataset_id):
         print(f"  bandwidth: {bandwidth}")
         print(f"  polynomial_order: {polynomial_order}")
         print(f"  treatment_side: {treatment_side}")
-        
+        print(f"  rd_type: {rd_type}")
+        print(f"  treatment_var: {treatment_var}")
+
         # Validate required parameters
         if not running_var:
             return jsonify({"error": "Missing required parameter: running_var"}), 400
@@ -1287,13 +1291,21 @@ def run_rd_analysis(dataset_id):
             return jsonify({"error": "Missing required parameter: outcome_var"}), 400
         if cutoff is None:
             return jsonify({"error": "Missing required parameter: cutoff"}), 400
-        
+        if rd_type not in ('sharp', 'fuzzy'):
+            return jsonify({"error": "rd_type must be 'sharp' or 'fuzzy'"}), 400
+        if rd_type == 'fuzzy' and not treatment_var:
+            return jsonify({
+                "error": "treatment_var is required for Fuzzy RDD — "
+                         "provide the column that records whether each unit "
+                         "actually received treatment."
+            }), 400
+
         # Validate cutoff is numeric
         try:
             cutoff = float(cutoff)
         except (ValueError, TypeError):
             return jsonify({"error": "cutoff must be a number"}), 400
-        
+
         # Validate bandwidth if provided
         if bandwidth is not None:
             try:
@@ -1302,7 +1314,7 @@ def run_rd_analysis(dataset_id):
                     return jsonify({"error": "bandwidth must be positive"}), 400
             except (ValueError, TypeError):
                 return jsonify({"error": "bandwidth must be a number"}), 400
-        
+
         # Validate polynomial_order
         try:
             polynomial_order = int(polynomial_order)
@@ -1312,7 +1324,7 @@ def run_rd_analysis(dataset_id):
                 }), 400
         except (ValueError, TypeError):
             return jsonify({"error": "polynomial_order must be an integer"}), 400
-        
+
         # Download file from S3 to perform analysis
         s3_client = boto3.client(
             's3',
@@ -1320,21 +1332,21 @@ def run_rd_analysis(dataset_id):
             aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
             region_name=AWS_REGION
         )
-        
+
         temp_file_path = f"/tmp/rd_analysis_{dataset_id}.csv"
-        
+
         try:
             # Download file from S3
             s3_client.download_file(
                 S3_BUCKET_NAME, dataset.s3_key, temp_file_path
             )
-            
+
             # Read CSV
             df = pd.read_csv(temp_file_path)
-            
+
             print(f"Dataset shape: {df.shape}")
             print(f"Columns: {list(df.columns)}")
-            
+
             # Validate columns exist
             if running_var not in df.columns:
                 return jsonify({
@@ -1344,7 +1356,11 @@ def run_rd_analysis(dataset_id):
                 return jsonify({
                     "error": f"outcome_var '{outcome_var}' not found in dataset"
                 }), 400
-            
+            if rd_type == 'fuzzy' and treatment_var not in df.columns:
+                return jsonify({
+                    "error": f"treatment_var '{treatment_var}' not found in dataset"
+                }), 400
+
             # Create RD estimator
             rd = RDEstimator(
                 data=df,
@@ -1353,7 +1369,7 @@ def run_rd_analysis(dataset_id):
                 cutoff=cutoff,
                 treatment_side=treatment_side
             )
-            
+
             # If bandwidth not provided, calculate optimal bandwidth
             if bandwidth is None:
                 print("Calculating optimal bandwidth...")
@@ -1382,21 +1398,59 @@ def run_rd_analysis(dataset_id):
                     'bandwidth_diagnostics': {},
                     'bandwidth_warnings': []
                 }
-            
-            # Run RD estimation
-            print(f"Running RD estimation with bandwidth={bandwidth}...")
+
+            # Run RD estimation (sharp or fuzzy)
+            print(f"Running {rd_type} RD estimation with bandwidth={bandwidth}...")
             try:
-                result = rd.estimate(
-                    bandwidth=bandwidth, polynomial_order=polynomial_order
-                )
+                if rd_type == 'fuzzy':
+                    result = rd.estimate_fuzzy(
+                        treatment_var=treatment_var,
+                        bandwidth=bandwidth,
+                        polynomial_order=polynomial_order,
+                    )
+                else:
+                    result = rd.estimate(
+                        bandwidth=bandwidth, polynomial_order=polynomial_order
+                    )
                 print("  RD estimation completed successfully")
             except Exception as est_error:
                 print(f"  RD estimation failed: {est_error}")
                 return jsonify({
                     "error": f"RD estimation failed: {str(est_error)}"
                 }), 400
-            
+
             # Build response
+            results_block = {
+                'treatment_effect': result['treatment_effect'],
+                'se': result['se'],
+                'ci_lower': result['ci_lower'],
+                'ci_upper': result['ci_upper'],
+                'p_value': result['p_value'],
+                'is_significant': result['p_value'] < 0.05,
+                'n_treated': result['n_treated'],
+                'n_control': result['n_control'],
+                'n_total': result['n_total'],
+                'bandwidth_used': result['bandwidth_used'],
+                'polynomial_order': result['polynomial_order'],
+                'kernel': result['kernel'],
+                'warnings': result.get('warnings', []),
+                'diagnostics': result.get('diagnostics', {}),
+            }
+
+            # Include fuzzy-specific fields when applicable
+            if rd_type == 'fuzzy':
+                results_block.update({
+                    'rd_type': 'fuzzy',
+                    'reduced_form_effect': result.get('reduced_form_effect'),
+                    'reduced_form_se': result.get('reduced_form_se'),
+                    'first_stage_effect': result.get('first_stage_effect'),
+                    'first_stage_se': result.get('first_stage_se'),
+                    'compliance_rate_assigned': result.get('compliance_rate_assigned'),
+                    'compliance_rate_not_assigned': result.get('compliance_rate_not_assigned'),
+                })
+            else:
+                results_block['rd_type'] = 'sharp'
+
             response_data = {
                 'analysis_type': 'regression_discontinuity',
                 'dataset_id': dataset_id,
@@ -1407,23 +1461,10 @@ def run_rd_analysis(dataset_id):
                     'bandwidth_used': bandwidth,
                     'polynomial_order': polynomial_order,
                     'treatment_side': treatment_side,
+                    'rd_type': rd_type,
+                    'treatment_var': treatment_var if rd_type == 'fuzzy' else None,
                 },
-                'results': {
-                    'treatment_effect': result['treatment_effect'],
-                    'se': result['se'],
-                    'ci_lower': result['ci_lower'],
-                    'ci_upper': result['ci_upper'],
-                    'p_value': result['p_value'],
-                    'is_significant': result['p_value'] < 0.05,
-                    'n_treated': result['n_treated'],
-                    'n_control': result['n_control'],
-                    'n_total': result['n_total'],
-                    'bandwidth_used': result['bandwidth_used'],
-                    'polynomial_order': result['polynomial_order'],
-                    'kernel': result['kernel'],
-                    'warnings': result.get('warnings', []),
-                    'diagnostics': result.get('diagnostics', {}),
-                },
+                'results': results_block,
                 'bandwidth_info': bandwidth_info
             }
             

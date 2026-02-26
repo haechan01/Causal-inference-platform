@@ -121,7 +121,6 @@ const UploadDataModal: React.FC<UploadDataModalProps> = ({
               </div>
             ) : (
               <div style={styles.dropZoneContent}>
-                <div style={styles.dropIcon}>📁</div>
                 <p style={styles.dropText}>
                   Drag and drop your CSV file here, or click to select
                 </p>
@@ -141,7 +140,7 @@ const UploadDataModal: React.FC<UploadDataModalProps> = ({
 
           {error && (
             <div style={styles.errorMessage}>
-              ❌ {error}
+              {error}
             </div>
           )}
         </div>
@@ -232,10 +231,6 @@ const styles = {
     flexDirection: 'column' as const,
     alignItems: 'center',
     gap: '10px'
-  },
-  dropIcon: {
-    fontSize: '48px',
-    marginBottom: '10px'
   },
   dropText: {
     fontSize: '16px',

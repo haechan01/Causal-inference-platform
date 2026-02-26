@@ -1968,7 +1968,6 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                 {/* Prompt to get AI interpretation */}
                 {!loadingAI && !aiInterpretation && !aiError && (
                   <div style={styles.aiPrompt}>
-                    <div style={styles.aiPromptIcon}>🤖</div>
                     <h3 style={styles.aiPromptTitle}>Get Expert Analysis</h3>
                     <p style={styles.aiPromptText}>
                       Click the button above to get AI-powered insights including executive summary,
@@ -3545,10 +3544,6 @@ const styles = {
     boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)',
     transition: 'all 0.2s ease',
     width: '100%'
-  },
-  aiPromptIcon: {
-    fontSize: '36px',
-    marginBottom: '12px'
   },
   aiPromptTitle: {
     fontSize: '16px',

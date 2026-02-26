@@ -292,7 +292,6 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess, onProjectSelec
               </div>
             ) : (
               <div style={styles.uploadContent}>
-                <div style={styles.uploadIcon}>📁</div>
                 <p style={styles.uploadText}>
                   Drag and drop your CSV file here, or click to browse
                 </p>
@@ -309,7 +308,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess, onProjectSelec
           {/* Error Message */}
           {uploadError && (
             <div style={styles.errorMessage}>
-              ❌ {uploadError}
+              {uploadError}
             </div>
           )}
 
@@ -459,9 +458,6 @@ const styles = {
     flexDirection: 'column' as const,
     alignItems: 'center',
     gap: '15px'
-  },
-  uploadIcon: {
-    fontSize: '48px'
   },
   uploadText: {
     fontSize: '18px',

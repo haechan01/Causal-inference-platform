@@ -403,7 +403,6 @@ const DataUploadPage: React.FC = () => {
                 
                 {file ? (
                   <div style={styles.fileInfo}>
-                    <div style={styles.fileIcon}>📄</div>
                     <div style={styles.fileName}>{file.name}</div>
                     <div style={styles.fileSize}>
                       {(file.size / 1024).toFixed(1)} KB
@@ -421,7 +420,6 @@ const DataUploadPage: React.FC = () => {
                   </div>
                 ) : (
                   <div style={styles.dropZoneContent}>
-                    <div style={styles.uploadIcon}>📁</div>
                     <p style={styles.dropZoneText}>
                       Drag & drop your CSV file here
                     </p>
@@ -451,14 +449,14 @@ const DataUploadPage: React.FC = () => {
               {/* Error Message */}
               {uploadError && (
                 <div style={styles.errorMessage}>
-                  ⚠️ {uploadError}
+                  {uploadError}
                 </div>
               )}
               
               {/* Success Message */}
               {uploadedDataset && (
                 <div style={styles.successMessage}>
-                  ✅ Dataset "{uploadedDataset.name}" uploaded successfully!
+                  Dataset "{uploadedDataset.name}" uploaded successfully.
                 </div>
               )}
               
@@ -494,7 +492,6 @@ const DataUploadPage: React.FC = () => {
                         }}
                         onClick={() => handleSelectExistingDataset(dataset.id)}
                       >
-                        <div style={styles.datasetIcon}>📊</div>
                         <div style={styles.datasetInfo}>
                           <div style={styles.datasetName}>{dataset.name}</div>
                           <div style={styles.datasetMeta}>
@@ -728,7 +725,6 @@ const DataUploadPage: React.FC = () => {
                 </div>
               ) : (
                 <div style={styles.previewPlaceholder}>
-                  <div style={styles.previewIcon}>👀</div>
                   <p style={styles.previewPlaceholderText}>
                     Upload or select a dataset to see a preview
                   </p>
@@ -848,10 +844,6 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '8px'
   },
-  uploadIcon: {
-    fontSize: '48px',
-    marginBottom: '8px'
-  },
   dropZoneText: {
     fontSize: '16px',
     fontWeight: '500',
@@ -873,9 +865,6 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     alignItems: 'center',
     gap: '8px'
-  },
-  fileIcon: {
-    fontSize: '40px'
   },
   fileName: {
     fontSize: '15px',
@@ -991,9 +980,6 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: '#eff6ff',
     borderColor: '#3b82f6'
   },
-  datasetIcon: {
-    fontSize: '24px'
-  },
   datasetInfo: {
     flex: 1,
     minWidth: 0
@@ -1040,11 +1026,6 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     padding: '60px 20px',
     color: '#94a3b8'
-  },
-  previewIcon: {
-    fontSize: '64px',
-    marginBottom: '16px',
-    opacity: 0.5
   },
   previewPlaceholderText: {
     fontSize: '16px',

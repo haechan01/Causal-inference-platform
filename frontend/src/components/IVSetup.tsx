@@ -533,7 +533,6 @@ SENSITIVITY ANALYSIS:
       <div>
         <Navbar />
         <div style={styles.errorContainer}>
-          <div style={styles.errorIcon}>⚠️</div>
           <h2 style={styles.errorTitle}>Error Loading Dataset</h2>
           <p style={styles.errorMessage}>{error}</p>
           <button onClick={() => window.history.back()} style={styles.backButton}>
@@ -814,15 +813,12 @@ SENSITIVITY ANALYSIS:
                   </p>
                   <div style={styles.threeRulesBox}>
                     <div style={styles.ruleItem}>
-                      <span style={styles.ruleIcon}>🎯</span>
                       <span><strong>Relevant:</strong> strongly predicts the treatment (F &gt; 10)</span>
                     </div>
                     <div style={styles.ruleItem}>
-                      <span style={styles.ruleIcon}>🔒</span>
                       <span><strong>Exclusion:</strong> no direct effect on the outcome</span>
                     </div>
                     <div style={styles.ruleItem}>
-                      <span style={styles.ruleIcon}>🎲</span>
                       <span><strong>Exogenous:</strong> uncorrelated with unobserved confounders</span>
                     </div>
                   </div>
@@ -1195,7 +1191,6 @@ const styles = {
     padding: '40px 20px',
     textAlign: 'center' as const,
   },
-  errorIcon: { fontSize: '64px', marginBottom: '20px' },
   errorTitle: {
     fontSize: '24px',
     fontWeight: 'bold',
@@ -1404,8 +1399,6 @@ const styles = {
     color: '#1e40af',
     lineHeight: '1.4',
   },
-  ruleIcon: { flexShrink: 0, fontSize: '14px' },
-
   // Tips sidebar
   tipPanel: {
     backgroundColor: 'white',

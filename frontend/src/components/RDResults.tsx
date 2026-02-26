@@ -588,7 +588,6 @@ print(sensitivity)
       <div>
         <Navbar />
         <div style={styles.errorContainer}>
-          <div style={styles.errorIcon}>⚠️</div>
           <h2 style={styles.errorTitle}>No Results Found</h2>
           <p style={styles.errorMessage}>
             No analysis results available. Please run an analysis first.
@@ -606,6 +605,13 @@ print(sensitivity)
 
   const { results: res, parameters, bandwidth_info } = results;
   const isSignificant = res.p_value < 0.05;
+  const rdType: 'sharp' | 'fuzzy' = (res.rd_type === 'fuzzy' || parameters.rd_type === 'fuzzy') ? 'fuzzy' : 'sharp';
+  const isFuzzy = rdType === 'fuzzy';
+  const DesignBadge = () => (
+    <span style={isFuzzy ? styles.fuzzyBadge : styles.sharpBadge}>
+      {isFuzzy ? 'Fuzzy RDD' : 'Sharp RDD'}
+    </span>
+  );
 
   return (
     <div>
@@ -713,12 +719,65 @@ print(sensitivity)
             )}
           </div>
 
+          {/* ── Fuzzy RDD: First-Stage Compliance Card ── */}
+          {isFuzzy && (
+            <div style={styles.fuzzyCard}>
+              <h3 style={styles.fuzzyCardTitle}>First-Stage Compliance Diagnostics</h3>
+              <p style={{ fontSize: '14px', color: '#555', margin: '0 0 16px 0', lineHeight: 1.5 }}>
+                In Fuzzy RDD, the estimate is valid only if the cutoff causes a meaningful jump in treatment receipt. The table below shows the first-stage diagnostics.
+              </p>
+              <div style={styles.fuzzyGrid}>
+                <div style={styles.fuzzyStatBox}>
+                  <div style={styles.fuzzyStatLabel}>LATE (Fuzzy Estimate)</div>
+                  <div style={styles.fuzzyStatValue}>{res.treatment_effect.toFixed(3)}</div>
+                  <div style={styles.fuzzyStatNote}>Intent-to-treat ÷ first-stage compliance</div>
+                </div>
+                <div style={styles.fuzzyStatBox}>
+                  <div style={styles.fuzzyStatLabel}>Intent-to-Treat Effect</div>
+                  <div style={styles.fuzzyStatValue}>{res.reduced_form_effect != null ? res.reduced_form_effect.toFixed(3) : '—'}</div>
+                  <div style={styles.fuzzyStatNote}>Jump in {parameters.outcome_var} at cutoff (reduced form)</div>
+                </div>
+                <div style={styles.fuzzyStatBox}>
+                  <div style={styles.fuzzyStatLabel}>First-Stage Effect</div>
+                  <div style={styles.fuzzyStatValue}>
+                    {res.first_stage_effect != null ? res.first_stage_effect.toFixed(3) : '—'}
+                  </div>
+                  <div style={styles.fuzzyStatNote}>Jump in treatment receipt at cutoff</div>
+                </div>
+                <div style={styles.fuzzyStatBox}>
+                  <div style={styles.fuzzyStatLabel}>Compliance — Assigned</div>
+                  <div style={styles.fuzzyStatValue}>
+                    {res.compliance_rate_assigned != null ? (res.compliance_rate_assigned * 100).toFixed(1) + '%' : '—'}
+                  </div>
+                  <div style={styles.fuzzyStatNote}>Treatment receipt rate for units {parameters.treatment_side === 'above' ? 'at/above' : 'below'} cutoff</div>
+                </div>
+                <div style={styles.fuzzyStatBox}>
+                  <div style={styles.fuzzyStatLabel}>Compliance — Not Assigned</div>
+                  <div style={styles.fuzzyStatValue}>
+                    {res.compliance_rate_not_assigned != null ? (res.compliance_rate_not_assigned * 100).toFixed(1) + '%' : '—'}
+                  </div>
+                  <div style={styles.fuzzyStatNote}>Treatment receipt rate for units {parameters.treatment_side === 'above' ? 'below' : 'at/above'} cutoff</div>
+                </div>
+                <div style={styles.fuzzyStatBox}>
+                  <div style={styles.fuzzyStatLabel}>Treatment Variable</div>
+                  <div style={{ ...styles.fuzzyStatValue, fontSize: '15px' }}>{parameters.treatment_var || '—'}</div>
+                  <div style={styles.fuzzyStatNote}>Actual receipt indicator used</div>
+                </div>
+              </div>
+              {res.first_stage_effect != null && Math.abs(res.first_stage_effect) < 0.05 && (
+                <div style={{ marginTop: '14px', padding: '12px 14px', backgroundColor: '#fff3cd', borderRadius: '8px', border: '1px solid #ffc107', fontSize: '13px', color: '#856404' }}>
+                  ⚠ <strong>Weak first stage:</strong> The jump in treatment receipt at the cutoff is very small ({res.first_stage_effect.toFixed(3)}). A weak first stage amplifies estimation error — the LATE estimate should be interpreted with caution.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── Key Assumptions ── */}
           <div style={styles.assumptionsCard}>
             <div style={styles.assumptionsHeader}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <h2 style={styles.assumptionsTitle}>📋 Key Assumptions</h2>
-                <span style={styles.sharpBadge}>Sharp RDD</span>
+                <h2 style={styles.assumptionsTitle}>Key Assumptions</h2>
+                <DesignBadge />
               </div>
               <button
                 type="button"
@@ -738,11 +797,11 @@ print(sensitivity)
                 <div style={styles.assumptionTabs}>
                   {(
                     [
-                      { key: 'continuity', icon: '📈', label: 'Continuity' },
-                      { key: 'manipulation', icon: '🔍', label: 'No Manipulation' },
-                      { key: 'late', icon: '📍', label: 'Local Validity' },
+                      { key: 'continuity', label: 'Continuity' },
+                      { key: 'manipulation', label: 'No Manipulation' },
+                      { key: 'late', label: 'Local Validity' },
                     ] as const
-                  ).map(({ key, icon, label }) => (
+                  ).map(({ key, label }) => (
                     <button
                       key={key}
                       type="button"
@@ -752,7 +811,7 @@ print(sensitivity)
                         ...(activeAssumption === key ? styles.assumptionTabActive : {}),
                       }}
                     >
-                      {icon} {label}
+                      {label}
                     </button>
                   ))}
                 </div>
@@ -768,7 +827,6 @@ print(sensitivity)
                       Since potential outcomes are unobservable, we test a concrete implication: <strong>observable characteristics (covariates) should not jump at the cutoff</strong>. If age, income, gender, or other pre-treatment variables are smooth across {parameters.cutoff}, it supports the assumption that unobservables are smooth too — just like in a randomized experiment where treated and control units are comparable on average.
                     </p>
                     <div style={styles.assumptionTip}>
-                      <span style={styles.assumptionTipIcon}>💡</span>
                       <span>
                         <strong>How to check:</strong> Run placebo RD regressions using your covariates as outcome variables. If none jump significantly at {parameters.cutoff}, the continuity assumption is supported. The code section includes commented covariate balance checks you can run on your own data.
                       </span>
@@ -787,13 +845,11 @@ print(sensitivity)
                       A classic warning sign is a suspicious spike or gap in the <strong>density of the running variable exactly at the cutoff</strong>. This is called <em>bunching</em> or <em>sorting</em>. A well-known example: a Colombian welfare program initially showed smooth density around its poverty-score cutoff, but after a few years a sharp cliff appeared as households learned how to report characteristics that kept their score just below the eligibility threshold.
                     </p>
                     <div style={styles.assumptionTip}>
-                      <span style={styles.assumptionTipIcon}>💡</span>
                       <span>
                         <strong>How to check:</strong> Plot a histogram of <em>{parameters.running_var}</em> and look for unusual spikes or gaps at {parameters.cutoff}. Formally, use the <strong>McCrary/rddensity test</strong> — it tests whether the density of the running variable is continuous at the cutoff. The replication code in the section below includes this test (Step 4: Manipulation test).
                       </span>
                     </div>
                     <div style={{ ...styles.assumptionTip, backgroundColor: '#fff3cd', borderColor: '#ffc107', marginTop: '10px' }}>
-                      <span style={styles.assumptionTipIcon}>⚠️</span>
                       <span>
                         Unlike the continuity assumption, manipulation is directly testable. If the density test rejects (p &lt; 0.05), the RD estimate may be biased and caution is warranted.
                       </span>
@@ -812,13 +868,11 @@ print(sensitivity)
                       Units far from the cutoff — those with very high or very low values of {parameters.running_var} — are not part of this comparison and the estimated effect may not generalize to them. This is sometimes called the <em>external validity</em> limitation of RDD.
                     </p>
                     <div style={styles.assumptionTip}>
-                      <span style={styles.assumptionTipIcon}>💡</span>
                       <span>
                         <strong>Practical implication:</strong> Be modest when describing your results. Instead of saying "the treatment affects outcomes in the population," say "the treatment affects outcomes for units near the cutoff of {parameters.cutoff} on {parameters.running_var}." This is not a failure of the design — it is a feature. The local comparison is precisely what makes RDD credible.
                       </span>
                     </div>
                     <div style={{ ...styles.assumptionTip, backgroundColor: '#e8f5e9', borderColor: '#4caf50', marginTop: '10px' }}>
-                      <span style={styles.assumptionTipIcon}>✓</span>
                       <span>
                         The bandwidth sensitivity analysis below shows how the estimate changes as you widen or narrow the window. Stability across bandwidths gives more confidence in the LATE estimate.
                       </span>
@@ -883,7 +937,7 @@ print(sensitivity)
             <div style={styles.designTypeHeader}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <h3 style={styles.designTypeTitle}>Design Type</h3>
-                <span style={styles.sharpBadge}>Sharp RDD</span>
+                <DesignBadge />
               </div>
               <button
                 type="button"
@@ -894,7 +948,10 @@ print(sensitivity)
               </button>
             </div>
             <p style={{ fontSize: '14px', color: '#555', margin: '6px 0 0 0', lineHeight: 1.5 }}>
-              This analysis uses <strong>Sharp RDD</strong>, meaning treatment is fully determined by whether {parameters.running_var} is {parameters.treatment_side === 'above' ? 'at or above' : 'below'} the cutoff ({parameters.cutoff}).
+              {isFuzzy
+                ? <>This analysis uses <strong>Fuzzy RDD</strong>. The cutoff is suggestive — not all units assigned by it actually received treatment. The LATE is estimated as the intent-to-treat effect divided by the first-stage compliance jump (Wald ratio). Treatment receipt variable: <strong>{parameters.treatment_var}</strong>.</>
+                : <>This analysis uses <strong>Sharp RDD</strong>, meaning treatment is fully determined by whether {parameters.running_var} is {parameters.treatment_side === 'above' ? 'at or above' : 'below'} the cutoff ({parameters.cutoff}).</>
+              }
             </p>
 
             {showDesignType && (
@@ -903,7 +960,7 @@ print(sensitivity)
                 <div style={styles.designTypeBox}>
                   <div style={styles.designTypeBoxHeader}>
                     <span style={styles.sharpBadge}>Sharp RDD</span>
-                    <span style={styles.designTypeCurrentTag}>✓ Current</span>
+                    {!isFuzzy && <span style={styles.designTypeCurrentTag}>✓ Current</span>}
                   </div>
                   <p style={styles.designTypeText}>
                     The cutoff rule is <strong>perfectly enforced</strong>. Every unit at or above the cutoff receives the treatment; every unit below does not. Treatment status is a deterministic step function of the running variable.
@@ -919,9 +976,10 @@ print(sensitivity)
                 </div>
 
                 {/* Fuzzy column */}
-                <div style={{ ...styles.designTypeBox, borderColor: '#dee2e6', backgroundColor: '#fafafa' }}>
+                <div style={{ ...styles.designTypeBox, borderColor: isFuzzy ? '#4F9CF9' : '#dee2e6', backgroundColor: isFuzzy ? '#f0f7ff' : '#fafafa' }}>
                   <div style={styles.designTypeBoxHeader}>
-                    <span style={{ ...styles.sharpBadge, backgroundColor: '#fff3cd', color: '#856404' }}>Fuzzy RDD</span>
+                    <span style={styles.fuzzyBadge}>Fuzzy RDD</span>
+                    {isFuzzy && <span style={styles.designTypeCurrentTag}>✓ Current</span>}
                   </div>
                   <p style={styles.designTypeText}>
                     The cutoff only <strong>probabilistically determines</strong> treatment. Some units above the cutoff may not receive treatment; some below may still receive it. The cutoff is suggestive, not binding.
@@ -937,9 +995,15 @@ print(sensitivity)
                   </div>
                 </div>
 
-                <div style={{ gridColumn: '1 / -1', padding: '14px 16px', backgroundColor: '#f0f7ff', borderRadius: '8px', border: '1px solid #b3d4f7', fontSize: '13px', color: '#043873', lineHeight: 1.6 }}>
-                  <strong>How to decide:</strong> Check whether all units {parameters.treatment_side === 'above' ? 'at or above' : 'below'} the cutoff ({parameters.cutoff}) actually received the treatment in your data. If compliance is perfect (or very close), Sharp RDD is appropriate. If a meaningful share of units do not comply, use Fuzzy RDD by adding a treatment-status indicator and applying the Wald estimator.
-                </div>
+                {isFuzzy ? (
+                  <div style={{ gridColumn: '1 / -1', padding: '14px 16px', backgroundColor: '#e8f5e9', borderRadius: '8px', border: '1px solid #4caf50', fontSize: '13px', color: '#1b5e20', lineHeight: 1.6 }}>
+                    ✓ <strong>Fuzzy RDD was applied.</strong> The LATE was estimated as the Wald ratio: the jump in <em>{parameters.outcome_var}</em> at the cutoff divided by the jump in <em>{parameters.treatment_var}</em> at the cutoff. See the First-Stage diagnostics below for compliance details.
+                  </div>
+                ) : (
+                  <div style={{ gridColumn: '1 / -1', padding: '14px 16px', backgroundColor: '#f0f7ff', borderRadius: '8px', border: '1px solid #b3d4f7', fontSize: '13px', color: '#043873', lineHeight: 1.6 }}>
+                    <strong>Not sure which to use?</strong> Check whether all units {parameters.treatment_side === 'above' ? 'at or above' : 'below'} the cutoff ({parameters.cutoff}) actually received the treatment in your data. If compliance is perfect (or very close), Sharp RDD is appropriate. If a meaningful share did not comply, re-run the analysis selecting Fuzzy RDD with a treatment receipt variable.
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1108,7 +1172,6 @@ print(sensitivity)
 
                 {!loadingAI && !aiInterpretation && !aiError && (
                   <div style={styles.aiPrompt}>
-                    <div style={styles.aiPromptIcon}>🤖</div>
                     <h3 style={styles.aiPromptTitle}>Get Expert Analysis</h3>
                     <p style={styles.aiPromptText}>
                       Click the button above to get AI-powered insights including executive summary,
@@ -1496,10 +1559,6 @@ const styles = {
     padding: '40px 20px',
     textAlign: 'center' as const,
   },
-  errorIcon: {
-    fontSize: '64px',
-    marginBottom: '20px',
-  },
   errorTitle: {
     fontSize: '24px',
     fontWeight: 'bold',
@@ -1802,10 +1861,6 @@ const styles = {
     textAlign: 'center' as const,
     padding: '40px',
   },
-  aiPromptIcon: {
-    fontSize: '36px',
-    marginBottom: '12px',
-  },
   aiPromptTitle: {
     fontSize: '16px',
     fontWeight: 'bold',
@@ -1982,6 +2037,64 @@ const styles = {
     fontFamily: "'Fira Code', 'Consolas', 'Monaco', monospace",
   },
 
+  // ── Fuzzy RDD badge ──────────────────────────────────────────────────────
+  fuzzyBadge: {
+    display: 'inline-block',
+    padding: '3px 10px',
+    backgroundColor: '#fff3cd',
+    color: '#856404',
+    borderRadius: '20px',
+    fontSize: '12px',
+    fontWeight: '600' as const,
+  },
+
+  // ── Fuzzy first-stage compliance card ────────────────────────────────────
+  fuzzyCard: {
+    backgroundColor: 'white',
+    borderRadius: '16px',
+    padding: '28px 36px',
+    marginBottom: '30px',
+    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
+    border: '1px solid #e9ecef',
+    borderTop: '4px solid #ffc107',
+  },
+  fuzzyCardTitle: {
+    fontSize: '20px',
+    fontWeight: 'bold' as const,
+    color: '#043873',
+    margin: '0 0 8px 0',
+  },
+  fuzzyGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+    gap: '14px',
+  },
+  fuzzyStatBox: {
+    padding: '16px',
+    backgroundColor: '#f8f9fa',
+    borderRadius: '10px',
+    border: '1px solid #e9ecef',
+  },
+  fuzzyStatLabel: {
+    fontSize: '12px',
+    color: '#666',
+    marginBottom: '6px',
+    fontWeight: '600' as const,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.4px',
+  },
+  fuzzyStatValue: {
+    fontSize: '22px',
+    fontWeight: 'bold' as const,
+    color: '#043873',
+    marginBottom: '4px',
+  },
+  fuzzyStatNote: {
+    fontSize: '11px',
+    color: '#888',
+    lineHeight: 1.4,
+  },
+
   // ── Assumptions card ─────────────────────────────────────────────────────
   assumptionsCard: {
     backgroundColor: 'white',
@@ -2080,11 +2193,6 @@ const styles = {
     color: '#1a4a7a',
     lineHeight: 1.6,
   },
-  assumptionTipIcon: {
-    fontSize: '16px',
-    flexShrink: 0,
-  },
-
   // ── Sharp vs Fuzzy RDD card ───────────────────────────────────────────────
   designTypeCard: {
     backgroundColor: 'white',

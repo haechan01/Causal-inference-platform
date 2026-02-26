@@ -41,6 +41,8 @@ const RDSetup: React.FC = () => {
   const [bandwidth, setBandwidth] = useState('');
   const [polynomialOrder, setPolynomialOrder] = useState(1);
   const [treatmentSide, setTreatmentSide] = useState<'above' | 'below'>('above');
+  const [rdType, setRdType] = useState<'sharp' | 'fuzzy'>('sharp');
+  const [treatmentVar, setTreatmentVar] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Analysis state
@@ -104,6 +106,8 @@ const RDSetup: React.FC = () => {
               setTreatmentSide(
                 config.treatmentSide === 'below' ? 'below' : 'above'
               );
+              setRdType(config.rdType === 'fuzzy' ? 'fuzzy' : 'sharp');
+              setTreatmentVar(config.treatmentVar || '');
             }
           }
           if (!datasetId && project.datasets && project.datasets.length > 0) {
@@ -173,7 +177,11 @@ const RDSetup: React.FC = () => {
   }, [accessToken, location, projectId, datasetId]);
 
   const canProceed = Boolean(
-    runningVar && cutoff && outcomeVar && !isNaN(parseFloat(cutoff))
+    runningVar &&
+    cutoff &&
+    outcomeVar &&
+    !isNaN(parseFloat(cutoff)) &&
+    (rdType === 'sharp' || treatmentVar)
   );
 
   const handleApplySuggestions = (suggestions: {
@@ -265,7 +273,13 @@ const RDSetup: React.FC = () => {
         cutoff: parseFloat(cutoff),
         treatment_side: treatmentSide,
         polynomial_order: polynomialOrder,
+        rd_type: rdType,
       };
+
+      // Add treatment_var for fuzzy RDD
+      if (rdType === 'fuzzy' && treatmentVar) {
+        payload.treatment_var = treatmentVar;
+      }
 
       // Add bandwidth if provided
       if (bandwidth && !isNaN(parseFloat(bandwidth))) {
@@ -302,6 +316,8 @@ const RDSetup: React.FC = () => {
                 bandwidth: bandwidth || undefined,
                 polynomialOrder,
                 treatmentSide,
+                rdType,
+                treatmentVar: rdType === 'fuzzy' ? treatmentVar : undefined,
               },
               lastResults: response.data,
             },
@@ -347,7 +363,6 @@ const RDSetup: React.FC = () => {
       <div>
         <Navbar />
         <div style={styles.errorContainer}>
-          <div style={styles.errorIcon}>⚠️</div>
           <h2 style={styles.errorTitle}>Error Loading Dataset</h2>
           <p style={styles.errorMessage}>{error}</p>
           <button
@@ -639,10 +654,97 @@ const RDSetup: React.FC = () => {
               />
             </div>
 
-            {/* Card 4: Advanced Options */}
+            {/* Card 4: Design Type — Sharp vs Fuzzy */}
             <div style={styles.card}>
               <div style={styles.cardHeader}>
                 <div style={styles.cardNumber}>4</div>
+                <div style={styles.cardTitle}>Design Type</div>
+                <div style={styles.requiredBadge}>Required</div>
+              </div>
+              <p style={styles.helperText}>
+                Is the cutoff rule perfectly enforced, or do some units not comply with it?
+              </p>
+
+              <div style={styles.radioGroup}>
+                <label
+                  style={{
+                    ...styles.designTypeOption,
+                    ...(rdType === 'sharp' ? styles.designTypeOptionActive : {}),
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="rdType"
+                    value="sharp"
+                    checked={rdType === 'sharp'}
+                    onChange={() => { setRdType('sharp'); setTreatmentVar(''); }}
+                    style={styles.radioInput}
+                  />
+                  <div>
+                    <div style={styles.designTypeLabel}>
+                      Sharp RDD
+                      <span style={styles.designTypeBadgeGreen}>Most common</span>
+                    </div>
+                    <div style={styles.designTypeDesc}>
+                      Treatment is fully determined by the cutoff. Every unit {treatmentSide === 'above' ? 'at or above' : 'below'} <strong>{cutoff || 'the threshold'}</strong> receives treatment; all others do not.
+                      <br />
+                      <em>Example: scholarship automatically awarded to students with GPA ≥ 3.0.</em>
+                    </div>
+                  </div>
+                </label>
+
+                <label
+                  style={{
+                    ...styles.designTypeOption,
+                    ...(rdType === 'fuzzy' ? styles.designTypeOptionActive : {}),
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="rdType"
+                    value="fuzzy"
+                    checked={rdType === 'fuzzy'}
+                    onChange={() => setRdType('fuzzy')}
+                    style={styles.radioInput}
+                  />
+                  <div style={{ width: '100%' }}>
+                    <div style={styles.designTypeLabel}>
+                      Fuzzy RDD
+                      <span style={styles.designTypeBadgeYellow}>Requires treatment receipt column</span>
+                    </div>
+                    <div style={styles.designTypeDesc}>
+                      The cutoff only probabilistically determines treatment. Some units above the cutoff may not receive it; some below may still receive it. The LATE is estimated via the Wald ratio (intent-to-treat ÷ first-stage compliance).
+                      <br />
+                      <em>Example: crossing the minimum drinking age raises the probability of drinking, but does not guarantee it.</em>
+                    </div>
+                    {rdType === 'fuzzy' && (
+                      <div style={{ marginTop: '16px' }}>
+                        <label style={styles.label}>
+                          Treatment Receipt Variable <span style={{ color: '#dc3545' }}>*</span>
+                        </label>
+                        <p style={styles.helperTextSmall}>
+                          Select the binary column (0/1) that records whether each unit <em>actually received</em> treatment — not just whether they were assigned by the cutoff.
+                        </p>
+                        <SearchableDropdown
+                          options={variables
+                            .filter((v) => v.name !== runningVar && v.name !== outcomeVar)
+                            .map((v) => ({ value: v.name, label: v.name }))}
+                          value={treatmentVar}
+                          onChange={(value) => setTreatmentVar(value)}
+                          placeholder="Search and select treatment receipt variable..."
+                          style={styles.select}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Card 5: Advanced Options */}
+            <div style={styles.card}>
+              <div style={styles.cardHeader}>
+                <div style={styles.cardNumber}>5</div>
                 <div style={styles.cardTitle}>Advanced Options</div>
                 <div style={styles.optionalBadge}>Optional</div>
               </div>
@@ -815,10 +917,6 @@ const styles = {
     backgroundColor: '#f5f5f5',
     padding: '40px 20px',
     textAlign: 'center' as const,
-  },
-  errorIcon: {
-    fontSize: '64px',
-    marginBottom: '20px',
   },
   errorTitle: {
     fontSize: '24px',
@@ -1043,6 +1141,53 @@ const styles = {
     width: '18px',
     height: '18px',
     cursor: 'pointer',
+    flexShrink: 0,
+    marginTop: '3px',
+  },
+  designTypeOption: {
+    display: 'flex',
+    gap: '14px',
+    alignItems: 'flex-start',
+    padding: '16px 18px',
+    borderRadius: '10px',
+    border: '2px solid #e0e0e0',
+    cursor: 'pointer',
+    backgroundColor: '#fafafa',
+    transition: 'all 0.15s ease',
+  },
+  designTypeOptionActive: {
+    borderColor: '#043873',
+    backgroundColor: '#f0f7ff',
+  },
+  designTypeLabel: {
+    fontSize: '16px',
+    fontWeight: '600' as const,
+    color: '#333',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    marginBottom: '6px',
+  },
+  designTypeDesc: {
+    fontSize: '13px',
+    color: '#555',
+    lineHeight: 1.6,
+  },
+  designTypeBadgeGreen: {
+    fontSize: '11px',
+    fontWeight: '600' as const,
+    color: '#1b5e20',
+    backgroundColor: '#e8f5e9',
+    padding: '2px 8px',
+    borderRadius: '12px',
+  },
+  designTypeBadgeYellow: {
+    fontSize: '11px',
+    fontWeight: '600' as const,
+    color: '#856404',
+    backgroundColor: '#fff3cd',
+    padding: '2px 8px',
+    borderRadius: '12px',
   },
 
   // ── Data Preview Panel ─────────────────────────────────────────────────────

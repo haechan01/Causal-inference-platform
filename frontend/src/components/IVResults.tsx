@@ -660,7 +660,6 @@ print(p2)`;
       <div>
         <Navbar />
         <div style={styles.errorContainer}>
-          <div style={styles.errorIcon}>⚠️</div>
           <h2 style={styles.errorTitle}>No Results Found</h2>
           <p style={styles.errorMessage}>
             No IV analysis results available. Please run an analysis first.
@@ -728,7 +727,6 @@ print(p2)`;
                     borderColor: isSignificant ? '#059669' : '#ca8a04',
                     backgroundColor: isSignificant ? '#f0fdf4' : '#fffbeb',
                   }}>
-                    <span style={styles.glanceIcon}>{isSignificant ? '✅' : '⚠️'}</span>
                     <div>
                       <div style={styles.glanceItemTitle}>Causal Effect</div>
                       <div style={styles.glanceItemDesc}>
@@ -744,7 +742,6 @@ print(p2)`;
                       borderColor: isWeak ? '#dc3545' : '#059669',
                       backgroundColor: isWeak ? '#fff5f5' : '#f0fdf4',
                     }}>
-                      <span style={styles.glanceIcon}>{isWeak ? '❌' : '✅'}</span>
                       <div>
                         <div style={styles.glanceItemTitle}>Instrument Strength</div>
                         <div style={styles.glanceItemDesc}>
@@ -761,7 +758,6 @@ print(p2)`;
                       borderColor: res.endogeneity_test.is_endogenous ? '#059669' : '#ca8a04',
                       backgroundColor: res.endogeneity_test.is_endogenous ? '#f0fdf4' : '#fffbeb',
                     }}>
-                      <span style={styles.glanceIcon}>{res.endogeneity_test.is_endogenous ? '✅' : 'ℹ️'}</span>
                       <div>
                         <div style={styles.glanceItemTitle}>IV Justified?</div>
                         <div style={styles.glanceItemDesc}>
@@ -778,7 +774,6 @@ print(p2)`;
                       borderColor: overid.is_overidentified_rejected ? '#dc3545' : '#059669',
                       backgroundColor: overid.is_overidentified_rejected ? '#fff5f5' : '#f0fdf4',
                     }}>
-                      <span style={styles.glanceIcon}>{overid.is_overidentified_rejected ? '❌' : '✅'}</span>
                       <div>
                         <div style={styles.glanceItemTitle}>Instrument Validity</div>
                         <div style={styles.glanceItemDesc}>
@@ -1518,7 +1513,6 @@ print(p2)`;
 
                 {!loadingAI && !aiInterpretation && !aiError && (
                   <div style={styles.aiPrompt}>
-                    <div style={styles.aiPromptIcon}>🤖</div>
                     <h3 style={styles.aiPromptTitle}>Get Expert Analysis</h3>
                     <p style={styles.aiPromptText}>
                       Click above to get AI insights: executive summary, effect
@@ -2048,7 +2042,6 @@ const styles = {
     padding: '40px 20px',
     textAlign: 'center' as const,
   },
-  errorIcon: { fontSize: '64px', marginBottom: '20px' },
   errorTitle: {
     fontSize: '24px',
     fontWeight: 'bold',
@@ -2482,7 +2475,6 @@ const styles = {
     marginTop: '12px',
   },
   aiPrompt: { textAlign: 'center' as const, padding: '40px' },
-  aiPromptIcon: { fontSize: '36px', marginBottom: '12px' },
   aiPromptTitle: {
     fontSize: '16px',
     fontWeight: 'bold',
@@ -2585,11 +2577,6 @@ const styles = {
     border: '1.5px solid',
     borderColor: '#e0e0e0',
     backgroundColor: '#f8f9fa',
-  },
-  glanceIcon: {
-    fontSize: '20px',
-    flexShrink: 0,
-    lineHeight: '1.2',
   },
   glanceItemTitle: {
     fontSize: '13px',

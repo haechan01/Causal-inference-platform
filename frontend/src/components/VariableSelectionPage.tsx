@@ -529,7 +529,6 @@ ALWAYS BE PRECISE: Use the exact variable names from the parameters, never subst
       <div>
         <Navbar />
         <div style={styles.errorContainer}>
-          <div style={styles.errorIcon}>⚠️</div>
           <h2 style={styles.errorTitle}>Error Loading Dataset</h2>
           <p style={styles.errorMessage}>{error}</p>
           <button
@@ -563,7 +562,6 @@ ALWAYS BE PRECISE: Use the exact variable names from the parameters, never subst
                 onClick={() => setPreviewOpen(true)}
                 title="Open dataset preview"
               >
-                <span style={styles.previewTabEmoji}>📊</span>
                 <span style={styles.previewTabText}>Data Preview</span>
               </div>
             ) : (
@@ -1557,10 +1555,6 @@ const styles = {
     padding: '40px 20px',
     textAlign: 'center' as const
   },
-  errorIcon: {
-    fontSize: '64px',
-    marginBottom: '20px'
-  },
   errorTitle: {
     fontSize: '24px',
     fontWeight: 'bold',
@@ -1902,10 +1896,6 @@ const styles = {
     alignSelf: 'flex-start',
     minHeight: '130px',
     transition: 'box-shadow 0.2s',
-  },
-  previewTabEmoji: {
-    fontSize: '16px',
-    lineHeight: '1',
   },
   previewTabText: {
     fontSize: '11px',
