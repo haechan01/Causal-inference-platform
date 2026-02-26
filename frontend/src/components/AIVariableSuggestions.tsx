@@ -72,7 +72,6 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
     <div style={styles.container}>
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <span style={styles.aiIcon}>🤖</span>
           <h3 style={styles.title}>AI Variable Assistant</h3>
         </div>
 
@@ -91,7 +90,7 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
               e.currentTarget.style.boxShadow = '0 2px 4px rgba(99, 102, 241, 0.3)';
             }}
           >
-            ✨ Get AI Suggestions
+            Get AI Suggestions
           </button>
         )}
       </div>
@@ -105,7 +104,7 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
 
       {error && (
         <div style={styles.error}>
-          <span>⚠️ {error}</span>
+          <span>{error}</span>
           <button onClick={fetchSuggestions} style={styles.retryButton}>
             Retry
           </button>
@@ -123,25 +122,21 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
               title="Outcome Variable"
               suggestions={suggestions.outcome_suggestions}
               alternatives={suggestions.alternative_options?.outcome}
-              icon="📊"
             />
             <SuggestionCard
               title="Treatment Indicator"
               suggestions={suggestions.treatment_suggestions}
               alternatives={suggestions.alternative_options?.treatment}
-              icon="💊"
             />
             <SuggestionCard
               title="Time Variable"
               suggestions={suggestions.time_suggestions}
               alternatives={suggestions.alternative_options?.time}
-              icon="📅"
             />
             <SuggestionCard
               title="Unit Identifier"
               suggestions={suggestions.unit_suggestions}
               alternatives={suggestions.alternative_options?.unit}
-              icon="🏷️"
             />
           </div>
 
@@ -149,7 +144,6 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
           {suggestions.control_suggestions && suggestions.control_suggestions.length > 0 && (
             <div style={styles.controlsSection}>
               <div style={styles.sectionHeader}>
-                <span style={{ fontSize: '18px' }}>🎛️</span>
                 <h4 style={styles.sectionTitle}>Suggested Control Variables</h4>
               </div>
               <p style={styles.sectionDescription}>
@@ -221,8 +215,7 @@ const SuggestionCard: React.FC<{
   title: string;
   suggestions: Suggestion[];
   alternatives?: string[];
-  icon: string;
-}> = ({ title, suggestions, alternatives, icon }) => {
+}> = ({ title, suggestions, alternatives }) => {
   if (!suggestions || suggestions.length === 0) return null;
 
   const top = suggestions[0];
@@ -230,7 +223,6 @@ const SuggestionCard: React.FC<{
   return (
     <div style={styles.suggestionCard}>
       <div style={styles.cardHeader}>
-        <span>{icon}</span>
         <span style={styles.cardTitle}>{title}</span>
       </div>
       <div style={styles.topSuggestion}>
@@ -275,9 +267,6 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '10px'
-  },
-  aiIcon: {
-    fontSize: '24px'
   },
   title: {
     margin: 0,

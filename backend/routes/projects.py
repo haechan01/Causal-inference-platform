@@ -551,11 +551,12 @@ def list_datasets(project_id):
 def link_dataset_to_project(project_id):
     """
     Link an existing user dataset to a project.
-    Multiple projects can share the same dataset.
+    Supports both DB datasets (positive id) and built-in sample datasets (negative id).
+    For sample datasets, copies the sample file to the user's S3 space and creates a new dataset.
     
     Expected JSON:
     {
-        "dataset_id": 1
+        "dataset_id": 1  (or -1, -2 for sample datasets)
     }
     """
     try:
@@ -576,22 +577,57 @@ def link_dataset_to_project(project_id):
             return jsonify({"error": "dataset_id is required"}), 400
         
         dataset_id = data['dataset_id']
-        
-        # Check if dataset exists and belongs to user
-        dataset = Dataset.query.get(dataset_id)
-        if not dataset:
-            return jsonify({"error": "Dataset not found"}), 404
-        
-        if dataset.user_id != current_user_id:
-            return jsonify({"error": "Access denied to this dataset"}), 403
-        
-        # Check if dataset is already linked to this project
-        if dataset in project.datasets:
-            return jsonify({
-                "message": "Dataset already linked to this project",
-                "dataset": dataset.to_dict()
-            }), 200
-        
+        dataset = None
+
+        if dataset_id < 0:
+            # Built-in sample dataset: copy to user's space and create a new Dataset row
+            from sample_data_utils import get_sample_dataset_by_id, get_sample_file_path
+            sample = get_sample_dataset_by_id(dataset_id)
+            if not sample:
+                return jsonify({"error": "Sample dataset not found"}), 404
+            file_path = get_sample_file_path(sample["s3_key"])
+            if not file_path or not os.path.isfile(file_path):
+                return jsonify({"error": "Sample data file not found on server"}), 404
+            if not S3_BUCKET_NAME:
+                return jsonify({"error": "File storage is not configured; cannot link sample dataset"}), 503
+            # Upload sample file to S3 under user's folder so we have a real dataset
+            file_ext = os.path.splitext(sample["file_name"])[1]
+            unique_key = f"uploads/user_{current_user_id}/sample_{abs(dataset_id)}_{uuid.uuid4()}{file_ext}"
+            try:
+                s3_client.upload_file(
+                    file_path,
+                    S3_BUCKET_NAME,
+                    unique_key,
+                    ExtraArgs={
+                        'ContentType': 'text/csv',
+                        'Metadata': {'source': 'sample', 'sample_id': str(dataset_id)}
+                    }
+                )
+            except Exception as e:
+                return jsonify({"error": f"Failed to copy sample data: {str(e)}"}), 500
+            new_dataset = Dataset(
+                user_id=current_user_id,
+                project_id=None,
+                name=sample["name"],
+                file_name=sample["file_name"],
+                s3_key=unique_key
+            )
+            db.session.add(new_dataset)
+            db.session.commit()
+            dataset = new_dataset
+        else:
+            # Regular dataset from DB
+            dataset = Dataset.query.get(dataset_id)
+            if not dataset:
+                return jsonify({"error": "Dataset not found"}), 404
+            if dataset.user_id != current_user_id:
+                return jsonify({"error": "Access denied to this dataset"}), 403
+            if dataset in project.datasets:
+                return jsonify({
+                    "message": "Dataset already linked to this project",
+                    "dataset": dataset.to_dict()
+                }), 200
+
         # Link dataset to project using many-to-many relationship
         project.datasets.append(dataset)
         db.session.commit()

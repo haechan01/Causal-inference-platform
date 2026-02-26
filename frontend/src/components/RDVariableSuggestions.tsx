@@ -75,7 +75,6 @@ const RDVariableSuggestions: React.FC<RDVariableSuggestionsProps> = ({
     <div style={styles.container}>
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <span style={styles.aiIcon}>🤖</span>
           <h3 style={styles.title}>RD AI Variable Assistant</h3>
         </div>
 
@@ -94,7 +93,7 @@ const RDVariableSuggestions: React.FC<RDVariableSuggestionsProps> = ({
               e.currentTarget.style.boxShadow = '0 2px 4px rgba(99, 102, 241, 0.3)';
             }}
           >
-            ✨ Get AI Suggestions
+            Get AI Suggestions
           </button>
         )}
       </div>
@@ -108,7 +107,7 @@ const RDVariableSuggestions: React.FC<RDVariableSuggestionsProps> = ({
 
       {error && (
         <div style={styles.error}>
-          <span>⚠️ {error}</span>
+          <span>{error}</span>
           <button onClick={fetchSuggestions} style={styles.retryButton}>
             Retry
           </button>
@@ -126,13 +125,11 @@ const RDVariableSuggestions: React.FC<RDVariableSuggestionsProps> = ({
             <SuggestionCard
               title="Running Variable"
               suggestions={suggestions.running_var_suggestions}
-              icon="📐"
             />
             <CutoffCard cutoff={suggestions.cutoff_suggestion} />
             <SuggestionCard
               title="Outcome Variable"
               suggestions={suggestions.outcome_var_suggestions}
-              icon="📊"
             />
           </div>
 
@@ -140,7 +137,6 @@ const RDVariableSuggestions: React.FC<RDVariableSuggestionsProps> = ({
           {suggestions.treatment_side_suggestion && (
             <div style={styles.controlsSection}>
               <div style={styles.sectionHeader}>
-                <span style={{ fontSize: '18px' }}>↔️</span>
                 <h4 style={styles.sectionTitle}>Treatment Side</h4>
               </div>
               <p style={styles.sectionDescription}>
@@ -163,7 +159,6 @@ const RDVariableSuggestions: React.FC<RDVariableSuggestionsProps> = ({
           {suggestions.alternative_options && Object.values(suggestions.alternative_options).some((v: any) => v && v.length > 0) && (
             <div style={styles.alternativesSection}>
               <div style={styles.sectionHeader}>
-                <span style={{ fontSize: '18px' }}>🔄</span>
                 <h4 style={styles.sectionTitle}>Alternative Options</h4>
               </div>
               <div style={styles.alternativesGrid}>
@@ -180,7 +175,7 @@ const RDVariableSuggestions: React.FC<RDVariableSuggestionsProps> = ({
 
           {suggestions.warnings && suggestions.warnings.length > 0 && (
             <div style={styles.warnings}>
-              <h4>⚠️ Things to Consider</h4>
+              <h4>Things to Consider</h4>
               <ul>
                 {suggestions.warnings.map((w: string, i: number) => (
                   <li key={i}>{w}</li>
@@ -232,8 +227,7 @@ const CutoffCard: React.FC<{
 const SuggestionCard: React.FC<{
   title: string;
   suggestions: Suggestion[];
-  icon: string;
-}> = ({ title, suggestions, icon }) => {
+}> = ({ title, suggestions }) => {
   if (!suggestions || suggestions.length === 0) return null;
 
   const top = suggestions[0];
@@ -241,7 +235,6 @@ const SuggestionCard: React.FC<{
   return (
     <div style={styles.suggestionCard}>
       <div style={styles.cardHeader}>
-        <span>{icon}</span>
         <span style={styles.cardTitle}>{title}</span>
       </div>
       <div style={styles.topSuggestion}>
@@ -288,9 +281,6 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
-  },
-  aiIcon: {
-    fontSize: '24px',
   },
   title: {
     margin: 0,

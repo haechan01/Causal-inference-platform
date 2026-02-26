@@ -50,7 +50,6 @@ const LandingPage: React.FC = () => {
             <div style={styles.comparisonCard}>
               <div style={styles.cardHeaderRed}>Standard Analytics</div>
               <div style={styles.cardBody}>
-                <div style={styles.iconLarge}>📉</div>
                 <h3 style={styles.cardTitle}>Correlation</h3>
                 <p style={styles.cardText}>"Ice cream sales and shark attacks both go up in summer."</p>
                 <div style={styles.flawBox}>
@@ -60,13 +59,12 @@ const LandingPage: React.FC = () => {
             </div>
 
             <div style={styles.arrowContainer}>
-              <div style={styles.arrowRight}>➔</div>
+              <div style={styles.arrowRight}>→</div>
             </div>
 
             <div style={styles.comparisonCard}>
               <div style={styles.cardHeaderGreen}>CausAl Studio</div>
               <div style={styles.cardBody}>
-                <div style={styles.iconLarge}>🎯</div>
                 <h3 style={styles.cardTitle}>Causation</h3>
                 <p style={styles.cardText}>"Heat waves cause both ice cream sales and shark attacks."</p>
                 <div style={styles.benefitBox}>
@@ -90,15 +88,12 @@ const LandingPage: React.FC = () => {
               </p>
               <ul style={styles.featureList}>
                 <li style={styles.featureItem}>
-                  <span style={styles.checkIcon}>✓</span>
                   <span><strong>Automatic Validation:</strong> Checks your assumptions before you run models.</span>
                 </li>
                 <li style={styles.featureItem}>
-                  <span style={styles.checkIcon}>✓</span>
                   <span><strong>Plain English Results:</strong> No cryptic statistical jargon. Just clear answers.</span>
                 </li>
                 <li style={styles.featureItem}>
-                  <span style={styles.checkIcon}>✓</span>
                   <span><strong>Smart Recommendations:</strong> Suggests the best methods for your specific data.</span>
                 </li>
               </ul>
@@ -106,7 +101,6 @@ const LandingPage: React.FC = () => {
             <div style={styles.splitImage}>
               <div style={styles.aiCard}>
                 <div style={styles.aiHeader}>
-                  <div style={styles.botIcon}>🤖</div>
                   <div style={styles.botName}>CausAl Studio AI</div>
                 </div>
                 <div style={styles.chatMessage}>
@@ -135,7 +129,6 @@ const LandingPage: React.FC = () => {
             {/* Step 1 */}
             <div style={styles.processStep}>
               <div style={styles.stepNumber}>1</div>
-              <div style={styles.stepIcon}>📂</div>
               <h3 style={styles.stepTitle}>Upload Data</h3>
               <p style={styles.stepDescription}>Upload your dataset securely in CSV format.</p>
             </div>
@@ -145,7 +138,6 @@ const LandingPage: React.FC = () => {
             {/* Step 2 */}
             <div style={styles.processStep}>
               <div style={styles.stepNumber}>2</div>
-              <div style={styles.stepIcon}>⚙️</div>
               <h3 style={styles.stepTitle}>Select Method</h3>
               <p style={styles.stepDescription}>Choose from advanced causal inference methods.</p>
             </div>
@@ -155,7 +147,6 @@ const LandingPage: React.FC = () => {
             {/* Step 3 */}
             <div style={styles.processStep}>
               <div style={styles.stepNumber}>3</div>
-              <div style={styles.stepIcon}>🎛️</div>
               <h3 style={styles.stepTitle}>Define Variables</h3>
               <p style={styles.stepDescription}>Select treatment, outcome, and controls.</p>
             </div>
@@ -165,7 +156,6 @@ const LandingPage: React.FC = () => {
             {/* Step 4 */}
             <div style={styles.processStep}>
               <div style={styles.stepNumber}>4</div>
-              <div style={styles.stepIcon}>✨</div>
               <h3 style={styles.stepTitle}>View Results</h3>
               <p style={styles.stepDescription}>Get clear, actionable causal insights.</p>
             </div>
@@ -347,11 +337,6 @@ const styles = {
   cardBody: {
     padding: '32px'
   },
-  iconLarge: {
-    fontSize: '48px',
-    marginBottom: '16px',
-    textAlign: 'center' as const
-  },
   cardTitle: {
     fontSize: '24px',
     fontWeight: '700',
@@ -449,10 +434,6 @@ const styles = {
     color: '#334155',
     lineHeight: '1.5'
   },
-  checkIcon: {
-    color: '#043873',
-    fontWeight: 'bold'
-  },
 
   // AI Card Mockup
   aiCard: {
@@ -471,16 +452,6 @@ const styles = {
     marginBottom: '20px',
     borderBottom: '1px solid #f1f5f9',
     paddingBottom: '16px'
-  },
-  botIcon: {
-    fontSize: '24px',
-    backgroundColor: '#f0f9ff',
-    width: '40px',
-    height: '40px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: '10px'
   },
   botName: {
     fontWeight: '700',
@@ -535,10 +506,6 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     margin: '0 auto 16px auto'
-  },
-  stepIcon: {
-    fontSize: '40px',
-    marginBottom: '16px'
   },
   stepTitle: {
     fontSize: '18px',

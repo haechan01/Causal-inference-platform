@@ -21,6 +21,11 @@ export interface AnalysisConfig {
   bandwidth?: string;
   polynomialOrder?: number;
   treatmentSide?: 'above' | 'below';
+  rdType?: 'sharp' | 'fuzzy';
+  // IV-specific (treatmentVar also used by Fuzzy RD)
+  treatmentVar?: string;
+  instruments?: string[];
+  runSensitivity?: boolean;
 }
 
 export interface ProjectState {

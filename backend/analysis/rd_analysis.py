@@ -11,7 +11,7 @@ Planned:
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
@@ -235,6 +235,199 @@ class RDEstimator:
                 "bandwidth_fraction_of_range": (
                     diag.bandwidth_fraction_of_range
                 ),
+            },
+        }
+
+    def estimate_fuzzy(
+        self,
+        treatment_var: str,
+        bandwidth: float,
+        polynomial_order: int = 1,
+    ) -> Dict[str, Any]:
+        """
+        Fuzzy RD estimation using the Wald ratio (Local Average Treatment Effect).
+
+        In Fuzzy RDD the cutoff rule is only suggestive — not all assigned units
+        receive treatment, and some unassigned units do. The LATE is:
+
+            tau_LATE = (jump in Y at cutoff) / (jump in D at cutoff)
+                     = Reduced Form / First Stage
+
+        Both numerator and denominator are estimated with the same local
+        polynomial + triangular kernel approach as Sharp RD. Standard errors
+        are obtained via the delta method.
+
+        Parameters
+        ----------
+        treatment_var : str
+            Column indicating whether each unit actually *received* treatment
+            (1/0 or True/False). This is distinct from crossing the cutoff.
+        bandwidth : float
+        polynomial_order : int
+        """
+        if treatment_var not in self.data.columns:
+            raise ValueError(
+                f"treatment_var '{treatment_var}' not found in dataset columns."
+            )
+        if self.running_var not in self.data.columns:
+            raise ValueError(f"running_var '{self.running_var}' not found.")
+        if self.outcome_var not in self.data.columns:
+            raise ValueError(f"outcome_var '{self.outcome_var}' not found.")
+
+        if bandwidth is None or float(bandwidth) <= 0:
+            raise ValueError("bandwidth must be a positive number.")
+
+        order = validate_polynomial_order(int(polynomial_order))
+        h = float(bandwidth)
+
+        # ---- Prepare working frame ----
+        all_cols = [self.running_var, self.outcome_var, treatment_var]
+        df = self.data[all_cols].copy()
+        for col in all_cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df = df.dropna(subset=all_cols)
+
+        if df.empty:
+            raise ValueError(
+                "No complete numeric rows found after cleaning the data."
+            )
+
+        df["X_centered"] = df[self.running_var] - self.cutoff
+
+        # Assignment indicator: did the running variable cross the cutoff?
+        if self.treatment_side == "below":
+            df["assigned"] = (df[self.running_var] < self.cutoff).astype(int)
+        else:
+            df["assigned"] = (df[self.running_var] >= self.cutoff).astype(int)
+
+        in_bw = df["X_centered"].abs() <= h
+        df_bw = df.loc[in_bw].copy()
+
+        if df_bw.empty:
+            raise ValueError(
+                "No observations fall within the selected bandwidth."
+            )
+
+        n_total = int(df_bw.shape[0])
+        n_assigned = int((df_bw["assigned"] == 1).sum())
+        n_not_assigned = int((df_bw["assigned"] == 0).sum())
+
+        if n_total < 20:
+            raise ValueError(
+                f"Not enough observations within bandwidth (found {n_total}, "
+                "need at least 20)."
+            )
+        if n_assigned < 10 or n_not_assigned < 10:
+            raise ValueError(
+                "Not enough observations on both sides of the cutoff within "
+                f"the bandwidth (assigned={n_assigned}, "
+                f"not_assigned={n_not_assigned}, need at least 10 each)."
+            )
+
+        # ---- Diagnostics ----
+        running_range = compute_running_var_range(df[self.running_var])
+        diag = bandwidth_sanity_warnings(h, running_range)
+        warnings: List[str] = list(diag.warnings)
+
+        # ---- Split by assignment ----
+        asgn_df = df_bw[df_bw["assigned"] == 1].copy()
+        ctrl_df = df_bw[df_bw["assigned"] == 0].copy()
+
+        w_a = triangular_kernel(asgn_df["X_centered"], h)
+        w_c = triangular_kernel(ctrl_df["X_centered"], h)
+
+        X_a = sm.add_constant(
+            create_polynomial_features(asgn_df["X_centered"], order=order),
+            has_constant="add",
+        )
+        X_c = sm.add_constant(
+            create_polynomial_features(ctrl_df["X_centered"], order=order),
+            has_constant="add",
+        )
+
+        # ---- Reduced form: Sharp RD on outcome Y ----
+        y_a = asgn_df[self.outcome_var].to_numpy(dtype=float)
+        y_c = ctrl_df[self.outcome_var].to_numpy(dtype=float)
+        m_a_Y = sm.WLS(y_a, X_a, weights=w_a).fit(cov_type="HC2")
+        m_c_Y = sm.WLS(y_c, X_c, weights=w_c).fit(cov_type="HC2")
+
+        tau_Y = float(m_a_Y.params[0] - m_c_Y.params[0])
+        se_Y = float(np.sqrt(m_a_Y.bse[0] ** 2 + m_c_Y.bse[0] ** 2))
+
+        # ---- First stage: Sharp RD on treatment receipt D ----
+        d_a = asgn_df[treatment_var].to_numpy(dtype=float)
+        d_c = ctrl_df[treatment_var].to_numpy(dtype=float)
+        m_a_D = sm.WLS(d_a, X_a, weights=w_a).fit(cov_type="HC2")
+        m_c_D = sm.WLS(d_c, X_c, weights=w_c).fit(cov_type="HC2")
+
+        tau_D = float(m_a_D.params[0] - m_c_D.params[0])
+        se_D = float(np.sqrt(m_a_D.bse[0] ** 2 + m_c_D.bse[0] ** 2))
+
+        if abs(tau_D) < 1e-10:
+            raise ValueError(
+                "First stage is essentially zero: the cutoff produces no "
+                "meaningful jump in treatment receipt. Verify that your "
+                "treatment_var column actually records treatment receipt and "
+                "that the cutoff affects who receives treatment."
+            )
+
+        # ---- Fuzzy LATE via Wald ratio ----
+        tau_fuzzy = tau_Y / tau_D
+
+        # Delta method SE (ignoring cross-equation covariance — conservative)
+        se_fuzzy = float(
+            np.sqrt((se_Y / tau_D) ** 2 + (tau_Y * se_D / tau_D ** 2) ** 2)
+        )
+
+        if not np.isfinite(se_fuzzy) or se_fuzzy <= 0:
+            raise ValueError(
+                "Standard error could not be computed. Try a different bandwidth."
+            )
+
+        z_stat = tau_fuzzy / se_fuzzy
+        p_value = float(2.0 * norm.sf(abs(z_stat)))
+        z_crit = float(norm.ppf(0.975))
+        ci_lower = tau_fuzzy - z_crit * se_fuzzy
+        ci_upper = tau_fuzzy + z_crit * se_fuzzy
+
+        # ---- Compliance rates ----
+        compliance_assigned = float(asgn_df[treatment_var].mean())
+        compliance_not_assigned = float(ctrl_df[treatment_var].mean())
+
+        if abs(tau_D) < 0.05:
+            warnings.append(
+                f"Weak first stage: the jump in treatment receipt at the "
+                f"cutoff is only {tau_D:.3f}. The LATE estimate may be "
+                "imprecise. Consider whether the cutoff truly affects "
+                "treatment receipt."
+            )
+
+        return {
+            # Primary LATE result
+            "treatment_effect": tau_fuzzy,
+            "se": se_fuzzy,
+            "ci_lower": ci_lower,
+            "ci_upper": ci_upper,
+            "p_value": p_value,
+            "bandwidth_used": h,
+            "n_treated": n_assigned,     # units above/below cutoff (assigned)
+            "n_control": n_not_assigned,
+            "n_total": n_total,
+            "polynomial_order": order,
+            "kernel": "triangular",
+            "treatment_side": self.treatment_side,
+            # Fuzzy-specific diagnostics
+            "rd_type": "fuzzy",
+            "reduced_form_effect": tau_Y,
+            "reduced_form_se": se_Y,
+            "first_stage_effect": tau_D,
+            "first_stage_se": se_D,
+            "compliance_rate_assigned": compliance_assigned,
+            "compliance_rate_not_assigned": compliance_not_assigned,
+            "warnings": warnings,
+            "diagnostics": {
+                "running_var_range": diag.running_var_range,
+                "bandwidth_fraction_of_range": diag.bandwidth_fraction_of_range,
             },
         }
 

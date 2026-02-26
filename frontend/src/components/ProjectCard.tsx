@@ -161,7 +161,6 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
           <h4 style={styles.datasetsTitle}>Uploaded Files:</h4>
           {project.datasets.slice(0, 3).map((dataset) => (
             <div key={dataset.id} style={styles.datasetItem}>
-              <span style={styles.datasetIcon}>📊</span>
               <span style={styles.datasetName}>{dataset.file_name}</span>
             </div>
           ))}
@@ -351,9 +350,6 @@ const styles = {
     gap: '8px',
     marginBottom: '4px',
     fontSize: '13px'
-  },
-  datasetIcon: {
-    fontSize: '14px'
   },
   datasetName: {
     color: '#333',

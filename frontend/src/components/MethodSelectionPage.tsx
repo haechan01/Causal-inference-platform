@@ -76,7 +76,7 @@ const MethodSelectionPage: React.FC = () => {
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
         {
             role: 'assistant',
-            content: "Hi! I'm your AI assistant for causal inference. I can help you:\n\n• 💬 Answer questions about methods, assumptions, and best practices\n• 🎯 Recommend the right method for your study (use the Recommend tab)\n\nWhat would you like to know?"
+            content: "Hi! I'm your AI assistant for causal inference. I can help you:\n\n• Answer questions about methods, assumptions, and best practices\n• 🎯 Recommend the right method for your study (use the Recommend tab)\n\nWhat would you like to know?"
         }
     ]);
 
@@ -107,8 +107,13 @@ const MethodSelectionPage: React.FC = () => {
                 try { await projectStateService.saveState(projectId, { currentStep: 'rd-setup', selectedMethod }, accessToken); } catch { }
             }
             navigate('/rd-setup', { state: { projectId, datasetId } });
+        } else if (selectedMethod === 'iv') {
+            if (projectId && accessToken) {
+                try { await projectStateService.saveState(projectId, { currentStep: 'iv-setup', selectedMethod }, accessToken); } catch { }
+            }
+            navigate('/iv-setup', { state: { projectId, datasetId } });
         } else {
-            alert("This method is coming soon! Please select Difference-in-Differences or Regression Discontinuity for now.");
+            alert("This method is coming soon! Please select one of the available methods.");
         }
     };
 
@@ -154,7 +159,7 @@ const MethodSelectionPage: React.FC = () => {
 
         // Build a readable user message summarising their answers
         const answerLabel = (v: YesNo | null) =>
-            v === 'yes' ? '✅ Yes' : v === 'no' ? '❌ No' : '🤷 Not sure';
+            v === 'yes' ? 'Yes' : v === 'no' ? 'No' : 'Not sure';
         const parts = [
             `Treatment variable: "${treatmentVariable}"`,
             `Outcome variable: "${outcomeVariable}"`,
@@ -246,10 +251,10 @@ const MethodSelectionPage: React.FC = () => {
                             </div>
 
                             <div
-                                style={{ ...styles.methodCard, ...styles.methodCardDisabled, ...(selectedMethod === 'iv' ? styles.selectedCard : {}) }}
+                                style={{ ...styles.methodCard, ...(selectedMethod === 'iv' ? styles.selectedCard : {}) }}
                                 onClick={() => handleMethodSelect('iv')}
                             >
-                                <div style={styles.comingSoonBadge}>Coming Soon</div>
+                                <div style={styles.statusBadge}>Available</div>
                                 <div style={styles.cardContent}>
                                     <div style={styles.icon}>🎻</div>
                                     <h3 style={styles.cardTitle}>Instrumental Variables</h3>
@@ -439,7 +444,7 @@ const MethodSelectionPage: React.FC = () => {
                 steps={steps}
                 onPrev={goToPreviousStep}
                 onNext={handleNext}
-                canGoNext={selectedMethod === 'did' || selectedMethod === 'rdd'}
+                canGoNext={selectedMethod === 'did' || selectedMethod === 'rdd' || selectedMethod === 'iv'}
                 onStepClick={(path) => navigate(path, { state: { projectId, datasetId } })}
             />
         </div>
@@ -525,9 +530,9 @@ const QuestionRow: React.FC<{
                         }}
                         onClick={() => onChange(value === o.val ? null : o.val)}
                     >
-                        {value === o.val && o.val === 'yes' && '✅ '}
-                        {value === o.val && o.val === 'no' && '❌ '}
-                        {value === o.val && o.val === 'unsure' && '🤷 '}
+                        {value === o.val && o.val === 'yes'}
+                        {value === o.val && o.val === 'no'}
+                        {value === o.val && o.val === 'unsure'}
                         {o.label}
                     </button>
                 ))}
@@ -545,9 +550,9 @@ const DiDDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> 
         <div style={styles.whenToUseSection}>
             <h4 style={styles.whenToUseTitle}>✓ When to use this method</h4>
             <div style={styles.whenToUseGrid}>
-                <div style={styles.whenToUseItem}><span style={styles.whenToUseIcon}>⏰</span><span>You have data over time (before &amp; after treatment)</span></div>
-                <div style={styles.whenToUseItem}><span style={styles.whenToUseIcon}>👥</span><span>You have a treated group and a control group</span></div>
-                <div style={styles.whenToUseItem}><span style={styles.whenToUseIcon}>📈</span><span>Parallel trends assumption likely holds</span></div>
+                <div style={styles.whenToUseItem}><span>You have data from before and after a policy or event was introduced</span></div>
+                <div style={styles.whenToUseItem}><span>Some people or places were affected by it while others weren't</span></div>
+                <div style={styles.whenToUseItem}><span>The treated and untreated groups were following similar trends before the event</span></div>
             </div>
         </div>
         <div style={styles.explanationContent}>
@@ -596,7 +601,6 @@ const DiDDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> 
                         { icon: '📐', title: 'The "Double Difference"', text: 'Effect = (Treated After−Before) − (Control After−Before).' }
                     ].map((c, i) => (
                         <div key={i} style={styles.conceptCard}>
-                            <div style={styles.conceptIcon}>{c.icon}</div>
                             <h5 style={styles.conceptTitle}>{c.title}</h5>
                             <p style={styles.conceptText}>{c.text}</p>
                         </div>
@@ -604,7 +608,7 @@ const DiDDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> 
                 </div>
             </div>
             <div style={styles.exampleSection}>
-                <h4 style={styles.sectionTitle}>📖 Example: Minimum Wage Study</h4>
+                <h4 style={styles.sectionTitle}>Example: Minimum Wage Study</h4>
                 <div style={styles.exampleBox}>
                     <div style={styles.exampleScenario}><p><strong>Question:</strong> Did raising the minimum wage in New Jersey affect fast-food employment?</p></div>
                     <div style={styles.exampleSteps}>
@@ -623,7 +627,7 @@ const DiDDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> 
                 </div>
             </div>
             <div style={styles.formulaSection}>
-                <h4 style={styles.sectionTitle}>🧮 The Math (Simplified)</h4>
+                <h4 style={styles.sectionTitle}>The Math (Simplified)</h4>
                 <div style={styles.formulaBox}>
                     <div style={styles.formula}>
                         <span style={styles.formulaHighlight}>DiD Effect</span> =
@@ -649,9 +653,9 @@ const RDDDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> 
         <div style={styles.whenToUseSection}>
             <h4 style={styles.whenToUseTitle}>✓ When to use this method</h4>
             <div style={styles.whenToUseGrid}>
-                <div style={styles.whenToUseItem}><span style={styles.whenToUseIcon}>📊</span><span>Treatment is assigned based on a score or threshold</span></div>
-                <div style={styles.whenToUseItem}><span style={styles.whenToUseIcon}>✂️</span><span>There's a clear cutoff point for treatment eligibility</span></div>
-                <div style={styles.whenToUseItem}><span style={styles.whenToUseIcon}>🚫</span><span>No other changes occur exactly at the threshold</span></div>
+                <div style={styles.whenToUseItem}><span>Treatment is given to everyone above (or below) a specific score or cutoff — e.g. GPA ≥ 3.5, age ≥ 65</span></div>
+                <div style={styles.whenToUseItem}><span>People just above and just below the cutoff are nearly identical in all other ways</span></div>
+                <div style={styles.whenToUseItem}><span>Nothing else jumps sharply at that exact threshold</span></div>
             </div>
         </div>
         <div style={styles.explanationContent}>
@@ -703,7 +707,6 @@ const RDDDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> 
                         { icon: '🔍', title: 'The Discontinuity', text: 'Any jump at the cutoff is attributed to the causal effect of treatment.' }
                     ].map((c, i) => (
                         <div key={i} style={styles.conceptCard}>
-                            <div style={styles.conceptIcon}>{c.icon}</div>
                             <h5 style={styles.conceptTitle}>{c.title}</h5>
                             <p style={styles.conceptText}>{c.text}</p>
                         </div>
@@ -711,7 +714,7 @@ const RDDDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> 
                 </div>
             </div>
             <div style={styles.exampleSection}>
-                <h4 style={styles.sectionTitle}>📖 Example: Scholarship Eligibility</h4>
+                <h4 style={styles.sectionTitle}>Example: Scholarship Eligibility</h4>
                 <div style={styles.exampleBox}>
                     <div style={styles.exampleScenario}><p><strong>Question:</strong> Does a merit scholarship improve college graduation rates?</p></div>
                     <div style={styles.exampleSteps}>
@@ -730,7 +733,7 @@ const RDDDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> 
                 </div>
             </div>
             <div style={styles.formulaSection}>
-                <h4 style={styles.sectionTitle}>🧮 The Math (Simplified)</h4>
+                <h4 style={styles.sectionTitle}>The Math (Simplified)</h4>
                 <div style={styles.formulaBox}>
                     <div style={styles.formula}>
                         <span style={styles.formulaHighlight}>RDD Effect</span> =
@@ -756,14 +759,114 @@ const IVDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> =
         <div style={styles.whenToUseSection}>
             <h4 style={styles.whenToUseTitle}>✓ When to use this method</h4>
             <div style={styles.whenToUseGrid}>
-                <div style={styles.whenToUseItem}><span style={styles.whenToUseIcon}>⚠️</span><span>Treatment is endogenous (correlated with errors)</span></div>
-                <div style={styles.whenToUseItem}><span style={styles.whenToUseIcon}>🎯</span><span>You have a valid instrument (relevant to treatment)</span></div>
-                <div style={styles.whenToUseItem}><span style={styles.whenToUseIcon}>🔒</span><span>The instrument only affects the outcome through treatment</span></div>
+                <div style={styles.whenToUseItem}><span>Something hidden affects both who gets treated and the outcome, making a direct comparison misleading</span></div>
+                <div style={styles.whenToUseItem}><span>You have an external factor that nudges people into treatment but has no direct effect on the outcome (e.g. a lottery, distance to a facility, etc)</span></div>
+                <div style={styles.whenToUseItem}><span>You want to use that external encouragement to isolate the true effect of treatment, free from the hidden bias</span></div>
             </div>
         </div>
-        <div style={styles.comingSoonContent}>
-            <p style={styles.comingSoonText}>🚧 Full analysis coming soon!</p>
-            <p style={{ color: '#666', fontSize: '14px' }}>IV uses an external "instrument" that affects treatment but has no direct effect on the outcome.</p>
+        <div style={styles.explanationContent}>
+            <div style={styles.chartSection}>
+                <h4 style={styles.sectionTitle}>The Key Idea: Causal Structure (DAG)</h4>
+                <div style={styles.chartContainer}>
+                    <svg viewBox="0 0 520 290" style={styles.didChart}>
+                        <defs>
+                            <marker id="iv-arr" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+                                <polygon points="0 0, 9 3.5, 0 7" fill="#334155" />
+                            </marker>
+                        </defs>
+
+                        {/* Confounder (top center, red) */}
+                        <rect x="178" y="16" width="164" height="64" rx="10" fill="#fef2f2" stroke="#ef4444" strokeWidth="2" />
+                        <text x="260" y="43" textAnchor="middle" style={{ fontSize: '15px', fontWeight: '700', fill: '#dc2626' }}>Confounder</text>
+                        <text x="260" y="62" textAnchor="middle" style={{ fontSize: '10.5px', fill: '#ef4444', fontStyle: 'italic' }}>e.g. Ability, Motivation</text>
+
+                        {/* Instrument (left, blue) */}
+                        <rect x="15" y="128" width="134" height="64" rx="10" fill="#eff6ff" stroke="#3b82f6" strokeWidth="2" />
+                        <text x="82" y="155" textAnchor="middle" style={{ fontSize: '15px', fontWeight: '700', fill: '#1d4ed8' }}>Instrument</text>
+                        <text x="82" y="175" textAnchor="middle" style={{ fontSize: '10.5px', fill: '#3b82f6', fontStyle: 'italic' }}>e.g. Birth Quarter</text>
+
+                        {/* Treatment (center, amber) */}
+                        <rect x="193" y="128" width="134" height="64" rx="10" fill="#fffbeb" stroke="#f59e0b" strokeWidth="2" />
+                        <text x="260" y="155" textAnchor="middle" style={{ fontSize: '15px', fontWeight: '700', fill: '#92400e' }}>Treatment</text>
+                        <text x="260" y="175" textAnchor="middle" style={{ fontSize: '10.5px', fill: '#b45309', fontStyle: 'italic' }}>e.g. Education</text>
+
+                        {/* Outcome (right, green) */}
+                        <rect x="371" y="128" width="134" height="64" rx="10" fill="#f0fdf4" stroke="#22c55e" strokeWidth="2" />
+                        <text x="438" y="155" textAnchor="middle" style={{ fontSize: '15px', fontWeight: '700', fill: '#166534' }}>Outcome</text>
+                        <text x="438" y="175" textAnchor="middle" style={{ fontSize: '10.5px', fill: '#16a34a', fontStyle: 'italic' }}>e.g. Wages</text>
+
+                        {/* Confounder → Treatment (solid, from bottom-center of confounder) */}
+                        <line x1="254" y1="80" x2="254" y2="123" stroke="#334155" strokeWidth="2" markerEnd="url(#iv-arr)" />
+
+                        {/* Confounder → Outcome (solid, diagonal from right edge of confounder) */}
+                        <line x1="340" y1="48" x2="428" y2="123" stroke="#334155" strokeWidth="2" markerEnd="url(#iv-arr)" />
+
+                        {/* Instrument → Treatment */}
+                        <line x1="149" y1="160" x2="188" y2="160" stroke="#334155" strokeWidth="2.5" markerEnd="url(#iv-arr)" />
+                        <text x="168" y="120" textAnchor="middle" style={{ fontSize: '10px', fill: '#475569', fontWeight: '600' }}>First Stage</text>
+
+                        {/* Treatment → Outcome */}
+                        <line x1="327" y1="160" x2="366" y2="160" stroke="#334155" strokeWidth="2.5" markerEnd="url(#iv-arr)" />
+                        <text x="346" y="120" textAnchor="middle" style={{ fontSize: '10px', fill: '#475569', fontWeight: '600' }}>Causal Effect</text>
+
+                        {/* Blocked arc below — Instrument → Outcome */}
+                        <path d="M 82,192 Q 260,278 438,192" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="5,4" />
+                        <text x="260" y="268" textAnchor="middle" style={{ fontSize: '10px', fill: '#64748b' }}>No direct path</text>
+                    </svg>
+                </div>
+                <p style={styles.chartCaption}>
+                    The <strong style={{ color: '#dc2626' }}>Confounder</strong> (e.g. ability) is the problem because it affects both who gets treated and the outcome, so a direct comparison is biased. The <strong style={{ color: '#1d4ed8' }}>Instrument</strong> is the solution: it shifts <strong style={{ color: '#92400e' }}>Treatment</strong> (First Stage), and because it has <em>no direct path to Outcome</em>, any effect it has on <strong style={{ color: '#166534' }}>Outcome</strong> must flow entirely through Treatment, giving us a clean, unbiased estimate of the Causal Effect.
+                </p>
+            </div>
+            <div style={styles.conceptsSection}>
+                <h4 style={styles.sectionTitle}>Key Concepts</h4>
+                <div style={styles.conceptsGrid}>
+                    {[
+                        { title: 'Relevance', text: 'The instrument must be strongly correlated with the treatment variable (first-stage F > 10).' },
+                        { title: 'Exclusion Restriction', text: 'The instrument affects the outcome only through treatment — no direct effect allowed.' },
+                        { title: 'Independence', text: 'The instrument must be uncorrelated with unobserved confounders (ideally "as-good-as-random").' },
+                        { title: 'LATE', text: '2SLS estimates the Local Average Treatment Effect for "compliers" — units who comply with treatment due to the instrument.' }
+                    ].map((c, i) => (
+                        <div key={i} style={styles.conceptCard}>
+                            <h5 style={styles.conceptTitle}>{c.title}</h5>
+                            <p style={styles.conceptText}>{c.text}</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+            <div style={styles.exampleSection}>
+                <h4 style={styles.sectionTitle}>Example: Returns to Education</h4>
+                <div style={styles.exampleBox}>
+                    <div style={styles.exampleScenario}><p><strong>Question:</strong> Does education increase wages, correcting for ability bias?</p></div>
+                    <div style={styles.exampleSteps}>
+                        {[
+                            { label: 'Outcome', text: 'Wages (what we want to explain)' },
+                            { label: 'Treatment', text: 'Years of education (endogenous — correlated with ability)' },
+                            { label: 'Instrument', text: 'Quarter of birth (affects school entry age, but not wages directly)' },
+                            { label: 'Result', text: 'Angrist & Krueger (1991) found a positive return to education after correcting for endogeneity' }
+                        ].map((s, i) => (
+                            <div key={i} style={styles.exampleStep}>
+                                <div style={styles.stepNumber}>{i + 1}</div>
+                                <div><strong>{s.label}:</strong> {s.text}</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+            <div style={styles.formulaSection}>
+                <h4 style={styles.sectionTitle}>The Math (Simplified)</h4>
+                <div style={styles.formulaBox}>
+                    <div style={styles.formula}>
+                        <span style={styles.formulaHighlight}>2SLS Effect</span> =
+                        <span style={styles.formulaChange}> Cov(Y, Z)</span> /
+                        <span style={styles.formulaBaseline}> Cov(D, Z)</span>
+                    </div>
+                    <div style={styles.formulaLegend}>
+                        <span><span style={styles.formulaChange}>■</span> Reduced form (Z → Y)</span>
+                        <span><span style={styles.formulaBaseline}>■</span> First stage (Z → D)</span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 );
@@ -1126,7 +1229,6 @@ const styles: Record<string, React.CSSProperties> = {
     whenToUseTitle: { fontSize: '15px', fontWeight: '600', color: '#043873', margin: '0 0 14px 0' },
     whenToUseGrid: { display: 'flex', flexDirection: 'column', gap: '10px' },
     whenToUseItem: { display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: '#334155' },
-    whenToUseIcon: { fontSize: '16px' },
     explanationContent: { display: 'flex', flexDirection: 'column', gap: '30px' },
     chartSection: { textAlign: 'center' },
     sectionTitle: {
@@ -1148,7 +1250,6 @@ const styles: Record<string, React.CSSProperties> = {
         backgroundColor: '#f8fafc', borderRadius: '10px',
         padding: '18px', border: '1px solid #e2e8f0'
     },
-    conceptIcon: { fontSize: '24px', marginBottom: '10px' },
     conceptTitle: { fontSize: '14px', fontWeight: '600', color: '#043873', margin: '0 0 6px 0' },
     conceptText: { fontSize: '12.5px', color: '#555', lineHeight: '1.6', margin: 0 },
     exampleSection: {},

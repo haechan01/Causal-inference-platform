@@ -144,7 +144,6 @@ const EditProjectModal: React.FC<EditProjectModalProps> = ({
               </div>
             ) : availableDatasets.length === 0 ? (
               <div style={styles.noDatasets}>
-                <span style={styles.noDataIcon}>📊</span>
                 <p>No datasets available. Upload data first!</p>
               </div>
             ) : (
@@ -317,11 +316,6 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: '#f8fafc',
     borderRadius: '10px',
     border: '2px dashed #e2e8f0'
-  },
-  noDataIcon: {
-    fontSize: '32px',
-    display: 'block',
-    marginBottom: '8px'
   },
   datasetsList: {
     display: 'flex',

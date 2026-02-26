@@ -113,7 +113,6 @@ const FileList: React.FC<FileListProps> = ({ projectId, onFileSelect, onFileList
     return (
       <div style={styles.container}>
         <div style={styles.empty}>
-          <div style={styles.emptyIcon}>📁</div>
           <h3>No files uploaded yet</h3>
           <p>Upload your first CSV file to get started with analysis.</p>
         </div>
@@ -126,7 +125,7 @@ const FileList: React.FC<FileListProps> = ({ projectId, onFileSelect, onFileList
       <div style={styles.header}>
         <h3 style={styles.title}>Uploaded Files ({datasets.length})</h3>
         <button onClick={loadDatasets} style={styles.refreshButton}>
-          🔄 Refresh
+          Refresh
         </button>
       </div>
 
@@ -140,10 +139,6 @@ const FileList: React.FC<FileListProps> = ({ projectId, onFileSelect, onFileList
             }}
             onClick={() => handleFileSelect(dataset)}
           >
-            <div style={styles.fileIcon}>
-              📊
-            </div>
-            
             <div style={styles.fileInfo}>
               <div style={styles.fileName}>
                 {dataset.file_name}
@@ -167,7 +162,7 @@ const FileList: React.FC<FileListProps> = ({ projectId, onFileSelect, onFileList
                 }}
                 title="Preview file"
               >
-                👁️
+                Preview
               </button>
               <button
                 style={styles.actionButton}
@@ -178,7 +173,7 @@ const FileList: React.FC<FileListProps> = ({ projectId, onFileSelect, onFileList
                 }}
                 title="Start analysis"
               >
-                🔬
+                Analyze
               </button>
             </div>
           </div>
@@ -285,10 +280,6 @@ const styles = {
     padding: '40px',
     color: '#666'
   },
-  emptyIcon: {
-    fontSize: '48px',
-    marginBottom: '20px'
-  },
   fileList: {
     maxHeight: '400px',
     overflowY: 'auto' as const
@@ -304,10 +295,6 @@ const styles = {
   fileItemSelected: {
     backgroundColor: '#e3f2fd',
     borderLeft: '4px solid #007bff'
-  },
-  fileIcon: {
-    fontSize: '24px',
-    marginRight: '15px'
   },
   fileInfo: {
     flex: 1,

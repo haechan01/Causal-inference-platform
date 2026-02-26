@@ -126,17 +126,13 @@ const ProjectsPage: React.FC = () => {
 
       const newProject = response.data.project;
 
-      // If a dataset was selected, link it to the project
-      if (datasetId) {
-        try {
-          await axios.post(`/projects/${newProject.id}/link-dataset`, {
-            dataset_id: datasetId
-          }, {
-            headers: { Authorization: `Bearer ${accessToken}` }
-          });
-        } catch (linkError) {
-          console.error('Error linking dataset to project:', linkError);
-        }
+      // Link the selected dataset to the project (required when creating from modal)
+      if (datasetId != null) {
+        await axios.post(`/projects/${newProject.id}/link-dataset`, {
+          dataset_id: datasetId
+        }, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
       }
 
       // Map backend response to frontend format
@@ -287,7 +283,6 @@ const ProjectsPage: React.FC = () => {
             </div>
           ) : projects.length === 0 ? (
             <div style={styles.emptyState}>
-              <div style={styles.emptyIcon}>📁</div>
               <h3 style={styles.emptyTitle}>No projects yet</h3>
               <p style={styles.emptyDescription}>
                 {preSelectedDatasetId
@@ -419,10 +414,6 @@ const styles = {
     textAlign: 'center' as const,
     padding: '60px 20px',
     color: '#666'
-  },
-  emptyIcon: {
-    fontSize: '64px',
-    marginBottom: '20px'
   },
   emptyTitle: {
     fontSize: '24px',

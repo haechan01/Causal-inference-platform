@@ -28,6 +28,7 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({
     description: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [loadingDatasets, setLoadingDatasets] = useState(false);
   const [selectedDatasetId, setSelectedDatasetId] = useState<number | null>(null);
@@ -62,19 +63,24 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.title.trim() || !formData.description.trim()) return;
+    if (!formData.title.trim() || selectedDatasetId == null) return;
 
     setIsSubmitting(true);
+    setSubmitError(null);
     try {
       await onCreateProject(
         formData.title.trim(), 
         formData.description.trim(),
-        selectedDatasetId || undefined
+        selectedDatasetId
       );
       setFormData({ title: '', description: '' });
       setSelectedDatasetId(null);
       onClose();
-    } catch (error) {
+    } catch (error: unknown) {
+      const msg = axios.isAxiosError(error) && error.response?.data?.error
+        ? String(error.response.data.error)
+        : error instanceof Error ? error.message : 'Failed to create project or link dataset.';
+      setSubmitError(msg);
       console.error('Error creating project:', error);
     } finally {
       setIsSubmitting(false);
@@ -84,6 +90,7 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({
   const handleClose = () => {
     setFormData({ title: '', description: '' });
     setSelectedDatasetId(null);
+    setSubmitError(null);
     onClose();
   };
 
@@ -101,7 +108,7 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({
 
         <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.formGroup}>
-            <label style={styles.label}>Project Title</label>
+            <label style={styles.label}>Project Title <span style={styles.required}>*</span></label>
             <input
               type="text"
               value={formData.title}
@@ -113,26 +120,25 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({
           </div>
 
           <div style={styles.formGroup}>
-            <label style={styles.label}>Description</label>
+            <label style={styles.label}>Description <span style={styles.optional}>(optional)</span></label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               placeholder="Describe your project and what you want to analyze"
               style={styles.textarea}
               rows={3}
-              required
             />
           </div>
 
           {/* Dataset Selection */}
           <div style={styles.formGroup}>
             <label style={styles.label}>
-              Select Dataset {preSelectedDatasetId ? <span style={styles.required}>*</span> : <span style={styles.optional}>(optional)</span>}
+              Select Dataset <span style={styles.required}>*</span>
             </label>
             <p style={styles.helperText}>
               {preSelectedDatasetId 
                 ? "Your uploaded dataset is selected. You can choose a different one if needed."
-                : "Link a dataset to this project for analysis"
+                : "Choose a dataset to link to this project for analysis."
               }
             </p>
             
@@ -142,7 +148,6 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({
               </div>
             ) : datasets.length === 0 ? (
               <div style={styles.noDatasets}>
-                <span style={styles.noDataIcon}>📊</span>
                 <p>No datasets available. Upload data first!</p>
               </div>
             ) : (
@@ -180,6 +185,10 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({
             )}
           </div>
 
+          {submitError && (
+            <div style={styles.submitError}>{submitError}</div>
+          )}
+
           <div style={styles.modalFooter}>
             <button
               type="button"
@@ -190,10 +199,10 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !formData.title.trim() || !formData.description.trim()}
+              disabled={isSubmitting || !formData.title.trim() || selectedDatasetId == null}
               style={{
                 ...styles.createButton,
-                ...(isSubmitting || !formData.title.trim() || !formData.description.trim() 
+                ...(isSubmitting || !formData.title.trim() || selectedDatasetId == null
                   ? styles.createButtonDisabled 
                   : {})
               }}
@@ -321,11 +330,6 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '10px',
     border: '2px dashed #e2e8f0'
   },
-  noDataIcon: {
-    fontSize: '32px',
-    display: 'block',
-    marginBottom: '8px'
-  },
   datasetsList: {
     display: 'flex',
     flexDirection: 'column',
@@ -393,6 +397,15 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '12px',
     color: '#64748b',
     marginTop: '2px'
+  },
+  submitError: {
+    padding: '12px 16px',
+    marginBottom: '16px',
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '8px',
+    color: '#dc2626',
+    fontSize: '14px'
   },
   modalFooter: {
     display: 'flex',

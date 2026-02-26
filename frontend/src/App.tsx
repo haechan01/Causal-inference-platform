@@ -12,6 +12,8 @@ import DataPreviewPage from './components/DataPreviewPage';
 import ResultsPage from './components/ResultsPage';
 import RDSetup from './components/RDSetup';
 import RDResults from './components/RDResults';
+import IVSetup from './components/IVSetup';
+import IVResults from './components/IVResults';
 
 // Main app content component that uses auth context
 const AppContent: React.FC = () => {
@@ -67,11 +69,19 @@ const AppContent: React.FC = () => {
         path="/rd-setup" 
         element={isAuthenticated ? <RDSetup /> : <Navigate to="/login" />} 
       />
-      <Route 
-        path="/rd-results" 
-        element={isAuthenticated ? <RDResults /> : <Navigate to="/login" />} 
+      <Route
+        path="/rd-results"
+        element={isAuthenticated ? <RDResults /> : <Navigate to="/login" />}
       />
-      
+      <Route
+        path="/iv-setup"
+        element={isAuthenticated ? <IVSetup /> : <Navigate to="/login" />}
+      />
+      <Route
+        path="/iv-results"
+        element={isAuthenticated ? <IVResults /> : <Navigate to="/login" />}
+      />
+
       {/* Catch all route */}
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>

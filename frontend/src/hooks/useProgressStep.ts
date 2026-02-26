@@ -8,12 +8,15 @@ export const useProgressStep = () => {
   // The Variables and Results pages adapt based on the selected method (DiD or RD)
   // Use method-specific paths so back/forward navigation goes to the correct page
   const isRDFlow = location.pathname === '/rd-setup' || location.pathname === '/rd-results';
+  const isIVFlow = location.pathname === '/iv-setup' || location.pathname === '/iv-results';
+  const variablesPath = isRDFlow ? '/rd-setup' : isIVFlow ? '/iv-setup' : '/variable-selection';
+  const resultsPath = isRDFlow ? '/rd-results' : isIVFlow ? '/iv-results' : '/results';
   const steps = [
     { id: 'upload', label: 'Upload Data', path: '/upload-data' },
     { id: 'projects', label: 'Project', path: '/projects' },
     { id: 'method', label: 'Method', path: '/method-selection' },
-    { id: 'variables', label: 'Variables', path: isRDFlow ? '/rd-setup' : '/variable-selection' },
-    { id: 'results', label: 'Results', path: isRDFlow ? '/rd-results' : '/results' }
+    { id: 'variables', label: 'Variables', path: variablesPath },
+    { id: 'results', label: 'Results', path: resultsPath }
   ];
 
   // Helper to build path with preserved query params (projectId, datasetId)
@@ -60,6 +63,11 @@ export const useProgressStep = () => {
         return 'variables'; // RD Setup is the "Variables" step for RD
       case '/rd-results':
         return 'results'; // RD Results is the "Results" step for RD
+      // IV routes map to the generic steps
+      case '/iv-setup':
+        return 'variables'; // IV Setup is the "Variables" step for IV
+      case '/iv-results':
+        return 'results'; // IV Results is the "Results" step for IV
       default:
         return 'upload';
     }
