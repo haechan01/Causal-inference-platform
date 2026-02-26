@@ -2,18 +2,18 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import LandingPage from './components/LandingPage';
-import Authentication from './components/Authentication';
-import DataUploadPage from './components/DataUploadPage';
-import ProjectsPage from './components/ProjectsPage';
-import MethodSelectionPage from './components/MethodSelectionPage';
-import VariableSelectionPage from './components/VariableSelectionPage';
-import DataPreviewPage from './components/DataPreviewPage';
-import ResultsPage from './components/ResultsPage';
-import RDSetup from './components/RDSetup';
-import RDResults from './components/RDResults';
-import IVSetup from './components/IVSetup';
-import IVResults from './components/IVResults';
+import LandingPage from './pages/LandingPage';
+import Authentication from './pages/Authentication';
+import DataUploadPage from './pages/DataUploadPage';
+import ProjectsPage from './pages/ProjectsPage';
+import MethodSelectionPage from './pages/MethodSelectionPage';
+import VariableSelectionPage from './pages/VariableSelectionPage';
+import DataPreviewPage from './pages/DataPreviewPage';
+import ResultsPage from './pages/ResultsPage';
+import RDSetup from './pages/RDSetup';
+import RDResults from './pages/RDResults';
+import IVSetup from './pages/IVSetup';
+import IVResults from './pages/IVResults';
 
 // Main app content component that uses auth context
 const AppContent: React.FC = () => {

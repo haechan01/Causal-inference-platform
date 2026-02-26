@@ -1,0 +1,13 @@
+export { default as LandingPage } from './LandingPage';
+export { default as Authentication } from './Authentication';
+export { default as DataUploadPage } from './DataUploadPage';
+export { default as DataPreviewPage } from './DataPreviewPage';
+export { default as DataManagement } from './DataManagement';
+export { default as ProjectsPage } from './ProjectsPage';
+export { default as MethodSelectionPage } from './MethodSelectionPage';
+export { default as VariableSelectionPage } from './VariableSelectionPage';
+export { default as ResultsPage } from './ResultsPage';
+export { default as RDSetup } from './RDSetup';
+export { default as RDResults } from './RDResults';
+export { default as IVSetup } from './IVSetup';
+export { default as IVResults } from './IVResults';
