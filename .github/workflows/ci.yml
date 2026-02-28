@@ -47,7 +47,7 @@ jobs:
           JWT_ACCESS_TOKEN_EXPIRES: '3600'
           JWT_REFRESH_TOKEN_EXPIRES: '86400'
           # SQLite in-memory – no external DB required
-          DATABASE_URL: sqlite:///:memory:
+          DATABASE_URL: "sqlite:///:memory:"
           CORS_ORIGINS: "http://localhost:3000"
           # Fake AWS creds so boto3 can be imported without error
           AWS_ACCESS_KEY_ID: fake-key-id
