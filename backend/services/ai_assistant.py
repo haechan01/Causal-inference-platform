@@ -128,15 +128,25 @@ Respond with JSON only:
     def suggest_variable_roles(
         self, 
         schema_info: Dict[str, Any],
-        causal_question: Optional[str] = None
+        causal_question: Optional[str] = None,
+        treatment_variable: Optional[str] = None,
+        outcome_variable: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Suggest which variables should be used for outcome, treatment, time, etc.
         """
         question_context = f"\nUser's causal question: {causal_question}" if causal_question else ""
-        
+        hints_context = ""
+        if treatment_variable or outcome_variable:
+            hints_context = "\nUser-provided hints from prior step:"
+            if treatment_variable:
+                hints_context += f"\n  - Treatment variable (user named it): \"{treatment_variable}\""
+            if outcome_variable:
+                hints_context += f"\n  - Outcome variable (user named it): \"{outcome_variable}\""
+            hints_context += "\nPrioritise matching these names or close variants when selecting roles."
+
         prompt = f"""You are a causal inference expert helping a user set up their Difference-in-Differences (DiD) analysis.
-{question_context}
+{question_context}{hints_context}
 
 Dataset columns:
 {json.dumps(schema_info['columns'], indent=2)}
@@ -199,34 +209,50 @@ Respond with JSON only:
     def suggest_rd_variable_roles(
         self,
         schema_info: Dict[str, Any],
-        causal_question: Optional[str] = None
+        causal_question: Optional[str] = None,
+        treatment_variable: Optional[str] = None,
+        outcome_variable: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Suggest which variables should be used for RD analysis: running variable, outcome, cutoff, treatment side.
         """
         question_context = f"\nUser's causal question: {causal_question}" if causal_question else ""
+        hints_context = ""
+        if treatment_variable or outcome_variable:
+            hints_context = "\nUser-provided hints from prior step:"
+            if outcome_variable:
+                hints_context += f"\n  - Outcome variable (user named it): \"{outcome_variable}\" — match this for outcome_var_suggestions."
+            if treatment_variable:
+                hints_context += (
+                    f"\n  - The user called their treatment variable \"{treatment_variable}\". "
+                    "In RD there is no binary treatment column — use this as a hint for what the running variable might be "
+                    "(e.g. a continuous version of this concept), not as a direct column match."
+                )
 
         prompt = f"""You are a causal inference expert helping a user set up their Regression Discontinuity (RD) analysis.
-{question_context}
+{question_context}{hints_context}
 
 Dataset columns:
 {json.dumps(schema_info.get('columns', []), indent=2)}
 
-RD requires THREE main inputs (different from DiD - no treatment/time/unit variables):
-1. RUNNING VARIABLE: The numeric variable that determines treatment assignment (e.g., test score, age, income, distance). MUST be numeric/continuous.
-2. CUTOFF THRESHOLD: A value on the running variable where treatment assignment changes. Suggest a plausible value based on variable semantics (e.g., test_score->70 for passing, age->18 for adulthood).
-3. OUTCOME VARIABLE: The variable being studied (e.g., earnings, GPA, sales). MUST be numeric/continuous.
+RD requires THREE main inputs:
+1. RUNNING VARIABLE: The numeric/continuous variable that determines treatment assignment (e.g., test score, age, income). MUST be numeric.
+2. CUTOFF THRESHOLD: The specific numeric value where treatment switches. Only suggest a value when you are highly confident based on domain knowledge (e.g., age=18 for adulthood policies, score=70 for a pass/fail rule). When uncertain, set value to "user to specify" and confidence to 0.
+3. OUTCOME VARIABLE: The variable being measured (must be numeric/continuous).
 
-Additionally: Treatment side ("above" or "below") indicates which side of the cutoff receives treatment.
+CUTOFF RULES — read carefully:
+- Only provide a specific numeric cutoff when BOTH conditions hold:
+    a) You recognise the running variable as one with a well-known threshold in policy contexts (age, GPA, income limit, test score).
+    b) The threshold value is standard/unambiguous (e.g., 18 for voting age, 65 for Medicare, 3.5 for merit scholarship GPA).
+- In all other cases set "value": "user to specify" and "confidence": 0.
+- NEVER guess a cutoff purely from data statistics — the user must specify it.
 
 INSTRUCTIONS:
-1. Suggest the best Running Variable (must be numeric).
-2. Suggest a plausible Cutoff Threshold value. If uncertain, use "user to specify".
-3. Suggest the best Outcome Variable based on the logical relationship of a variable with the running variable and the cutoff threshold. Consider the column names and types. If the variable is not numeric/continuous, suggest a numeric/continuous variable that is logically related to the running variable and the cutoff threshold.
-4. Suggest treatment_side: "above" or "below" based on typical policy designs. "Above" means the treatment is given to the units above the cutoff threshold. "Below" means the treatment is given to the units below the cutoff threshold.
-5. Be humble: You are guessing from column names/types. State assumptions clearly.
-6. Provide 1-2 alternative choices for running_var and outcome_var if applicable.
-7. Justify selections based on data type and inferred meaning.
+1. Suggest the best Running Variable (must be numeric). If user gave a treatment hint, look for a continuous version.
+2. Suggest Cutoff Threshold following the CUTOFF RULES above.
+3. Suggest the best Outcome Variable. Prioritise the user's outcome hint if provided.
+4. Suggest treatment_side "above" or "below" based on context.
+5. Be conservative. State assumptions clearly.
 
 Respond with JSON only:
 {{
@@ -237,8 +263,9 @@ Respond with JSON only:
         {{"column": "name", "confidence": 0-1, "reasoning": "reason", "assumptions": "assumptions"}}
     ],
     "cutoff_suggestion": {{
-        "value": 70,
-        "reasoning": "reason (e.g., 70 is common passing threshold for test scores)",
+        "value": "user to specify or a specific number",
+        "confidence": 0-1,
+        "reasoning": "reason — must explain why you are or are not confident",
         "assumptions": "assumptions"
     }},
     "treatment_side_suggestion": {{
@@ -455,6 +482,11 @@ Respond with JSON only:
         context_prompt = ""
         if analysis_context:
             context_parts = []
+            if analysis_context.get('method') == 'iv' or analysis_context.get('analysis_type') == 'instrumental_variable':
+                context_parts.append(
+                    "Analysis method: Instrumental Variables (2SLS). Do NOT discuss difference-in-differences or parallel trends. "
+                    "Focus on IV assumptions (relevance, exclusion restriction), instrument strength (first-stage F), and LATE/compliers."
+                )
             if analysis_context.get('parameters'):
                 params = analysis_context['parameters']
                 context_parts.append(f"Current Analysis Parameters:")
@@ -480,6 +512,10 @@ Respond with JSON only:
                     context_parts.append(f"- Cutoff: {params.get('cutoff', 'N/A')}")
                 if params.get('treatment_side'):
                     context_parts.append(f"- Treatment side: {params.get('treatment_side', 'N/A')}")
+                # IV parameters
+                if params.get('instruments'):
+                    inst = params.get('instruments')
+                    context_parts.append(f"- Instruments: {', '.join(inst) if isinstance(inst, list) else inst}")
             
             if analysis_context.get('results'):
                 results = analysis_context['results']
@@ -554,6 +590,17 @@ Respond with JSON only:
                         context_parts.append(f"- Effect Direction: {interp.get('effect_direction', 'N/A')}")
                     if 'significance' in interp:
                         context_parts.append(f"- Significance: {interp.get('significance', 'N/A')}")
+                # IV-specific results
+                if analysis_context.get('method') == 'iv' or analysis_context.get('analysis_type') == 'instrumental_variable':
+                    if 'first_stage' in results:
+                        fs = results.get('first_stage', {})
+                        context_parts.append(f"\nFirst-stage: F-statistic={fs.get('f_statistic', 'N/A')}")
+                    if 'endogeneity_test' in results:
+                        et = results.get('endogeneity_test', {})
+                        context_parts.append(f"- Endogeneity (Wu-Hausman): is_endogenous={et.get('is_endogenous', 'N/A')}, p_value={et.get('p_value', 'N/A')}")
+                    if 'ols_comparison' in results:
+                        ols = results.get('ols_comparison', {})
+                        context_parts.append(f"- OLS comparison: estimate={ols.get('estimate', 'N/A')}, se={ols.get('se', 'N/A')}")
             
             if analysis_context.get('did_guidelines'):
                 context_parts.append(f"\n{analysis_context.get('did_guidelines')}")

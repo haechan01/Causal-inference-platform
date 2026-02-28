@@ -53,6 +53,10 @@ const RDSetup: React.FC = () => {
   const [aiSidebarWidth, setAiSidebarWidth] = useState(420);
   const [isResizing, setIsResizing] = useState(false);
 
+  // Hints from the AI assistant on the Method Selection page
+  const aiHints: { treatmentVariable?: string; outcomeVariable?: string; causalQuestion?: string } =
+    (location.state as any)?.aiHints || {};
+
   // Dataset preview state
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{
@@ -160,6 +164,24 @@ const RDSetup: React.FC = () => {
         }));
 
         setVariables(variablesFromSchema);
+
+        // Pre-fill from AI hints if no saved state loaded yet
+        if (aiHints.outcomeVariable && !outcomeVar) {
+          const match = variablesFromSchema.find(
+            (v: Variable) => v.name.toLowerCase() === aiHints.outcomeVariable!.toLowerCase()
+          );
+          if (match) setOutcomeVar(match.name);
+        }
+        // For RD, treatmentVariable from hints is a loose proxy for the running variable
+        // only prefill if there's a clear numeric column match
+        if (aiHints.treatmentVariable && !runningVar) {
+          const match = variablesFromSchema.find(
+            (v: Variable) =>
+              v.name.toLowerCase() === aiHints.treatmentVariable!.toLowerCase() &&
+              (v.type === 'numeric' || v.type === 'float' || v.type === 'integer')
+          );
+          if (match) setRunningVar(match.name);
+        }
       } catch (error: any) {
         console.error('Error loading dataset variables:', error);
         setError(
@@ -173,6 +195,8 @@ const RDSetup: React.FC = () => {
     if (accessToken) {
       loadDatasetVariables();
     }
+    // aiHints are intentionally read once on mount; omitting from deps is correct
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, location, projectId, datasetId]);
 
   const canProceed = Boolean(
@@ -869,6 +893,9 @@ const RDSetup: React.FC = () => {
                 >
                   <RDVariableSuggestions
                     schemaInfo={schemaInfo}
+                    causalQuestion={aiHints.causalQuestion}
+                    treatmentVariable={aiHints.treatmentVariable}
+                    outcomeVariable={aiHints.outcomeVariable}
                     onApplySuggestions={handleApplySuggestions}
                   />
                 </div>

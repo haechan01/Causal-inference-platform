@@ -63,7 +63,10 @@ const DataUploadPage: React.FC = () => {
   const [existingDatasets, setExistingDatasets] = useState<UploadedDataset[]>([]);
   const [loadingDatasets, setLoadingDatasets] = useState(true);
   const [selectedExistingDataset, setSelectedExistingDataset] = useState<number | null>(null);
-  
+  const [renamingDatasetId, setRenamingDatasetId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renaming, setRenaming] = useState(false);
+
   // AI Quality Check state
   const [qualityAssessment, setQualityAssessment] = useState<DataQualityAssessment | null>(null);
   const [loadingQuality, setLoadingQuality] = useState(false);
@@ -73,7 +76,7 @@ const DataUploadPage: React.FC = () => {
   useEffect(() => {
     const loadDatasets = async () => {
       try {
-        const response = await axios.get('/projects/user/datasets', {
+        const response = await axios.get('projects/user/datasets', {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
         setExistingDatasets(response.data.datasets || []);
@@ -239,7 +242,7 @@ const DataUploadPage: React.FC = () => {
       formData.append('file', file);
       formData.append('name', datasetName.trim());
       
-      const response = await axios.post('/projects/user/datasets/upload', formData, {
+      const response = await axios.post('projects/user/datasets/upload', formData, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'multipart/form-data'
@@ -256,7 +259,7 @@ const DataUploadPage: React.FC = () => {
       setUploadProgress(100);
       
       // Refresh the datasets list
-      const datasetsResponse = await axios.get('/projects/user/datasets', {
+      const datasetsResponse = await axios.get('projects/user/datasets', {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       setExistingDatasets(datasetsResponse.data.datasets || []);
@@ -277,42 +280,101 @@ const DataUploadPage: React.FC = () => {
     setLoadingPreview(true);
     
     try {
-      const response = await axios.get(`/datasets/${datasetId}/preview`, {
+      const response = await axios.get(`datasets/${datasetId}/preview`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       setPreviewData(response.data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load preview:', error);
-      setUploadError('Failed to load dataset preview');
+      setUploadError(error.response?.status === 404 ? 'Dataset not found. The list has been refreshed.' : 'Failed to load dataset preview');
+      setPreviewData(null);
+      if (error.response?.status === 404) {
+        const listRes = await axios.get('projects/user/datasets', {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        }).catch(() => null);
+        if (listRes?.data?.datasets) setExistingDatasets(listRes.data.datasets);
+      }
     } finally {
       setLoadingPreview(false);
     }
   };
 
-  // Delete dataset
+  // Delete dataset (only user-uploaded datasets with positive id; sample datasets cannot be deleted)
   const handleDeleteDataset = async (e: React.MouseEvent, datasetId: number) => {
     e.stopPropagation();
-    
+    if (datasetId < 0) {
+      setUploadError('Sample datasets cannot be deleted.');
+      return;
+    }
     if (!window.confirm('Are you sure you want to delete this dataset? This action cannot be undone.')) {
       return;
     }
-    
     try {
-      await axios.delete(`/projects/user/datasets/${datasetId}`, {
+      await axios.delete(`projects/user/datasets/${datasetId}`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
-      
-      // Remove from local state
+      setUploadError(null);
       setExistingDatasets(existingDatasets.filter(d => d.id !== datasetId));
-      
-      // Clear selection if deleted dataset was selected
       if (selectedExistingDataset === datasetId) {
         setSelectedExistingDataset(null);
         setPreviewData(null);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to delete dataset:', error);
-      setUploadError('Failed to delete dataset');
+      const msg = error.response?.status === 404
+        ? 'Dataset not found. The list has been refreshed.'
+        : (error.response?.data?.error || 'Failed to delete dataset');
+      setUploadError(msg);
+      if (error.response?.status === 404) {
+        const listRes = await axios.get('projects/user/datasets', {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        }).catch(() => null);
+        if (listRes?.data?.datasets) setExistingDatasets(listRes.data.datasets);
+      }
+    }
+  };
+
+  // Rename dataset (user-uploaded only)
+  const handleStartRename = (e: React.MouseEvent, dataset: UploadedDataset) => {
+    e.stopPropagation();
+    if (dataset.id < 0) return;
+    setRenamingDatasetId(dataset.id);
+    setRenameValue(dataset.name);
+  };
+  const handleCancelRename = () => {
+    setRenamingDatasetId(null);
+    setRenameValue('');
+  };
+  const handleSubmitRename = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (renamingDatasetId == null || !renameValue.trim()) {
+      handleCancelRename();
+      return;
+    }
+    const current = existingDatasets.find(d => d.id === renamingDatasetId);
+    if (current?.name === renameValue.trim()) {
+      handleCancelRename();
+      return;
+    }
+    setRenaming(true);
+    setUploadError(null);
+    try {
+      const { data } = await axios.patch(
+        `projects/user/datasets/${renamingDatasetId}`,
+        { name: renameValue.trim() },
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      setExistingDatasets(prev =>
+        prev.map(d => (d.id === renamingDatasetId ? { ...d, name: data.dataset?.name ?? renameValue.trim() } : d))
+      );
+      if (uploadedDataset?.id === renamingDatasetId) {
+        setUploadedDataset(prev => (prev ? { ...prev, name: data.dataset?.name ?? renameValue.trim() } : null));
+      }
+      handleCancelRename();
+    } catch (error: any) {
+      setUploadError(error.response?.data?.error || 'Failed to rename dataset');
+    } finally {
+      setRenaming(false);
     }
   };
 
@@ -489,24 +551,64 @@ const DataUploadPage: React.FC = () => {
                           ...styles.datasetItem,
                           ...(selectedExistingDataset === dataset.id ? styles.datasetItemSelected : {})
                         }}
-                        onClick={() => handleSelectExistingDataset(dataset.id)}
+                        onClick={() => renamingDatasetId !== dataset.id && handleSelectExistingDataset(dataset.id)}
                       >
                         <div style={styles.datasetInfo}>
-                          <div style={styles.datasetName}>{dataset.name}</div>
-                          <div style={styles.datasetMeta}>
-                            {dataset.file_name} • {new Date(dataset.created_at).toLocaleDateString()}
-                          </div>
+                          {renamingDatasetId === dataset.id ? (
+                            <form
+                              onSubmit={handleSubmitRename}
+                              onClick={e => e.stopPropagation()}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}
+                            >
+                              <input
+                                type="text"
+                                value={renameValue}
+                                onChange={e => setRenameValue(e.target.value)}
+                                onBlur={() => handleSubmitRename()}
+                                onKeyDown={e => { if (e.key === 'Escape') handleCancelRename(); }}
+                                disabled={renaming}
+                                autoFocus
+                                style={{
+                                  flex: 1,
+                                  padding: '4px 8px',
+                                  fontSize: 14,
+                                  border: '1px solid #ccc',
+                                  borderRadius: 4
+                                }}
+                              />
+                              <button type="button" onClick={handleCancelRename} style={styles.renameCancelBtn}>Cancel</button>
+                            </form>
+                          ) : (
+                            <>
+                              <div style={styles.datasetName}>{dataset.name}</div>
+                              <div style={styles.datasetMeta}>
+                                {dataset.file_name} • {new Date(dataset.created_at).toLocaleDateString()}
+                              </div>
+                            </>
+                          )}
                         </div>
-                        {selectedExistingDataset === dataset.id && (
+                        {selectedExistingDataset === dataset.id && renamingDatasetId !== dataset.id && (
                           <div style={styles.checkmark}>✓</div>
                         )}
-                        <button
-                          onClick={(e) => handleDeleteDataset(e, dataset.id)}
-                          style={styles.deleteDatasetButton}
-                          title="Delete dataset"
-                        >
-                          🗑️
-                        </button>
+                        {dataset.id >= 0 && renamingDatasetId !== dataset.id && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={(e) => handleStartRename(e, dataset)}
+                              style={styles.renameDatasetButton}
+                              title="Rename dataset"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              onClick={(e) => handleDeleteDataset(e, dataset.id)}
+                              style={styles.deleteDatasetButton}
+                              title="Delete dataset"
+                            >
+                              🗑️
+                            </button>
+                          </>
+                        )}
                       </div>
                     ))
                   )}
@@ -1021,6 +1123,24 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     transition: 'all 0.2s ease',
     marginLeft: '8px'
+  },
+  renameDatasetButton: {
+    backgroundColor: '#e0e7ff',
+    border: 'none',
+    borderRadius: '6px',
+    padding: '6px 10px',
+    fontSize: '14px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    marginLeft: '4px'
+  },
+  renameCancelBtn: {
+    padding: '4px 8px',
+    fontSize: 12,
+    border: '1px solid #ccc',
+    borderRadius: 4,
+    background: '#f3f4f6',
+    cursor: 'pointer'
   },
   previewCard: {
     backgroundColor: 'white',

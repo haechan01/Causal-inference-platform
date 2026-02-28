@@ -25,6 +25,8 @@ export interface AnalysisConfig {
   // IV-specific (treatmentVar also used by Fuzzy RD)
   treatmentVar?: string;
   instruments?: string[];
+  interactions?: [string, string][];
+  additionalEndogenous?: Array<{ variable: string; instrument: string }>;
   runSensitivity?: boolean;
 }
 

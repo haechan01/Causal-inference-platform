@@ -46,118 +46,30 @@ class CausalAIService:
             print(f"ERROR: {error_msg}", file=sys.stderr)
             raise ValueError(error_msg)
         
-        # List available models and find one that supports generateContent
+        # Resolve which model to use. If AI_MODEL_NAME is set we skip the
+        # expensive genai.list_models() network call entirely (it enumerates
+        # every model and was blocking sync Gunicorn workers for >30 s).
         model_name_to_use = None
-        list_error = None
-        try:
-            available_models = []
-            model_list = list(genai.list_models())
-            print(f"DEBUG: Found {len(model_list)} models from API", file=sys.stderr)
+        user_model = os.getenv('AI_MODEL_NAME')
+        if user_model:
+            # Normalise: accept both "gemini-2.0-flash" and "models/gemini-2.0-flash"
+            model_name_to_use = user_model if user_model.startswith('models/') else f'models/{user_model}'
+            print(f"DEBUG: Using configured model: {model_name_to_use}", file=sys.stderr)
             sys.stderr.flush()
-            
-            for model in model_list:
-                # Safely check supported_generation_methods (handles different SDK versions)
-                try:
-                    supported_methods = getattr(model, 'supported_generation_methods', [])
-                    # Convert to list if needed
-                    if hasattr(supported_methods, '__iter__') and not isinstance(supported_methods, str):
-                        methods_list = list(supported_methods)
-                    else:
-                        methods_list = []
-                    if 'generateContent' in methods_list:
-                        # Model name might be like "models/gemini-pro" - extract the short name
-                        model_name = model.name.split('/')[-1] if '/' in model.name else model.name
-                        available_models.append((model_name, model.name))
-                        print(f"DEBUG: Found model with generateContent: {model_name} ({model.name})", file=sys.stderr)
-                except Exception as e:
-                    # If we can't check methods, skip this model
-                    print(f"DEBUG: Error checking model {getattr(model, 'name', 'unknown')}: {e}", file=sys.stderr)
-                    continue
-            
-            print(f"DEBUG: Total models with generateContent: {len(available_models)}", file=sys.stderr)
-            sys.stderr.flush()
-            
-            if not available_models:
-                list_error = "No Gemini models available with generateContent support. Check your API key and permissions."
-                print(f"WARNING: {list_error}", file=sys.stderr)
-                sys.stderr.flush()
-            else:
-                # Use the first available model, or user's preference
-                user_model = os.getenv('AI_MODEL_NAME')
-                if user_model:
-                    # User specified a model - try to find it
-                    model_found = None
-                    for short_name, full_name in available_models:
-                        if short_name == user_model or full_name == user_model:
-                            model_found = full_name
-                            break
-                    
-                    if model_found:
-                        model_name_to_use = model_found
-                        print(f"DEBUG: Using user-specified model: {model_name_to_use}", file=sys.stderr)
-                    else:
-                        # User model not found, use first available
-                        model_name_to_use = available_models[0][1]
-                        print(f"DEBUG: User model '{user_model}' not found, using first available: {model_name_to_use}", file=sys.stderr)
-                else:
-                    # Use first available model
-                    model_name_to_use = available_models[0][1]
-                    print(f"DEBUG: Using first available model: {model_name_to_use}", file=sys.stderr)
-                sys.stderr.flush()
-                
-        except Exception as e:
-            list_error = f"Error listing models: {str(e)}"
-            print(f"WARNING: {list_error}", file=sys.stderr)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
-            sys.stderr.flush()
-            model_name_to_use = None  # Will try fallbacks below
-        
-        # If model listing failed or no model found, try common fallbacks
-        if not model_name_to_use:
-            print(f"DEBUG: Trying fallback models...", file=sys.stderr)
-            sys.stderr.flush()
+        else:
+            # No model configured — fall back to a sensible default without listing
             fallback_models = [
-                'gemini-2.0-flash-exp',
-                'gemini-2.0-flash',
-                'gemini-1.5-flash-latest',
-                'gemini-1.5-flash', 
-                'gemini-1.5-pro-latest',
-                'gemini-1.5-pro',
-                'gemini-pro',
-                'models/gemini-2.0-flash-exp',
                 'models/gemini-2.0-flash',
-                'models/gemini-1.5-flash-latest',
                 'models/gemini-1.5-flash',
-                'models/gemini-1.5-pro-latest',
                 'models/gemini-1.5-pro',
                 'models/gemini-pro',
             ]
-            
-            fallback_errors = []
-            for fallback in fallback_models:
-                try:
-                    print(f"DEBUG: Trying fallback model: {fallback}", file=sys.stderr)
-                    sys.stderr.flush()
-                    # Just try to create the model - don't test it yet
-                    # The actual call will happen when we use it
-                    test_model = genai.GenerativeModel(model_name=fallback)
-                    model_name_to_use = fallback
-                    print(f"DEBUG: Successfully initialized model: {fallback}", file=sys.stderr)
-                    sys.stderr.flush()
-                    break
-                except Exception as e:
-                    error_msg = f"{fallback}: {str(e)}"
-                    fallback_errors.append(error_msg)
-                    print(f"DEBUG: Failed to create model {fallback}: {str(e)}", file=sys.stderr)
-                    sys.stderr.flush()
-                    continue
-            
-            if not model_name_to_use:
-                error_details = f"{list_error or 'Model listing failed'}. Fallback attempts: " + "; ".join(fallback_errors[:3])
-                print(f"ERROR: {error_details}", file=sys.stderr)
-                sys.stderr.flush()
-                raise ValueError(f"No working Gemini model found. Please check your API key permissions. Details: {error_details}")
+            model_name_to_use = fallback_models[0]
+            print(f"DEBUG: AI_MODEL_NAME not set, defaulting to: {model_name_to_use}", file=sys.stderr)
+            sys.stderr.flush()
+
+        if not model_name_to_use:
+            raise ValueError("Could not determine a Gemini model to use. Set AI_MODEL_NAME in your .env file (e.g. AI_MODEL_NAME=gemini-2.0-flash).")
         
         # Create model instance with adjusted safety settings
         # Lower safety thresholds to allow analysis of statistical results
@@ -253,7 +165,8 @@ PARALLEL TRENDS ASSUMPTION:
                     generation_config=genai.types.GenerationConfig(
                         max_output_tokens=max_tokens,
                         temperature=float(os.getenv('AI_TEMPERATURE', '0.7')),
-                    )
+                    ),
+                    request_options={'timeout': 120},
                 )
             except Exception as api_error:
                 # Check for quota/rate limit errors
@@ -375,8 +288,11 @@ PARALLEL TRENDS ASSUMPTION:
         results = analysis_results.get('results', {})
         params = parameters or {}
         
-        if method == "Regression Discontinuity":
+        method_lower = (method or "").strip().lower()
+        if method == "Regression Discontinuity" or method_lower == "rd":
             return self._interpret_rd_results(results, params, causal_question)
+        if method_lower in ("instrumental variables (2sls)", "instrumental variables", "iv", "2sls"):
+            return self._interpret_iv_results(results, params, causal_question)
         return self._interpret_did_results(results, params, causal_question)
     
     def _interpret_rd_results(
@@ -485,6 +401,60 @@ Return JSON only with these exact fields:
   "recommendation": "1-2 sentence overall recommendation based on results"
 }}"""
         
+        return self._parse_interpretation_response(prompt)
+
+    def _interpret_iv_results(
+        self,
+        results: Dict[str, Any],
+        params: Dict[str, Any],
+        causal_question: Optional[str]
+    ) -> Dict[str, Any]:
+        """Interpret Instrumental Variables (2SLS) analysis results."""
+        treatment_effect = _safe_num(results.get('treatment_effect'), 0)
+        se = _safe_num(results.get('se'), 0)
+        p_value = _safe_num(results.get('p_value'), 1.0)
+        is_significant = results.get('is_significant') if results.get('is_significant') is not None else (p_value < 0.05)
+        ci_lower = _safe_num(results.get('ci_lower'), 0)
+        ci_upper = _safe_num(results.get('ci_upper'), 0)
+        outcome_var = params.get('outcome') or '?'
+        treatment_var = params.get('treatment') or '?'
+        instruments = params.get('instruments') or []
+        if not isinstance(instruments, list):
+            instruments = [instruments] if instruments else []
+        first_stage = results.get('first_stage') or {}
+        f_stat = _safe_num(first_stage.get('f_statistic'), 0)
+        is_weak = results.get('instrument_strength', {}).get('is_weak', f_stat < 10)
+        endog_test = results.get('endogeneity_test') or {}
+        is_endogenous = endog_test.get('is_endogenous')
+        ols_comp = results.get('ols_comparison') or {}
+        ols_est = _safe_num(ols_comp.get('estimate'), 0)
+        warnings = results.get('warnings') or []
+
+        warn_str = f" Warnings:{warnings}" if warnings else ""
+        results_summary = (
+            f"IV/2SLS: treatment effect={treatment_effect:.3f}, se={se:.3f}, p={p_value:.4f}, significant={is_significant}, "
+            f"95% CI=[{ci_lower:.3f},{ci_upper:.3f}]. Outcome={outcome_var}, treatment={treatment_var}, "
+            f"instruments={instruments}. First-stage F={f_stat:.2f}, weak_instruments={is_weak}. "
+            f"Endogeneity test (Wu-Hausman): is_endogenous={is_endogenous}. "
+            f"OLS estimate (for comparison)={ols_est:.3f}.{warn_str}"
+        )
+        q = f"Q: {causal_question}\n" if causal_question else ""
+
+        prompt = f"""You are a causal inference expert. Interpret these Instrumental Variables (2SLS) results. Do NOT discuss difference-in-differences or parallel trends; this is an IV analysis.
+{q}Data: {results_summary}
+
+Return JSON only with these exact fields:
+{{
+  "executive_summary": "2-3 sentences explaining the main IV finding: effect of the treatment on the outcome, significance, and that the estimate applies to compliers (LATE)",
+  "parallel_trends_interpretation": "2 sentences on IV design validity: instrument relevance (first-stage strength), exclusion restriction, and what the 2SLS estimate means (e.g. causal effect among those whose treatment was influenced by the instrument)",
+  "effect_size_interpretation": "2 sentences on the practical significance of the treatment effect and comparison to OLS if relevant",
+  "statistical_interpretation": "2 sentences on statistical significance, confidence interval, and instrument strength (F-statistic)",
+  "limitations": ["limitation 1", "limitation 2", "limitation 3"],
+  "implications": ["what this means for practice 1", "what this means 2"],
+  "confidence_level": "high/medium/low",
+  "next_steps": ["specific actionable step 1", "specific actionable step 2", "specific actionable step 3"],
+  "recommendation": "1-2 sentence overall recommendation based on the IV results"
+}}"""
         return self._parse_interpretation_response(prompt)
     
     def _parse_interpretation_response(self, prompt: str) -> Dict[str, Any]:
