@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Navbar, BottomProgressBar } from '../components/layout';
+import { formatPValue } from '../utils/format';
 import { useProgressStep } from '../hooks/useProgressStep';
 import { aiService, ResultsInterpretation } from '../services/aiService';
 import { useAuth } from '../contexts/AuthContext';
@@ -95,6 +96,8 @@ const IVResults: React.FC = () => {
   >(null);
   const [showCode, setShowCode] = useState(false);
   const [codeLanguage, setCodeLanguage] = useState<'python' | 'r'>('python');
+  const [outcomeLabel, setOutcomeLabel] = useState<string>('');
+  const [editingOutcomeLabel, setEditingOutcomeLabel] = useState(false);
 
   const recommendedQuestions = [
     'What is the exclusion restriction assumption?',
@@ -410,6 +413,7 @@ print(p2)`;
 
       if (loadedResults) {
         setResults(loadedResults);
+        setOutcomeLabel(loadedResults.parameters?.outcome || 'outcome');
 
         // Load cached AI interpretation
         const interpretationKey = projectId
@@ -789,10 +793,43 @@ print(p2)`;
                     <span style={styles.estimandBadge}>{res.estimand}</span>
                   )}
                 </div>
-                <div style={styles.effectValue}>
-                  {typeof res.treatment_effect === 'number'
-                    ? res.treatment_effect.toFixed(3)
-                    : '—'}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px' }}>
+                  <div style={styles.effectValue}>
+                    {typeof res.treatment_effect === 'number'
+                      ? res.treatment_effect.toFixed(3)
+                      : '—'}
+                  </div>
+                  {editingOutcomeLabel ? (
+                    <input
+                      autoFocus
+                      value={outcomeLabel}
+                      onChange={e => setOutcomeLabel(e.target.value)}
+                      onBlur={() => setEditingOutcomeLabel(false)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingOutcomeLabel(false); }}
+                      style={{
+                        fontSize: '18px', color: '#043873',
+                        border: 'none', borderBottom: '2px solid #043873',
+                        background: 'transparent', outline: 'none',
+                        fontWeight: '500', textAlign: 'center',
+                        padding: '2px 6px', minWidth: '80px', maxWidth: '200px',
+                      }}
+                    />
+                  ) : (
+                    <span
+                      onClick={() => setEditingOutcomeLabel(true)}
+                      title="Click to edit variable name"
+                      style={{
+                        fontSize: '17px', color: '#043873', fontWeight: '500',
+                        cursor: 'pointer', padding: '4px 10px',
+                        border: '1px dashed #b3d0ff', borderRadius: '8px',
+                        backgroundColor: '#f0f7ff',
+                        display: 'inline-flex', alignItems: 'center', gap: '5px',
+                      }}
+                    >
+                      {outcomeLabel}
+                      <span style={{ fontSize: '12px', color: '#6c9bd4', marginLeft: '2px' }}>✏️</span>
+                    </span>
+                  )}
                 </div>
                 <div
                   style={{
@@ -849,7 +886,7 @@ print(p2)`;
                   <div style={styles.statRowItem}>
                     <span style={styles.statRowLabel}>P-Value</span>
                     <span style={styles.statRowValue}>
-                      {res.p_value?.toFixed(4)}
+                      {formatPValue(res.p_value)}
                     </span>
                     <button
                       type="button"
@@ -908,7 +945,7 @@ print(p2)`;
                     {expandedStat === 'pvalue' && (
                       <>
                         <p style={styles.explanationSimple}>
-                          <strong>Simply put:</strong> The p-value of <strong>{res.p_value?.toFixed(4)}</strong> represents
+                          <strong>Simply put:</strong> The p-value of <strong>{formatPValue(res.p_value)}</strong> represents
                           the probability of seeing an effect this large (or larger) purely by chance if there were truly no effect.
                           {res.p_value < 0.05
                             ? ' Since it is below 0.05, the result is considered statistically significant.'
@@ -966,7 +1003,7 @@ print(p2)`;
                         F = {res.first_stage.f_statistic?.toFixed(2)}
                       </span>
                       <span style={styles.fStatNote}>
-                        {' '}(p = {res.first_stage.f_p_value?.toFixed(4)})
+                        {' '}(p = {formatPValue(res.first_stage.f_p_value)})
                       </span>
                     </div>
                     <StrengthBadge strength={res.instrument_strength.strength} />
@@ -1072,7 +1109,7 @@ print(p2)`;
                                     coef.p_value < 0.05 ? '600' : 'normal',
                                 }}
                               >
-                                {coef.p_value?.toFixed(4)}
+                                {formatPValue(coef.p_value)}
                               </span>
                             </div>
                           ))}
@@ -1106,7 +1143,7 @@ print(p2)`;
                               : '#666',
                         }}
                       >
-                        {res.endogeneity_test.p_value?.toFixed(4)}
+                        {formatPValue(res.endogeneity_test.p_value)}
                       </span>
                     </div>
                     <div
@@ -1164,7 +1201,7 @@ print(p2)`;
                           color: overid.p_value < 0.05 ? '#721c24' : '#155724',
                         }}
                       >
-                        {overid.p_value?.toFixed(4)}
+                        {formatPValue(overid.p_value)}
                       </span>
                     </div>
                     <div>
@@ -1332,7 +1369,7 @@ print(p2)`;
                                   color: row.p_value < 0.05 ? '#155724' : '#666',
                                 }}
                               >
-                                {row.p_value?.toFixed(4)}
+                                {formatPValue(row.p_value)}
                               </span>
                               <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>
                                 [{row.ci_lower?.toFixed(3)}, {row.ci_upper?.toFixed(3)}]

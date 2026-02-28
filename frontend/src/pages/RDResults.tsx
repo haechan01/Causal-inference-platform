@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Navbar, BottomProgressBar } from '../components/layout';
+import { formatPValue } from '../utils/format';
 import { useProgressStep } from '../hooks/useProgressStep';
 import { RDSensitivityPlot, RDScatterPlot } from '../components/charts';
 import { aiService, ResultsInterpretation } from '../services/aiService';
@@ -34,6 +35,8 @@ const RDResults: React.FC = () => {
   const [showAssumptions, setShowAssumptions] = useState(false);
   const [activeAssumption, setActiveAssumption] = useState<'continuity' | 'manipulation' | 'late'>('continuity');
   const [showDesignType, setShowDesignType] = useState(false);
+  const [outcomeLabel, setOutcomeLabel] = useState<string>('');
+  const [editingOutcomeLabel, setEditingOutcomeLabel] = useState(false);
   const [recommendedQuestions] = useState<string[]>([
     'What is the local continuity assumption in RD?',
     'How do I interpret my RD estimate?',
@@ -322,6 +325,7 @@ print(sensitivity)
 
       if (loadedResults) {
         setResults(loadedResults);
+        setOutcomeLabel(loadedResults.parameters?.outcome_var || 'outcome');
 
         // Load cached AI interpretation if it matches this analysis
         const interpretationKey = projectId
@@ -645,8 +649,41 @@ print(sensitivity)
           {/* Main Result Card */}
           <div style={styles.mainResultCard}>
             <h2 style={styles.resultLabel}>Treatment Effect</h2>
-            <div style={styles.effectValue}>
-              {res.treatment_effect.toFixed(3)}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px' }}>
+              <div style={styles.effectValue}>
+                {res.treatment_effect.toFixed(3)}
+              </div>
+              {editingOutcomeLabel ? (
+                <input
+                  autoFocus
+                  value={outcomeLabel}
+                  onChange={e => setOutcomeLabel(e.target.value)}
+                  onBlur={() => setEditingOutcomeLabel(false)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingOutcomeLabel(false); }}
+                  style={{
+                    fontSize: '18px', color: '#043873',
+                    border: 'none', borderBottom: '2px solid #043873',
+                    background: 'transparent', outline: 'none',
+                    fontWeight: '500', textAlign: 'center',
+                    padding: '2px 6px', minWidth: '80px', maxWidth: '200px',
+                  }}
+                />
+              ) : (
+                <span
+                  onClick={() => setEditingOutcomeLabel(true)}
+                  title="Click to edit variable name"
+                  style={{
+                    fontSize: '17px', color: '#043873', fontWeight: '500',
+                    cursor: 'pointer', padding: '4px 10px',
+                    border: '1px dashed #b3d0ff', borderRadius: '8px',
+                    backgroundColor: '#f0f7ff',
+                    display: 'inline-flex', alignItems: 'center', gap: '5px',
+                  }}
+                >
+                  {outcomeLabel}
+                  <span style={{ fontSize: '12px', color: '#6c9bd4', marginLeft: '2px' }}>✏️</span>
+                </span>
+              )}
             </div>
             <div
               style={{
@@ -675,7 +712,7 @@ print(sensitivity)
               </div>
               <div style={styles.statRowItem}>
                 <span style={styles.statRowLabel}>P-Value</span>
-                <span style={styles.statRowValue}>{res.p_value.toFixed(4)}</span>
+                <span style={styles.statRowValue}>{formatPValue(res.p_value)}</span>
                 <button
                   type="button"
                   onClick={() => setExpandedStat((s) => (s === 'pvalue' ? null : 'pvalue'))}
@@ -705,7 +742,7 @@ print(sensitivity)
                 )}
                 {expandedStat === 'pvalue' && (
                   <p style={styles.singleExplanationText}>
-                    The p-value tests the null hypothesis that the true treatment effect is zero. It is derived from the t-statistic: t = (treatment effect − 0) / SE. In this study: t = {res.treatment_effect.toFixed(3)} / {res.se.toFixed(3)} ≈ {(res.treatment_effect / res.se).toFixed(2)}. The p-value of {res.p_value.toFixed(4)} is the probability of observing |t| at least this large when the true effect is zero (from the local polynomial regression). A p-value below 0.05 is typically considered statistically significant.
+                    The p-value tests the null hypothesis that the true treatment effect is zero. It is derived from the t-statistic: t = (treatment effect − 0) / SE. In this study: t = {res.treatment_effect.toFixed(3)} / {res.se.toFixed(3)} ≈ {(res.treatment_effect / res.se).toFixed(2)}. The p-value of {formatPValue(res.p_value)} is the probability of observing |t| at least this large when the true effect is zero (from the local polynomial regression). A p-value below 0.05 is typically considered statistically significant.
                   </p>
                 )}
                 {expandedStat === 'se' && (
@@ -1034,7 +1071,8 @@ print(sensitivity)
             runningVar={parameters.running_var}
             outcomeVar={parameters.outcome_var}
             cutoff={parameters.cutoff}
-            optimalBandwidth={bandwidth_info.optimal_bandwidth}
+            optimalBandwidth={bandwidth_info?.optimal_bandwidth}
+            selectedBandwidth={res.bandwidth_used}
             treatmentSide={parameters.treatment_side}
           />
 
@@ -1521,7 +1559,7 @@ const styles = {
   },
   container: {
     paddingTop: '70px',
-    paddingBottom: '100px',
+    paddingBottom: '120px',
     minHeight: '100vh',
     backgroundColor: '#f5f5f5',
   },

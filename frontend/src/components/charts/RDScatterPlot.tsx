@@ -261,7 +261,8 @@ const RDScatterPlot: React.FC<RDScatterPlotProps> = ({
       <div style={styles.headerSection}>
         <h3 style={styles.title}>RD Visualization</h3>
         <p style={styles.subtitle}>
-          Scatter plot showing the discontinuity at the cutoff (bandwidth = {bandwidth.toFixed(3)})
+          Scatter plot within the bandwidth window [{(cutoff - bandwidth).toFixed(3)}, {(cutoff + bandwidth).toFixed(3)}] &nbsp;
+          <span style={{ fontWeight: 600, color: '#e67e22' }}>Bandwidth = {bandwidth.toFixed(3)}</span>
         </p>
       </div>
 
@@ -301,6 +302,32 @@ const RDScatterPlot: React.FC<RDScatterPlotProps> = ({
               wrapperStyle={{ paddingBottom: '10px' }}
             />
 
+            {/* Bandwidth window — left edge */}
+            <ReferenceLine
+              x={cutoff - bandwidth}
+              stroke="#e67e22"
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              label={{
+                value: `−BW`,
+                position: 'insideTopRight',
+                fill: '#e67e22',
+                fontSize: 11,
+              }}
+            />
+            {/* Bandwidth window — right edge */}
+            <ReferenceLine
+              x={cutoff + bandwidth}
+              stroke="#e67e22"
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              label={{
+                value: `+BW`,
+                position: 'insideTopLeft',
+                fill: '#e67e22',
+                fontSize: 11,
+              }}
+            />
             {/* Cutoff line */}
             <ReferenceLine
               x={cutoff}
@@ -358,11 +385,11 @@ const RDScatterPlot: React.FC<RDScatterPlotProps> = ({
       </div>
 
       <div style={styles.noteBox}>
-        <strong>How to interpret:</strong> The vertical red line marks the cutoff.
-        Points in blue are the <strong>treated units</strong> ({treatmentSide === 'below' ? 'below' : 'above'} the cutoff),
-        and points in gray are the <strong>control units</strong>.
-        The fitted lines show the local polynomial regression on each side.
-        A discontinuous jump at the cutoff indicates a treatment effect.
+        <strong>How to interpret:</strong> The vertical <span style={{ color: '#dc3545', fontWeight: 600 }}>red dashed line</span> marks
+        the cutoff. The <span style={{ color: '#e67e22', fontWeight: 600 }}>orange dashed lines</span> show the bandwidth
+        window (±{bandwidth.toFixed(3)} around the cutoff) — only observations within this window are used for estimation.
+        Points in blue are <strong>treated units</strong> ({treatmentSide === 'below' ? 'below' : 'above'} the cutoff) and
+        points in gray are <strong>control units</strong>. A jump in the fitted lines at the cutoff indicates a treatment effect.
       </div>
     </div>
   );

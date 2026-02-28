@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Navbar, BottomProgressBar } from '../components/layout';
+import { formatPValue } from '../utils/format';
 import { useProgressStep } from '../hooks/useProgressStep';
 import { aiService, ResultsInterpretation } from '../services/aiService';
 import { useAuth } from '../contexts/AuthContext';
@@ -184,6 +185,8 @@ const ResultsPage: React.FC = () => {
     "What are the limitations of this analysis?"
   ]);
   const [datasetInfo, setDatasetInfo] = useState<any>(null);
+  const [outcomeLabel, setOutcomeLabel] = useState<string>('');
+  const [editingOutcomeLabel, setEditingOutcomeLabel] = useState(false);
   const MAX_MESSAGE_LENGTH = 2000;
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -213,6 +216,7 @@ const ResultsPage: React.FC = () => {
           const parsedResults = JSON.parse(storedResults);
           loadedResults = parsedResults;
           setResults(parsedResults);
+          setOutcomeLabel(parsedResults.parameters?.outcome || 'outcome');
           // Set datasetId from results if not already set
           if (parsedResults.dataset_id) {
             loadedDatasetId = parsedResults.dataset_id;
@@ -237,6 +241,7 @@ const ResultsPage: React.FC = () => {
           if (project.lastResults) {
             loadedResults = project.lastResults;
             setResults(project.lastResults);
+            setOutcomeLabel(project.lastResults.parameters?.outcome || 'outcome');
             // Set datasetId from results
             if (project.lastResults.dataset_id) {
               loadedDatasetId = project.lastResults.dataset_id;
@@ -811,6 +816,48 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
 
               </div>
               <div style={styles.summaryCard}>
+                {/* Effect hero row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '16px' }}>
+                  <div style={{
+                    fontSize: '42px', fontWeight: 'bold', color: '#043873',
+                    lineHeight: 1, fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    {results?.results?.did_estimate !== null && results?.results?.did_estimate !== undefined
+                      ? `${(results.results.did_estimate > 0 ? '+' : '')}${formatNumber(results.results.did_estimate, 3)}`
+                      : '—'}
+                  </div>
+                  {editingOutcomeLabel ? (
+                    <input
+                      autoFocus
+                      value={outcomeLabel}
+                      onChange={e => setOutcomeLabel(e.target.value)}
+                      onBlur={() => setEditingOutcomeLabel(false)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingOutcomeLabel(false); }}
+                      style={{
+                        fontSize: '18px', color: '#043873',
+                        border: 'none', borderBottom: '2px solid #043873',
+                        background: 'transparent', outline: 'none',
+                        fontWeight: '500', textAlign: 'center',
+                        padding: '2px 6px', minWidth: '80px', maxWidth: '200px',
+                      }}
+                    />
+                  ) : (
+                    <span
+                      onClick={() => setEditingOutcomeLabel(true)}
+                      title="Click to edit variable name"
+                      style={{
+                        fontSize: '17px', color: '#043873', fontWeight: '500',
+                        cursor: 'pointer', padding: '4px 10px',
+                        border: '1px dashed #b3d0ff', borderRadius: '8px',
+                        backgroundColor: '#f0f7ff',
+                        display: 'inline-flex', alignItems: 'center', gap: '5px',
+                      }}
+                    >
+                      {outcomeLabel}
+                      <span style={{ fontSize: '12px', color: '#6c9bd4', marginLeft: '2px' }}>✏️</span>
+                    </span>
+                  )}
+                </div>
                 <div style={styles.summaryText}>
                   {generateAISummary()}
                 </div>
@@ -845,7 +892,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                     </div>
                     <div style={styles.detailItem}>
                       <span style={styles.detailLabel}>p-value:</span>
-                      <span style={styles.detailValue}>{formatNumber(results.results?.p_value, 4)}</span>
+                      <span style={styles.detailValue}>{formatPValue(results.results?.p_value)}</span>
                     </div>
                     <div style={styles.detailItem}>
                       <span style={styles.detailLabel}>Control Variables:</span>
@@ -1426,8 +1473,8 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                           }}>
                             <p style={{ margin: 0, fontSize: '15px', fontWeight: '500', color: statTestPassed ? '#155724' : '#721c24' }}>
                               {statTestPassed
-                                ? `✓ The parallel trends test passed with a high p-value (${formatNumber(statTestPValue, 2)}). This suggests the groups were changing at similar rates before treatment.`
-                                : `✗ The parallel trends test found evidence that groups were diverging before treatment (p = ${formatNumber(statTestPValue, 3)}). Interpret results with caution.`
+                                ? `✓ The parallel trends test passed with a high p-value (${formatPValue(statTestPValue)}). This suggests the groups were changing at similar rates before treatment.`
+                                : `✗ The parallel trends test found evidence that groups were diverging before treatment (p = ${formatPValue(statTestPValue)}). Interpret results with caution.`
                               }
                             </p>
                           </div>
@@ -1498,7 +1545,7 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                                 the treatment and control groups had different trends before treatment started.
                               </p>
                               <p style={{ marginBottom: '0', fontSize: '14px', lineHeight: '1.6', color: '#212529' }}>
-                                <strong>Your result:</strong> p-value = {formatNumber(statTestPValue, 3)}.
+                                <strong>Your result:</strong> p-value = {formatPValue(statTestPValue)}.
                                 {statTestPassed
                                   ? ' Since this is above 0.05, we fail to reject the null hypothesis that trends were parallel. This supports the parallel trends assumption.'
                                   : ' Since this is below 0.05, we reject the null hypothesis. This suggests the groups were diverging before treatment.'
@@ -2402,7 +2449,7 @@ export default ResultsPage;
 const styles = {
   contentContainer: {
     paddingTop: '70px',
-    paddingBottom: '120px', // Extra padding for bottom progress bar
+    paddingBottom: '120px',
     minHeight: 'calc(100vh - 70px)',
     backgroundColor: '#f5f5f5'
   },

@@ -20,6 +20,7 @@ interface RDSensitivityPlotProps {
   outcomeVar: string;
   cutoff: number;
   optimalBandwidth?: number;
+  selectedBandwidth?: number;
   treatmentSide?: 'above' | 'below';
 }
 
@@ -39,6 +40,7 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
   outcomeVar,
   cutoff,
   optimalBandwidth,
+  selectedBandwidth,
   treatmentSide = 'above',
 }) => {
   const { accessToken } = useAuth();
@@ -295,6 +297,22 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
             {/* Zero reference line */}
             <ReferenceLine y={0} stroke="#666" strokeDasharray="3 3" />
 
+            {/* Selected (used) bandwidth reference line */}
+            {selectedBandwidth && (
+              <ReferenceLine
+                x={selectedBandwidth}
+                stroke="#e67e22"
+                strokeWidth={2.5}
+                label={{
+                  value: `Selected: ${selectedBandwidth.toFixed(3)}`,
+                  position: 'insideTopRight',
+                  fill: '#e67e22',
+                  fontSize: 12,
+                  fontWeight: 'bold',
+                }}
+              />
+            )}
+
             {/* Optimal bandwidth reference line */}
             {optimalBandwidth && (
               <ReferenceLine
@@ -303,8 +321,8 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
                 strokeWidth={2}
                 strokeDasharray="5 5"
                 label={{
-                  value: 'Optimal',
-                  position: 'top',
+                  value: `Optimal: ${optimalBandwidth.toFixed(3)}`,
+                  position: 'insideTopLeft',
                   fill: '#28a745',
                   fontSize: 12,
                   fontWeight: 'bold',
@@ -317,9 +335,13 @@ const RDSensitivityPlot: React.FC<RDSensitivityPlotProps> = ({
 
       {/* Interpretation Note */}
       <div style={styles.noteBox}>
-        <strong>How to interpret:</strong> A stable treatment effect across bandwidths
-        suggests robust results. Large variations may indicate sensitivity to bandwidth
-        choice or model misspecification.
+        <strong>How to interpret:</strong> Each point shows the estimated treatment effect
+        for a given bandwidth. The <span style={{ color: '#e67e22', fontWeight: 600 }}>orange line</span> marks
+        the bandwidth used in your analysis{selectedBandwidth ? ` (${selectedBandwidth.toFixed(3)})` : ''}.
+        {optimalBandwidth && <> The <span style={{ color: '#28a745', fontWeight: 600 }}>green dashed line</span> is
+        the algorithmically optimal bandwidth ({optimalBandwidth.toFixed(3)}).</>}{' '}
+        A stable treatment effect across bandwidths suggests robust results; large variations may
+        indicate sensitivity to bandwidth choice.
       </div>
     </div>
   );

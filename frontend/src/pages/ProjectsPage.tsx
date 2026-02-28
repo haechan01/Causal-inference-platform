@@ -45,8 +45,8 @@ const ProjectsPage: React.FC = () => {
   // Pre-selected dataset from DataUploadPage
   const preSelectedDatasetId = (location.state as any)?.selectedDatasetId || null;
 
-  // Load projects from API
-  const loadProjects = async () => {
+  // Load projects from API — returns the mapped list so callers can use it
+  const loadProjects = async (): Promise<Project[]> => {
     try {
       setLoading(true);
       const response = await axios.get('/projects', {
@@ -91,8 +91,10 @@ const ProjectsPage: React.FC = () => {
       );
 
       setProjects(mappedProjects);
+      return mappedProjects;
     } catch (error) {
       console.error('Error loading projects:', error);
+      return [];
     } finally {
       setLoading(false);
     }
@@ -133,22 +135,32 @@ const ProjectsPage: React.FC = () => {
         });
       }
 
-      // Map backend response to frontend format
-      const mappedProject = {
+      // Build a local copy immediately — include a minimal datasets entry so
+      // handleNext (which guards on checkedProject.datasets[0].id) can proceed
+      // right away without waiting for the reload.
+      const mappedProject: Project = {
         id: newProject.id,
-        title: newProject.name,  // Map 'name' to 'title' for frontend
+        title: newProject.name,
         description: newProject.description,
-        created_at: new Date().toISOString(),  // Add timestamp
-        dataset_count: datasetId ? 1 : 0
+        created_at: new Date().toISOString(),
+        dataset_count: datasetId ? 1 : 0,
+        datasets: datasetId ? [{ id: datasetId, name: '', file_name: '', created_at: '' }] : [],
       };
 
       setProjects([...projects, mappedProject]);
       setSelectedProject(mappedProject);
       setCheckedProject(mappedProject);
-      setIsReadyForNext(datasetId ? true : false);
+      setIsReadyForNext(!!datasetId);
 
-      // Reload projects to get accurate data
-      loadProjects();
+      // Reload from the server to get accurate dataset metadata, then
+      // re-sync checkedProject so it has the full data.
+      const freshProjects = await loadProjects();
+      const freshProject = freshProjects.find(p => p.id === newProject.id);
+      if (freshProject) {
+        setSelectedProject(freshProject);
+        setCheckedProject(freshProject);
+        setIsReadyForNext((freshProject.datasets?.length ?? 0) > 0);
+      }
     } catch (error) {
       console.error('Error creating project:', error);
       throw error;
@@ -377,9 +389,9 @@ const styles = {
     backgroundColor: '#f5f5f5'
   },
   contentContainer: {
-    paddingTop: '70px', // Account for fixed navbar height
-    paddingBottom: '80px', // Account for fixed bottom progress bar
-    minHeight: 'calc(100vh - 70px)', // Full height minus navbar
+    paddingTop: '70px',
+    paddingBottom: '120px',
+    minHeight: 'calc(100vh - 70px)',
     backgroundColor: '#f5f5f5'
   },
   projectsHeader: {
