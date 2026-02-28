@@ -291,100 +291,46 @@ const MethodSelectionPage: React.FC = () => {
                             <div style={styles.aiOnlineDot} title="Online" />
                         </div>
 
-                        {/* Chat messages */}
-                        <div className="ai-chat-messages" style={styles.chatMessages}>
-                            {chatMessages.map((msg, idx) => (
-                                <div key={idx} style={msg.role === 'user' ? styles.userRow : styles.aiRow}>
-                                    {msg.role === 'assistant' && <div style={styles.msgAvatar}>🤖</div>}
-                                    <div style={msg.role === 'user' ? styles.userBubble : styles.aiBubble}>
-                                        {msg.content.split('\n').map((line, i, arr) => (
-                                            <span key={i}>{line}{i < arr.length - 1 && <br />}</span>
-                                        ))}
-                                        {msg.recommendation && (
-                                            <RecommendationCard
-                                                rec={msg.recommendation}
-                                                onSelect={handleMethodSelect}
-                                                styles={styles}
-                                            />
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-
-                            {(chatLoading || recLoading) && (
-                                <div style={styles.aiRow}>
-                                    <div style={styles.msgAvatar}>🤖</div>
-                                    <div style={styles.aiBubble}>
-                                        <div className="typing-indicator">
-                                            <span className="typing-dot" />
-                                            <span className="typing-dot" />
-                                            <span className="typing-dot" />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                            <div ref={chatEndRef} />
+                        {/* Mode tabs — fixed at top */}
+                        <div style={styles.modeTabs}>
+                            <button
+                                style={{ ...styles.modeTab, ...(inputMode === 'recommend' ? styles.modeTabActive : {}) }}
+                                onClick={() => { setInputMode('recommend'); setRecError(null); }}
+                            >
+                                🎯 Recommend
+                            </button>
+                            <button
+                                style={{ ...styles.modeTab, ...(inputMode === 'chat' ? styles.modeTabActive : {}) }}
+                                onClick={() => setInputMode('chat')}
+                            >
+                                💬 Chat
+                            </button>
                         </div>
 
-                        {/* Input area */}
-                        <div style={styles.inputArea}>
-                            {/* Mode tabs */}
-                            <div style={styles.modeTabs}>
-                                <button
-                                    style={{ ...styles.modeTab, ...(inputMode === 'recommend' ? styles.modeTabActive : {}) }}
-                                    onClick={() => { setInputMode('recommend'); setRecError(null); }}
-                                >
-                                    🎯 Recommend
-                                </button>
-                                <button
-                                    style={{ ...styles.modeTab, ...(inputMode === 'chat' ? styles.modeTabActive : {}) }}
-                                    onClick={() => setInputMode('chat')}
-                                >
-                                    💬 Chat
-                                </button>
-                            </div>
-
-                            {/* Chat mode */}
-                            {inputMode === 'chat' && (
-                                <div style={styles.chatInputRow}>
-                                    <textarea
-                                        style={styles.chatTextarea}
-                                        placeholder="Ask anything about causal inference… (Shift+Enter for new line)"
-                                        value={chatInput}
-                                        onChange={e => setChatInput(e.target.value)}
-                                        onKeyDown={handleChatKeyDown}
-                                        rows={3}
-                                    />
-                                    <button
-                                        style={{
-                                            ...styles.sendBtn,
-                                            ...(!chatInput.trim() || chatLoading ? styles.sendBtnDisabled : {})
-                                        }}
-                                        onClick={handleSendChat}
-                                        disabled={!chatInput.trim() || chatLoading}
-                                        title="Send (Enter)"
-                                    >
-                                        <svg viewBox="0 0 24 24" width="20" height="20" fill="white">
-                                            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-                                        </svg>
-                                    </button>
+                        {/* ── Recommend pane ── */}
+                        {inputMode === 'recommend' && (
+                            <div style={styles.recommendPane}>
+                                {/* Helper banner */}
+                                <div style={styles.helpBanner}>
+                                    <p style={styles.helpBannerText}>
+                                        Not sure which method to choose?<br />I can help you!
+                                    </p>
+                                    <p style={styles.helpBannerSub}>
+                                        Answer a few quick questions and I'll recommend the best causal inference method for your study.
+                                    </p>
                                 </div>
-                            )}
 
-                            {/* Recommend mode */}
-                            {inputMode === 'recommend' && (
                                 <div style={styles.recForm}>
                                     {recError && <div style={styles.recError}>⚠️ {recError}</div>}
 
-                                    {/* Variables */}
                                     <div style={styles.recInputGrid}>
                                         <div style={styles.recField}>
                                             <label style={styles.recLabel}>Treatment variable <span style={styles.req}>*</span></label>
-                                            <input style={styles.recInput} placeholder="e.g., scholarship, policy" value={treatmentVariable} onChange={e => setTreatmentVariable(e.target.value)} />
+                                            <input style={styles.recInput} placeholder="e.g., scholarship" value={treatmentVariable} onChange={e => setTreatmentVariable(e.target.value)} />
                                         </div>
                                         <div style={styles.recField}>
                                             <label style={styles.recLabel}>Outcome variable <span style={styles.req}>*</span></label>
-                                            <input style={styles.recInput} placeholder="e.g., graduation rate, sales" value={outcomeVariable} onChange={e => setOutcomeVariable(e.target.value)} />
+                                            <input style={styles.recInput} placeholder="e.g., graduation rate" value={outcomeVariable} onChange={e => setOutcomeVariable(e.target.value)} />
                                         </div>
                                     </div>
                                     <textarea
@@ -395,7 +341,6 @@ const MethodSelectionPage: React.FC = () => {
                                         rows={2}
                                     />
 
-                                    {/* Three guided questions */}
                                     <QuestionRow
                                         number={1}
                                         question="Is treatment determined by crossing a clear cutoff or rule?"
@@ -429,11 +374,76 @@ const MethodSelectionPage: React.FC = () => {
                                         onClick={handleGetRecommendation}
                                         disabled={recLoading || !treatmentVariable.trim() || !outcomeVariable.trim()}
                                     >
-                                        {recLoading ? 'Analyzing…' : '🎯 Get Recommendation'}
+                                        {recLoading ? 'Analyzing…' : 'Get Recommendation'}
                                     </button>
                                 </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
+
+                        {/* ── Chat pane ── */}
+                        {inputMode === 'chat' && (
+                            <>
+                                <div className="ai-chat-messages" style={styles.chatMessages}>
+                                    {chatMessages.map((msg, idx) => (
+                                        <div key={idx} style={msg.role === 'user' ? styles.userRow : styles.aiRow}>
+                                            {msg.role === 'assistant' && <div style={styles.msgAvatar}>🤖</div>}
+                                            <div style={msg.role === 'user' ? styles.userBubble : styles.aiBubble}>
+                                                {msg.content.split('\n').map((line, i, arr) => (
+                                                    <span key={i}>{line}{i < arr.length - 1 && <br />}</span>
+                                                ))}
+                                                {msg.recommendation && (
+                                                    <RecommendationCard
+                                                        rec={msg.recommendation}
+                                                        onSelect={handleMethodSelect}
+                                                        styles={styles}
+                                                    />
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {chatLoading && (
+                                        <div style={styles.aiRow}>
+                                            <div style={styles.msgAvatar}>🤖</div>
+                                            <div style={styles.aiBubble}>
+                                                <div className="typing-indicator">
+                                                    <span className="typing-dot" />
+                                                    <span className="typing-dot" />
+                                                    <span className="typing-dot" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div ref={chatEndRef} />
+                                </div>
+
+                                <div style={styles.inputArea}>
+                                    <div style={styles.chatInputRow}>
+                                        <textarea
+                                            style={styles.chatTextarea}
+                                            placeholder="Ask anything about causal inference… (Shift+Enter for new line)"
+                                            value={chatInput}
+                                            onChange={e => setChatInput(e.target.value)}
+                                            onKeyDown={handleChatKeyDown}
+                                            rows={3}
+                                        />
+                                        <button
+                                            style={{
+                                                ...styles.sendBtn,
+                                                ...(!chatInput.trim() || chatLoading ? styles.sendBtnDisabled : {})
+                                            }}
+                                            onClick={handleSendChat}
+                                            disabled={!chatInput.trim() || chatLoading}
+                                            title="Send (Enter)"
+                                        >
+                                            <svg viewBox="0 0 24 24" width="20" height="20" fill="white">
+                                                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             </div>
@@ -471,7 +481,7 @@ const RecommendationCard: React.FC<{
         {rec.why_not_others && (
             <div style={styles.recCardSection}>
                 <p style={styles.recCardLabel}>Why Not the Others?</p>
-                <p style={{ ...styles.recCardExplanation, color: '#64748b', margin: 0 }}>{rec.why_not_others}</p>
+                <p style={{ ...styles.recCardExplanation, color: '#374151', margin: 0 }}>{rec.why_not_others}</p>
             </div>
         )}
         {rec.alternatives.length > 0 && (
@@ -508,9 +518,11 @@ const QuestionRow: React.FC<{
     return (
         <div style={styles.questionRow}>
             <div style={styles.questionHeader}>
-                <div style={styles.questionBadge}>{number}</div>
+                <div style={styles.questionBadge}>
+                    {number}
+                </div>
                 <div>
-                    <p style={styles.questionText}>{question}</p>
+                    <p style={styles.questionText}>{question}<span style={{ color: '#ef4444', fontSize: '13px', marginLeft: '3px', lineHeight: 1 }}>*</span></p>
                     <p style={styles.questionExample}>{example}</p>
                 </div>
             </div>
@@ -894,7 +906,7 @@ export default MethodSelectionPage;
 const styles: Record<string, React.CSSProperties> = {
     contentContainer: {
         paddingTop: '80px',
-        paddingBottom: '100px',
+        paddingBottom: '120px',
         minHeight: 'calc(100vh - 80px)',
         backgroundColor: '#f5f5f5'
     },
@@ -919,8 +931,8 @@ const styles: Record<string, React.CSSProperties> = {
         gap: '28px'
     },
     header: { textAlign: 'center' },
-    pageTitle: { fontSize: '26px', fontWeight: 'bold', color: '#043873', margin: '0 0 8px 0' },
-    subtitle: { fontSize: '15px', color: '#666', margin: 0 },
+    pageTitle: { fontSize: '34px', fontWeight: 'bold', color: '#043873', margin: '0 0 10px 0' },
+    subtitle: { fontSize: '17px', color: '#374151', margin: 0 },
 
     cardsContainer: {
         display: 'grid',
@@ -931,7 +943,7 @@ const styles: Record<string, React.CSSProperties> = {
     methodCard: {
         backgroundColor: 'white',
         borderRadius: '14px',
-        padding: '20px 16px',
+        padding: '22px 18px',
         boxShadow: '0 2px 10px rgba(0,0,0,0.06)',
         cursor: 'pointer',
         border: '2px solid transparent',
@@ -940,7 +952,7 @@ const styles: Record<string, React.CSSProperties> = {
         flexDirection: 'column',
         alignItems: 'center',
         textAlign: 'center',
-        minHeight: '190px'
+        minHeight: '210px'
     },
     methodCardDisabled: { opacity: 0.65 },
     selectedCard: {
@@ -955,26 +967,26 @@ const styles: Record<string, React.CSSProperties> = {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: '10px'
+        gap: '12px'
     },
-    icon: { fontSize: '32px' },
-    cardTitle: { fontSize: '14px', fontWeight: '600', color: '#043873', margin: 0, lineHeight: '1.3' },
-    cardDescription: { fontSize: '12px', color: '#666', lineHeight: '1.4', margin: 0 },
+    icon: { fontSize: '40px' },
+    cardTitle: { fontSize: '18px', fontWeight: '700', color: '#043873', margin: 0, lineHeight: '1.3' },
+    cardDescription: { fontSize: '14px', color: '#374151', lineHeight: '1.5', margin: 0 },
     cardRadio: { marginTop: '14px' },
     radioOuter: {
-        width: '20px', height: '20px', borderRadius: '50%',
+        width: '22px', height: '22px', borderRadius: '50%',
         border: '2px solid #cbd5e1',
         display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s'
     },
     radioOuterSelected: { borderColor: '#043873' },
-    radioInner: { width: '11px', height: '11px', borderRadius: '50%', backgroundColor: '#043873' },
+    radioInner: { width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#043873' },
     statusBadge: {
         backgroundColor: '#d4edda', color: '#155724',
-        padding: '3px 10px', borderRadius: '10px', fontSize: '10px', fontWeight: '600', marginBottom: '10px'
+        padding: '4px 12px', borderRadius: '10px', fontSize: '12px', fontWeight: '600', marginBottom: '10px'
     },
     comingSoonBadge: {
-        backgroundColor: '#f1f5f9', color: '#64748b',
-        padding: '3px 10px', borderRadius: '10px', fontSize: '10px', fontWeight: '600', marginBottom: '10px'
+        backgroundColor: '#f1f5f9', color: '#374151',
+        padding: '4px 12px', borderRadius: '10px', fontSize: '12px', fontWeight: '600', marginBottom: '10px'
     },
 
     // ── AI Panel ──────────────────────────────────────────────────────────────
@@ -1006,8 +1018,8 @@ const styles: Record<string, React.CSSProperties> = {
         backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: '50%',
         display: 'flex', alignItems: 'center', justifyContent: 'center'
     },
-    aiPanelTitle: { color: 'white', fontWeight: '700', fontSize: '14px' },
-    aiPanelSubtitle: { color: 'rgba(255,255,255,0.65)', fontSize: '11px', marginTop: '1px' },
+    aiPanelTitle: { color: 'white', fontWeight: '700', fontSize: '16px' },
+    aiPanelSubtitle: { color: 'rgba(255,255,255,0.65)', fontSize: '13px', marginTop: '1px' },
     aiOnlineDot: {
         width: '9px', height: '9px', borderRadius: '50%',
         backgroundColor: '#4ade80', boxShadow: '0 0 0 2px rgba(74,222,128,0.3)'
@@ -1029,40 +1041,72 @@ const styles: Record<string, React.CSSProperties> = {
         backgroundColor: '#043873', color: 'white',
         borderRadius: '16px 16px 4px 16px',
         padding: '10px 14px', maxWidth: '84%',
-        fontSize: '13px', lineHeight: '1.55'
+        fontSize: '14px', lineHeight: '1.55'
     },
     aiBubble: {
         backgroundColor: 'white', color: '#1e293b',
         borderRadius: '4px 16px 16px 16px',
         padding: '10px 14px', maxWidth: '92%',
-        fontSize: '13px', lineHeight: '1.55',
+        fontSize: '14px', lineHeight: '1.55',
         boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
         border: '1px solid #e8ecf0'
     },
 
-    // ── Input area ────────────────────────────────────────────────────────────
-    inputArea: {
-        borderTop: '1px solid #e8ecf0',
+    // ── Mode tabs (fixed at top of panel) ────────────────────────────────────
+    modeTabs: {
+        display: 'flex',
+        borderBottom: '2px solid #e8ecf0',
         backgroundColor: 'white',
         flexShrink: 0
     },
-    modeTabs: {
-        display: 'flex',
-        borderBottom: '1px solid #f0f0f0',
-        padding: '0 12px'
-    },
     modeTab: {
-        flex: 1, padding: '10px 8px',
+        flex: 1, padding: '13px 8px',
         background: 'none', border: 'none',
-        cursor: 'pointer', fontSize: '12.5px',
-        fontWeight: '500', color: '#94a3b8',
-        borderBottom: '2px solid transparent',
-        marginBottom: '-1px', transition: 'all 0.15s'
+        cursor: 'pointer', fontSize: '15px',
+        fontWeight: '500', color: '#64748b',
+        borderBottom: '3px solid transparent',
+        marginBottom: '-2px', transition: 'all 0.15s'
     },
     modeTabActive: {
         color: '#043873',
         borderBottomColor: '#043873',
         fontWeight: '700'
+    },
+
+    // ── Recommend pane ────────────────────────────────────────────────────────
+    recommendPane: {
+        flex: 1,
+        overflowY: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0',
+        backgroundColor: '#f8fafc'
+    },
+    helpBanner: {
+        backgroundColor: '#043873',
+        padding: '22px 20px 18px',
+        textAlign: 'center',
+        flexShrink: 0
+    },
+    helpBannerText: {
+        fontSize: '21px',
+        fontWeight: '700',
+        color: 'white',
+        margin: '0 0 8px 0',
+        lineHeight: '1.4'
+    },
+    helpBannerSub: {
+        fontSize: '14px',
+        color: 'rgba(255,255,255,0.75)',
+        margin: 0,
+        lineHeight: '1.5'
+    },
+
+    // ── Input area (chat tab only) ────────────────────────────────────────────
+    inputArea: {
+        borderTop: '1px solid #e8ecf0',
+        backgroundColor: 'white',
+        flexShrink: 0
     },
 
     // Chat tab
@@ -1073,7 +1117,7 @@ const styles: Record<string, React.CSSProperties> = {
     chatTextarea: {
         flex: 1,
         padding: '9px 12px',
-        fontSize: '13px',
+        fontSize: '14px',
         border: '1.5px solid #e2e8f0',
         borderRadius: '10px',
         fontFamily: 'inherit',
@@ -1097,10 +1141,11 @@ const styles: Record<string, React.CSSProperties> = {
 
     // Recommend tab
     recForm: {
-        padding: '12px',
+        padding: '14px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '8px'
+        gap: '10px',
+        backgroundColor: '#f8fafc'
     },
     recError: {
         padding: '7px 10px',
@@ -1116,11 +1161,11 @@ const styles: Record<string, React.CSSProperties> = {
         gap: '8px'
     },
     recField: { display: 'flex', flexDirection: 'column', gap: '3px' },
-    recLabel: { fontSize: '11px', fontWeight: '600', color: '#64748b' },
+    recLabel: { fontSize: '13px', fontWeight: '600', color: '#374151' },
     req: { color: '#e74c3c' },
     recInput: {
-        padding: '7px 9px',
-        fontSize: '12.5px',
+        padding: '8px 10px',
+        fontSize: '14px',
         border: '1.5px solid #e2e8f0',
         borderRadius: '7px',
         fontFamily: 'inherit',
@@ -1129,11 +1174,11 @@ const styles: Record<string, React.CSSProperties> = {
     recChecks: { display: 'flex', flexDirection: 'column', gap: '5px' },
     recCheckLabel: {
         display: 'flex', alignItems: 'center', gap: '6px',
-        fontSize: '12px', color: '#475569', cursor: 'pointer'
+        fontSize: '12px', color: '#374151', cursor: 'pointer'
     },
     recCheckbox: { width: '14px', height: '14px', accentColor: '#043873', cursor: 'pointer' },
     recSubmitBtn: {
-        padding: '9px', fontSize: '13px', fontWeight: '600',
+        padding: '10px', fontSize: '15px', fontWeight: '600',
         color: 'white', backgroundColor: '#043873',
         border: 'none', borderRadius: '8px', cursor: 'pointer'
     },
@@ -1161,21 +1206,21 @@ const styles: Record<string, React.CSSProperties> = {
         flexShrink: 0, marginTop: '1px'
     },
     questionText: {
-        fontSize: '12px', fontWeight: '600', color: '#1e293b',
+        fontSize: '14px', fontWeight: '600', color: '#111827',
         margin: '0 0 2px 0', lineHeight: '1.4'
     },
     questionExample: {
-        fontSize: '11px', color: '#64748b', margin: 0, lineHeight: '1.4'
+        fontSize: '13px', color: '#374151', margin: 0, lineHeight: '1.4'
     },
     questionBtns: {
         display: 'flex', gap: '6px'
     },
     questionBtn: {
-        flex: 1, padding: '5px 4px',
+        flex: 1, padding: '6px 4px',
         border: '1.5px solid #e2e8f0',
         borderRadius: '6px', backgroundColor: 'white',
-        fontSize: '11.5px', fontWeight: '500',
-        color: '#475569', cursor: 'pointer',
+        fontSize: '13px', fontWeight: '500',
+        color: '#374151', cursor: 'pointer',
         transition: 'all 0.15s'
     },
 
@@ -1192,7 +1237,7 @@ const styles: Record<string, React.CSSProperties> = {
         fontSize: '12px', fontWeight: '700', marginBottom: '8px'
     },
     recCardExplanation: {
-        fontSize: '12px', color: '#334155', lineHeight: '1.6', margin: '0 0 8px 0'
+        fontSize: '14px', color: '#1e293b', lineHeight: '1.6', margin: '0 0 8px 0'
     },
     recAssumptionBox: {
         backgroundColor: '#fffbeb',
@@ -1206,15 +1251,15 @@ const styles: Record<string, React.CSSProperties> = {
     },
     recCardSection: { marginBottom: '8px' },
     recCardLabel: {
-        fontSize: '10px', fontWeight: '700', color: '#64748b',
+        fontSize: '12px', fontWeight: '700', color: '#374151',
         textTransform: 'uppercase', letterSpacing: '0.5px', margin: '0 0 4px 0'
     },
     recCardList: {
         margin: '0 0 0 14px', padding: 0,
-        fontSize: '11.5px', color: '#475569', lineHeight: '1.7'
+        fontSize: '12px', color: '#374151', lineHeight: '1.7'
     },
     recAltItem: {
-        fontSize: '11.5px', color: '#475569',
+        fontSize: '12px', color: '#374151',
         padding: '4px 7px', backgroundColor: 'white',
         borderRadius: '5px', marginTop: '3px',
         border: '1px solid #e2e8f0', lineHeight: '1.5'
@@ -1237,18 +1282,18 @@ const styles: Record<string, React.CSSProperties> = {
         textAlign: 'center', marginBottom: '22px',
         paddingBottom: '18px', borderBottom: '2px solid #f0f4f8'
     },
-    explanationTitle: { fontSize: '24px', fontWeight: 'bold', color: '#043873', margin: '0 0 8px 0' },
-    explanationSubtitle: { fontSize: '14px', color: '#666', margin: 0 },
+    explanationTitle: { fontSize: '32px', fontWeight: 'bold', color: '#043873', margin: '0 0 8px 0' },
+    explanationSubtitle: { fontSize: '17px', color: '#374151', margin: 0 },
     whenToUseSection: {
         backgroundColor: '#f0f7ff', borderRadius: '10px',
-        padding: '18px 22px', marginBottom: '26px', border: '1px solid #d4e5f7'
+        padding: '20px 24px', marginBottom: '28px', border: '1px solid #d4e5f7'
     },
-    whenToUseTitle: { fontSize: '15px', fontWeight: '600', color: '#043873', margin: '0 0 10px 0' },
-    whenToUseText: { fontSize: '13.5px', color: '#334155', lineHeight: '1.65', margin: 0 },
+    whenToUseTitle: { fontSize: '22px', fontWeight: '700', color: '#043873', margin: '0 0 12px 0' },
+    whenToUseText: { fontSize: '16px', color: '#1e293b', lineHeight: '1.7', margin: 0 },
     explanationContent: { display: 'flex', flexDirection: 'column', gap: '30px' },
     chartSection: { textAlign: 'center' },
     sectionTitle: {
-        fontSize: '16px', fontWeight: '600', color: '#043873', marginBottom: '16px',
+        fontSize: '22px', fontWeight: '700', color: '#043873', marginBottom: '16px',
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px'
     },
     chartContainer: {
@@ -1257,7 +1302,7 @@ const styles: Record<string, React.CSSProperties> = {
     },
     didChart: { width: '100%', maxWidth: '480px', height: 'auto' },
     chartCaption: {
-        fontSize: '13px', color: '#555', lineHeight: '1.65',
+        fontSize: '15px', color: '#374151', lineHeight: '1.65',
         maxWidth: '580px', margin: '0 auto', textAlign: 'center'
     },
     conceptsSection: {},
@@ -1266,18 +1311,19 @@ const styles: Record<string, React.CSSProperties> = {
         backgroundColor: '#f8fafc', borderRadius: '10px',
         padding: '18px', border: '1px solid #e2e8f0'
     },
-    conceptTitle: { fontSize: '14px', fontWeight: '600', color: '#043873', margin: '0 0 6px 0' },
-    conceptText: { fontSize: '12.5px', color: '#555', lineHeight: '1.6', margin: 0 },
+    conceptTitle: { fontSize: '18px', fontWeight: '700', color: '#043873', margin: '0 0 6px 0' },
+    conceptText: { fontSize: '15px', color: '#374151', lineHeight: '1.6', margin: 0 },
     exampleSection: {},
-    exampleBox: { backgroundColor: '#f8f9fa', borderRadius: '10px', padding: '22px', border: '1px solid #e2e8f0' },
+    exampleBox: { backgroundColor: '#f8f9fa', borderRadius: '10px', padding: '22px', border: '1px solid #e2e8f0', color: '#1e293b', fontSize: '15px' },
     exampleScenario: {
         backgroundColor: '#e8f4fc', borderRadius: '7px',
-        padding: '13px 18px', marginBottom: '16px', borderLeft: '4px solid #3498db'
+        padding: '13px 18px', marginBottom: '16px', borderLeft: '4px solid #3498db', color: '#1e293b'
     },
     exampleSteps: { display: 'flex', flexDirection: 'column', gap: '10px' },
     exampleStep: {
         display: 'flex', alignItems: 'flex-start', gap: '12px',
-        backgroundColor: 'white', padding: '12px', borderRadius: '7px', border: '1px solid #eee'
+        backgroundColor: 'white', padding: '12px', borderRadius: '7px', border: '1px solid #eee',
+        color: '#1e293b', fontSize: '15px'
     },
     stepNumber: {
         width: '26px', height: '26px', borderRadius: '50%',
@@ -1299,8 +1345,8 @@ const styles: Record<string, React.CSSProperties> = {
         fontSize: '12px', color: '#aaa'
     },
     comingSoonContent: {
-        textAlign: 'center', padding: '40px 20px', color: '#666',
+        textAlign: 'center', padding: '40px 20px', color: '#374151',
         backgroundColor: '#f8fafc', borderRadius: '10px', border: '2px dashed #e2e8f0'
     },
-    comingSoonText: { fontSize: '18px', fontWeight: '600', color: '#64748b', margin: '0 0 10px 0' }
+    comingSoonText: { fontSize: '18px', fontWeight: '600', color: '#374151', margin: '0 0 10px 0' }
 };

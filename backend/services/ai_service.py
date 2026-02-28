@@ -612,7 +612,7 @@ Q2 — Did treatment start or change at a specific time for some groups but not 
       (e.g. a new law, a policy in some regions, a program rolled out in certain schools)
       Answer: {fmt(q2_time_change)}
 
-Q3 — Is there something that strongly affects who receives treatment but does NOT directly affect the outcome?
+Q3 — Is there a factor that strongly affects who receives treatment but does NOT directly affect the outcome?
       (e.g. lottery assignment, distance to a facility, administrative rules, encouragement letters)
       Answer: {fmt(q3_instrument)}
 
@@ -731,15 +731,35 @@ OUTPUT FORMAT — Return JSON only:
         
         cols_str = "; ".join(col_summary)
         
-        prompt = f"""Assess data quality for causal inference analysis.
+        prompt = f"""You are an expert in causal inference. Assess the following dataset's readiness for causal analysis (DiD, RDD, or IV).
 
-Data: {total_rows} rows, {total_cols} cols ({numeric_cols} numeric, {categorical_cols} categorical), {missing_pct:.1f}% missing overall.
+Data: {total_rows} rows, {total_cols} columns ({numeric_cols} numeric, {categorical_cols} categorical), {missing_pct:.1f}% missing overall.
 Columns: {cols_str}
 
-IMPORTANT: Data types have already been correctly detected and validated. Do NOT flag issues about incorrect data types (e.g., numeric columns labeled as categorical). Focus on other data quality issues like missing values, outliers, data completeness, and suitability for causal analysis methods.
+RULES:
+1. Do NOT flag data type issues — types have already been validated.
+2. Be concrete and actionable. Vague notes like "data may have issues" are not acceptable.
+3. The user will define their causal variables (treatment, outcome, time, group) in the next step — DO NOT flag the absence of a pre-named treatment variable as a problem. That is normal and expected.
+4. For causal_analysis_readiness, apply this EXACT decision logic:
+   - Use "ready" when ALL of the following hold:
+       * Overall missing data < 15%
+       * No individual column has > 20% missing values
+       * At least 50 rows
+       * The dataset has enough columns that the user CAN plausibly define causal variables (even if not yet named)
+     When "ready", the summary MUST confirm the data is usable and briefly say why. Any remaining low/medium observations go into the issues list but do NOT change the readiness to "needs_work".
+   - Use "needs_work" ONLY when there are REAL data quality problems that require fixing before analysis, such as:
+       * Overall missing data ≥ 15%, OR a critical column has > 20% nulls
+       * Fewer than 50 rows
+       * A single time period exists (DiD is impossible)
+       * Key numeric columns are entirely constant (zero variance)
+     The summary MUST name each specific problem and what to do.
+   - Use "not_suitable" only for fundamental issues that cannot reasonably be fixed (e.g., fewer than 10 rows, all columns are IDs, all values are null).
+5. Each issue must include: a specific description, the affected column if applicable, and a concrete recommendation.
+6. Calibrate overall_score honestly: low/no missingness + sufficient rows + good structure = 80–95. Deduct points only for real problems.
+7. strengths must list genuine positives (e.g., "Large sample size (N={total_rows}) provides good statistical power").
 
-Evaluate for causal analysis (DiD, RDD, IV). Return JSON only:
-{{"overall_score":85,"quality_level":"good/fair/poor","summary":"2-3 sentence summary","issues":[{{"severity":"high/medium/low","issue":"description","column":"column_name or null","recommendation":"how to fix"}}],"strengths":["strength1","strength2"],"recommendations":["rec1","rec2"],"causal_analysis_readiness":"ready/needs_work/not_suitable","potential_variables":{{"outcome_candidates":["col1","col2"],"treatment_candidates":["col1"],"time_candidates":["col1"],"group_candidates":["col1"]}}}}"""
+Return ONLY valid JSON, no markdown:
+{{"overall_score":0-100,"quality_level":"good|fair|poor","summary":"Specific 2-3 sentence summary — must be informative, not generic","issues":[{{"severity":"high|medium|low","issue":"Specific description of the problem","column":"column_name or null","recommendation":"Concrete step-by-step fix"}}],"strengths":["Specific strength 1","Specific strength 2"],"recommendations":["Specific actionable recommendation 1","Specific actionable recommendation 2"],"causal_analysis_readiness":"ready|needs_work|not_suitable","potential_variables":{{"outcome_candidates":["col1"],"treatment_candidates":["col1"],"time_candidates":["col1"],"group_candidates":["col1"]}}}}"""
         
         response = self._call_gemini(prompt)
         

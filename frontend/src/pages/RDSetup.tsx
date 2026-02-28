@@ -896,7 +896,7 @@ export default RDSetup;
 const styles = {
   contentContainer: {
     paddingTop: '70px',
-    paddingBottom: '80px',
+    paddingBottom: '120px',
     minHeight: 'calc(100vh - 70px)',
     backgroundColor: '#f5f5f5',
   },

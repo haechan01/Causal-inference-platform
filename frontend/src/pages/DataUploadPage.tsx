@@ -642,15 +642,26 @@ const DataUploadPage: React.FC = () => {
                         {/* Issues */}
                         {qualityAssessment.issues.length > 0 && (
                           <div style={styles.qualityBlock}>
-                            <h5 style={styles.qualityBlockTitle}>⚠️ Issues Found</h5>
+                            <h5 style={styles.qualityBlockTitle}>
+                              {qualityAssessment.causal_analysis_readiness === 'ready'
+                                ? '💡 Notes & Considerations'
+                                : '⚠️ Issues Found'}
+                            </h5>
                             {qualityAssessment.issues.map((issue, idx) => (
                               <div key={idx} style={{
                                 ...styles.issueItem,
-                                borderLeftColor: issue.severity === 'high' ? '#ef4444' :
-                                               issue.severity === 'medium' ? '#f59e0b' : '#3b82f6'
+                                borderLeftColor: qualityAssessment.causal_analysis_readiness === 'ready'
+                                  ? '#3b82f6'
+                                  : issue.severity === 'high' ? '#ef4444'
+                                  : issue.severity === 'medium' ? '#f59e0b' : '#3b82f6'
                               }}>
-                                <div style={styles.issueSeverity}>
-                                  {issue.severity.toUpperCase()}
+                                <div style={{
+                                  ...styles.issueSeverity,
+                                  color: qualityAssessment.causal_analysis_readiness === 'ready' ? '#3b82f6'
+                                    : issue.severity === 'high' ? '#ef4444'
+                                    : issue.severity === 'medium' ? '#d97706' : '#3b82f6'
+                                }}>
+                                  {qualityAssessment.causal_analysis_readiness === 'ready' ? 'NOTE' : issue.severity.toUpperCase()}
                                   {issue.column && <span style={styles.issueColumn}>• {issue.column}</span>}
                                 </div>
                                 <div style={styles.issueText}>{issue.issue}</div>
@@ -749,7 +760,7 @@ const DataUploadPage: React.FC = () => {
 const styles: Record<string, React.CSSProperties> = {
   contentContainer: {
     paddingTop: '70px',
-    paddingBottom: '100px',
+    paddingBottom: '120px',
     minHeight: 'calc(100vh - 70px)',
     backgroundColor: '#f8fafc'
   },

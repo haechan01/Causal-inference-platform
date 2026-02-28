@@ -35,7 +35,7 @@ const BottomProgressBar: React.FC<BottomProgressBarProps> = ({
     <div style={styles.progressBar}>
       <div style={styles.progressContainer}>
         <button onClick={onPrev} style={styles.prevButton}>
-          &lt;
+          Previous
         </button>
 
         <div style={styles.stepsContainer}>
@@ -45,7 +45,8 @@ const BottomProgressBar: React.FC<BottomProgressBarProps> = ({
             const isClickable = isCompleted;
 
             return (
-              <div key={step.id} style={styles.stepContainer}>
+              <React.Fragment key={step.id}>
+                {/* Circle + label — wrapper is exactly circle-width so connectors touch the circles */}
                 <div
                   style={{
                     ...styles.stepWrapper,
@@ -56,8 +57,9 @@ const BottomProgressBar: React.FC<BottomProgressBarProps> = ({
                   <div
                     style={{
                       ...styles.stepCircle,
-                      ...(isCompleted || isCurrent ? styles.stepCircleActive : styles.stepCircleInactive),
-                      ...(isClickable ? styles.stepCircleClickable : {})
+                      ...(isCompleted || isCurrent
+                        ? styles.stepCircleActive
+                        : styles.stepCircleInactive)
                     }}
                   >
                     {isCompleted ? (
@@ -66,25 +68,31 @@ const BottomProgressBar: React.FC<BottomProgressBarProps> = ({
                       <span style={styles.stepNumber}>{index + 1}</span>
                     )}
                   </div>
+                  {/* Label floats below without widening the wrapper */}
                   <span
                     style={{
                       ...styles.stepLabel,
-                      ...(isCompleted || isCurrent ? styles.stepLabelActive : styles.stepLabelInactive)
+                      ...(isCompleted || isCurrent
+                        ? styles.stepLabelActive
+                        : styles.stepLabelInactive)
                     }}
                   >
                     {step.label}
                   </span>
                 </div>
 
+                {/* Connector — flex sibling, stretches to fill space between circles */}
                 {index < steps.length - 1 && (
                   <div
                     style={{
                       ...styles.connector,
-                      ...(isCompleted ? styles.connectorActive : styles.connectorInactive)
+                      ...(isCompleted
+                        ? styles.connectorActive
+                        : styles.connectorInactive)
                     }}
                   />
                 )}
-              </div>
+              </React.Fragment>
             );
           })}
         </div>
@@ -97,12 +105,14 @@ const BottomProgressBar: React.FC<BottomProgressBarProps> = ({
           }}
           disabled={!canGoNext}
         >
-          &gt;
+          Next
         </button>
       </div>
     </div>
   );
 };
+
+const CIRCLE = 40; // circle width/height in px
 
 const styles: Record<string, React.CSSProperties> = {
   progressBar: {
@@ -112,49 +122,51 @@ const styles: Record<string, React.CSSProperties> = {
     right: 0,
     backgroundColor: 'white',
     borderTop: '1px solid #e0e0e0',
-    padding: '20px 0',
+    /* extra top padding so labels (absolutely positioned above) are visible */
+    padding: '28px 0 16px',
     zIndex: 100,
-    boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.1)'
+    boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.08)'
   },
   progressContainer: {
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    maxWidth: '800px',
+    maxWidth: '960px',
     margin: '0 auto',
-    padding: '0 20px',
-    gap: '20px'
+    padding: '0 24px',
+    gap: '40px'
   },
   stepsContainer: {
+    flex: 1,
     display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 30
+    /* top-align so connector margin-top aligns with circle center */
+    alignItems: 'flex-start'
   },
-  stepContainer: {
-    display: 'flex',
-    alignItems: 'center',
-    position: 'relative'
-  },
+  /*
+   * Width is locked to the circle size.
+   * The label is positioned absolutely so it doesn't stretch the flex item.
+   * This guarantees connectors are placed flush against the circle edges.
+   */
   stepWrapper: {
+    width: `${CIRCLE}px`,
+    flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    position: 'relative',
-    zIndex: 2
+    position: 'relative'
   },
   stepWrapperClickable: {
     cursor: 'pointer'
   },
   stepCircle: {
-    width: '40px',
-    height: '40px',
+    width: `${CIRCLE}px`,
+    height: `${CIRCLE}px`,
     borderRadius: '50%',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     fontSize: '16px',
     fontWeight: 'bold',
+    flexShrink: 0,
     transition: 'all 0.3s ease'
   },
   stepCircleActive: {
@@ -166,23 +178,23 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: '#e0e0e0',
     color: '#999'
   },
-  stepCircleClickable: {
-    cursor: 'pointer',
-    transition: 'transform 0.2s ease, box-shadow 0.2s ease'
-  },
   stepNumber: {
-    fontSize: '12px',
+    fontSize: '13px',
     fontWeight: 'bold'
   },
   checkmark: {
-    fontSize: '14px',
+    fontSize: '15px',
     fontWeight: 'bold'
   },
+  /* Label is absolutely positioned above the circle — doesn't affect flex width */
   stepLabel: {
-    fontSize: '12px',
+    position: 'absolute',
+    bottom: `${CIRCLE + 6}px`,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    fontSize: '13px',
     fontWeight: 500,
     whiteSpace: 'nowrap',
-    marginTop: '8px',
     textAlign: 'center'
   },
   stepLabelActive: {
@@ -191,15 +203,12 @@ const styles: Record<string, React.CSSProperties> = {
   stepLabelInactive: {
     color: '#999'
   },
+  /* Connector: flex sibling between circles; margin-top centers it on the circle */
   connector: {
-    position: 'absolute',
-    top: '35%',
-    left: 'calc(50% + 20px)',
-    width: '40px',
+    flex: 1,
     height: '2px',
-    transform: 'translateY(-50%)',
-    transition: 'all 0.3s ease',
-    zIndex: 1
+    marginTop: `${CIRCLE / 2 - 1}px`,
+    transition: 'background-color 0.3s ease'
   },
   connectorActive: {
     backgroundColor: '#043873'
@@ -211,38 +220,43 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: '#6c757d',
     color: 'white',
     border: 'none',
-    borderRadius: '50%',
-    width: '45px',
-    height: '45px',
-    fontSize: '18px',
+    borderRadius: '6px',
+    padding: '0 22px',
+    height: '44px',
+    fontSize: '15px',
     fontWeight: 600,
     cursor: 'pointer',
     transition: 'all 0.3s ease',
-    boxShadow: '0 2px 8px rgba(108, 117, 125, 0.3)',
+    boxShadow: '0 2px 8px rgba(108, 117, 125, 0.25)',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    whiteSpace: 'nowrap',
+    flexShrink: 0
   },
   nextButton: {
     backgroundColor: '#043873',
     color: 'white',
     border: 'none',
-    borderRadius: '50%',
-    width: '45px',
-    height: '45px',
-    fontSize: '18px',
+    borderRadius: '6px',
+    padding: '0 22px',
+    height: '44px',
+    fontSize: '15px',
     fontWeight: 600,
     cursor: 'pointer',
     transition: 'all 0.3s ease',
-    boxShadow: '0 2px 8px rgba(4, 56, 115, 0.3)',
+    boxShadow: '0 2px 8px rgba(4, 56, 115, 0.25)',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    whiteSpace: 'nowrap',
+    flexShrink: 0
   },
   nextButtonDisabled: {
     backgroundColor: '#e0e0e0',
     color: '#999',
-    cursor: 'not-allowed'
+    cursor: 'not-allowed',
+    boxShadow: 'none'
   }
 };
 
