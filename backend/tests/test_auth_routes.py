@@ -2,6 +2,7 @@
 
 import pytest
 
+from tests.test_constants import TEST_USER_PASSWORD, TEST_WRONG_PASSWORD
 
 REGISTER_URL = "/api/auth/register"
 LOGIN_URL = "/api/auth/login"
@@ -12,7 +13,7 @@ LOGOUT_URL = "/api/auth/logout"
 VALID_USER = {
     "username": "testuser",
     "email": "test@example.com",
-    "password": "TestPass123",
+    "password": TEST_USER_PASSWORD,
 }
 
 
@@ -35,14 +36,14 @@ class TestRegister:
     def test_missing_username_returns_400(self, client):
         resp = client.post(
             REGISTER_URL,
-            json={"email": "a@b.com", "password": "TestPass123"},
+            json={"email": "a@b.com", "password": TEST_USER_PASSWORD},
         )
         assert resp.status_code == 400
 
     def test_missing_email_returns_400(self, client):
         resp = client.post(
             REGISTER_URL,
-            json={"username": "alice", "password": "TestPass123"},
+            json={"username": "alice", "password": TEST_USER_PASSWORD},
         )
         assert resp.status_code == 400
 
@@ -56,7 +57,7 @@ class TestRegister:
     def test_short_username_returns_400(self, client):
         resp = client.post(
             REGISTER_URL,
-            json={"username": "ab", "email": "a@b.com", "password": "TestPass123"},
+            json={"username": "ab", "email": "a@b.com", "password": TEST_USER_PASSWORD},
         )
         assert resp.status_code == 400
         assert "3 characters" in resp.get_json()["error"]
@@ -64,7 +65,7 @@ class TestRegister:
     def test_invalid_email_format_returns_400(self, client):
         resp = client.post(
             REGISTER_URL,
-            json={"username": "alice", "email": "not-an-email", "password": "TestPass123"},
+            json={"username": "alice", "email": "not-an-email", "password": TEST_USER_PASSWORD},
         )
         assert resp.status_code == 400
 
@@ -138,19 +139,19 @@ class TestLogin:
 
         resp = client.post(
             LOGIN_URL,
-            json={"email": VALID_USER["email"], "password": "WrongPass999"},
+            json={"email": VALID_USER["email"], "password": TEST_WRONG_PASSWORD},
         )
         assert resp.status_code == 401
 
     def test_unknown_email_returns_401(self, client):
         resp = client.post(
             LOGIN_URL,
-            json={"email": "nobody@example.com", "password": "TestPass123"},
+            json={"email": "nobody@example.com", "password": TEST_USER_PASSWORD},
         )
         assert resp.status_code == 401
 
     def test_missing_email_returns_400(self, client):
-        resp = client.post(LOGIN_URL, json={"password": "TestPass123"})
+        resp = client.post(LOGIN_URL, json={"password": TEST_USER_PASSWORD})
         assert resp.status_code == 400
 
     def test_missing_password_returns_400(self, client):
@@ -181,7 +182,7 @@ class TestGetMe:
         assert resp.status_code == 401
 
     def test_invalid_token_returns_401(self, client):
-        resp = client.get(ME_URL, headers={"Authorization": "Bearer invalid.token.here"})
+        resp = client.get(ME_URL, headers={"Authorization": "Bearer invalid-token"})
         assert resp.status_code == 422
 
 

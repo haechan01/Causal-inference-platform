@@ -22,6 +22,7 @@ os.environ.setdefault("AWS_REGION", "us-east-1")
 os.environ.setdefault("AWS_S3_BUCKET_NAME", "test-bucket")
 
 import pytest
+from tests.test_constants import TEST_USER_PASSWORD
 from app import app as flask_app
 from models import db as _db
 
@@ -71,7 +72,7 @@ def registered_user(client):
         json={
             "username": "testuser",
             "email": "test@example.com",
-            "password": "TestPass123",
+            "password": TEST_USER_PASSWORD,
         },
     )
     assert resp.status_code == 201, resp.get_json()
