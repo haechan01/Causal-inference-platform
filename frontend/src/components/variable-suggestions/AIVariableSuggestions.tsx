@@ -10,6 +10,8 @@ interface Suggestion {
 interface AIVariableSuggestionsProps {
   schemaInfo: any;
   causalQuestion?: string;
+  treatmentVariable?: string;
+  outcomeVariable?: string;
   onApplySuggestions: (suggestions: {
     outcome?: string;
     treatment?: string;
@@ -21,6 +23,8 @@ interface AIVariableSuggestionsProps {
 const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
   schemaInfo,
   causalQuestion,
+  treatmentVariable,
+  outcomeVariable,
   onApplySuggestions
 }) => {
   const [suggestions, setSuggestions] = useState<any>(null);
@@ -35,7 +39,9 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
     try {
       const response = await axios.post('/ai/suggest-variables', {
         schema_info: schemaInfo,
-        causal_question: causalQuestion
+        causal_question: causalQuestion,
+        treatment_variable: treatmentVariable,
+        outcome_variable: outcomeVariable,
       });
       setSuggestions(response.data);
       setExpanded(true);
@@ -79,6 +85,11 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
           <button
             onClick={fetchSuggestions}
             style={styles.getHelpButton}
+            title={
+              treatmentVariable || outcomeVariable
+                ? `Using hints from Method Selection: ${[treatmentVariable && `treatment="${treatmentVariable}"`, outcomeVariable && `outcome="${outcomeVariable}"`].filter(Boolean).join(', ')}`
+                : undefined
+            }
             onMouseEnter={(e) => {
               e.currentTarget.style.backgroundColor = '#4f46e5';
               e.currentTarget.style.transform = 'translateY(-1px)';
@@ -94,6 +105,15 @@ const AIVariableSuggestions: React.FC<AIVariableSuggestionsProps> = ({
           </button>
         )}
       </div>
+
+      {(treatmentVariable || outcomeVariable || causalQuestion) && !suggestions && (
+        <div style={styles.hintBanner}>
+          <span style={{ fontWeight: 600, marginRight: 6 }}>💡 Using your inputs from Method Selection:</span>
+          {treatmentVariable && <span style={styles.hintChip}>Treatment: <strong>{treatmentVariable}</strong></span>}
+          {outcomeVariable && <span style={styles.hintChip}>Outcome: <strong>{outcomeVariable}</strong></span>}
+          {causalQuestion && <span style={styles.hintChip}>Research question included</span>}
+        </div>
+      )}
 
       {loading && (
         <div style={styles.loading}>
@@ -466,7 +486,28 @@ const styles = {
     color: '#6c757d',
     fontStyle: 'italic',
     marginTop: '4px'
-  }
+  },
+  hintBanner: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    alignItems: 'center',
+    gap: '6px',
+    marginTop: '10px',
+    padding: '8px 12px',
+    backgroundColor: '#e0f2fe',
+    borderRadius: '8px',
+    border: '1px solid #7dd3fc',
+    fontSize: '13px',
+    color: '#0369a1',
+  },
+  hintChip: {
+    backgroundColor: 'white',
+    border: '1px solid #7dd3fc',
+    borderRadius: '6px',
+    padding: '2px 8px',
+    fontSize: '12px',
+    color: '#0284c7',
+  },
 };
 
 export default AIVariableSuggestions;

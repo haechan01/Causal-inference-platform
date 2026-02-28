@@ -52,6 +52,10 @@ const VariableSelectionPage: React.FC = () => {
   const [isResizing, setIsResizing] = useState(false);
   const [showControlGuidance, setShowControlGuidance] = useState(false);
 
+  // Hints from the AI assistant on the Method Selection page
+  const aiHints: { treatmentVariable?: string; outcomeVariable?: string; causalQuestion?: string } =
+    (location.state as any)?.aiHints || {};
+
   // Chat state
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; timestamp?: string }>>([]);
   const [chatInput, setChatInput] = useState('');
@@ -172,6 +176,27 @@ const VariableSelectionPage: React.FC = () => {
 
         setVariables(variablesFromSchema);
 
+        // Pre-fill outcome/treatment from AI hints if not already restored from saved state
+        const columnNames = variablesFromSchema.map((v: Variable) => v.name.toLowerCase());
+        setSelection(prev => {
+          const next = { ...prev };
+          if (!next.outcome && aiHints.outcomeVariable) {
+            const match = variablesFromSchema.find(
+              (v: Variable) => v.name.toLowerCase() === aiHints.outcomeVariable!.toLowerCase()
+            );
+            if (match) next.outcome = match.name;
+          }
+          if (!next.treatment && aiHints.treatmentVariable) {
+            const match = variablesFromSchema.find(
+              (v: Variable) => v.name.toLowerCase() === aiHints.treatmentVariable!.toLowerCase()
+            );
+            if (match) next.treatment = match.name;
+          }
+          return next;
+        });
+        // suppress unused warning
+        void columnNames;
+
         // Also fetch preview to get data summary for validation
         try {
           const previewResponse = await axios.get(`/datasets/${dataset.id}/preview`, {
@@ -194,6 +219,8 @@ const VariableSelectionPage: React.FC = () => {
     if (accessToken) {
       loadDatasetVariables();
     }
+    // aiHints are intentionally read once on mount; omitting from deps is correct
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, location]);
 
   const handleVariableChange = (field: keyof VariableSelection, value: string | string[]) => {
@@ -1214,6 +1241,9 @@ ALWAYS BE PRECISE: Use the exact variable names from the parameters, never subst
                   <div style={styles.aiSection}>
                     <AIVariableSuggestions
                       schemaInfo={schemaInfo}
+                      causalQuestion={aiHints.causalQuestion}
+                      treatmentVariable={aiHints.treatmentVariable}
+                      outcomeVariable={aiHints.outcomeVariable}
                       onApplySuggestions={handleApplySuggestions}
                     />
 

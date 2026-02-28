@@ -96,21 +96,28 @@ const MethodSelectionPage: React.FC = () => {
     };
 
     const handleNext = async () => {
+        // Collect any hints the user provided in the AI Recommend form
+        const aiHints = {
+            treatmentVariable: treatmentVariable.trim() || undefined,
+            outcomeVariable: outcomeVariable.trim() || undefined,
+            causalQuestion: causalQuestion.trim() || undefined,
+        };
+
         if (selectedMethod === 'did') {
             if (projectId && accessToken) {
                 try { await projectStateService.saveState(projectId, { currentStep: 'variables', selectedMethod }, accessToken); } catch { }
             }
-            navigate('/variable-selection', { state: { projectId, datasetId } });
+            navigate('/variable-selection', { state: { projectId, datasetId, aiHints } });
         } else if (selectedMethod === 'rdd') {
             if (projectId && accessToken) {
                 try { await projectStateService.saveState(projectId, { currentStep: 'rd-setup', selectedMethod }, accessToken); } catch { }
             }
-            navigate('/rd-setup', { state: { projectId, datasetId } });
+            navigate('/rd-setup', { state: { projectId, datasetId, aiHints } });
         } else if (selectedMethod === 'iv') {
             if (projectId && accessToken) {
                 try { await projectStateService.saveState(projectId, { currentStep: 'iv-setup', selectedMethod }, accessToken); } catch { }
             }
-            navigate('/iv-setup', { state: { projectId, datasetId } });
+            navigate('/iv-setup', { state: { projectId, datasetId, aiHints } });
         } else {
             alert("This method is coming soon! Please select one of the available methods.");
         }
@@ -991,8 +998,8 @@ const styles: Record<string, React.CSSProperties> = {
 
     // ── AI Panel ──────────────────────────────────────────────────────────────
     aiPanel: {
-        flex: '0 0 380px',
-        width: '380px',
+        flex: '0 0 460px',
+        width: '460px',
         position: 'sticky',
         top: '80px',
         height: 'calc(100vh - 196px)',

@@ -11,6 +11,8 @@ interface Suggestion {
 interface RDVariableSuggestionsProps {
   schemaInfo: any;
   causalQuestion?: string;
+  treatmentVariable?: string;
+  outcomeVariable?: string;
   onApplySuggestions: (suggestions: {
     runningVar?: string;
     outcomeVar?: string;
@@ -22,6 +24,8 @@ interface RDVariableSuggestionsProps {
 const RDVariableSuggestions: React.FC<RDVariableSuggestionsProps> = ({
   schemaInfo,
   causalQuestion,
+  treatmentVariable,
+  outcomeVariable,
   onApplySuggestions,
 }) => {
   const [suggestions, setSuggestions] = useState<any>(null);
@@ -37,6 +41,8 @@ const RDVariableSuggestions: React.FC<RDVariableSuggestionsProps> = ({
       const response = await axios.post('/ai/suggest-variables', {
         schema_info: schemaInfo,
         causal_question: causalQuestion,
+        treatment_variable: treatmentVariable,
+        outcome_variable: outcomeVariable,
         method: 'rd',
       });
       setSuggestions(response.data);
@@ -60,8 +66,15 @@ const RDVariableSuggestions: React.FC<RDVariableSuggestionsProps> = ({
     if (suggestions.outcome_var_suggestions?.[0]) {
       applied.outcomeVar = suggestions.outcome_var_suggestions[0].column;
     }
-    const cutoffVal = suggestions.cutoff_suggestion?.value;
-    if (cutoffVal != null && cutoffVal !== 'user to specify' && String(cutoffVal).trim() !== '') {
+    const cutoffSug = suggestions.cutoff_suggestion;
+    const cutoffVal = cutoffSug?.value;
+    const cutoffConfidence = cutoffSug?.confidence ?? 0;
+    if (
+      cutoffVal != null &&
+      cutoffVal !== 'user to specify' &&
+      String(cutoffVal).trim() !== '' &&
+      cutoffConfidence >= 0.75
+    ) {
       applied.cutoff = String(cutoffVal);
     }
     if (suggestions.treatment_side_suggestion?.value) {
@@ -78,6 +91,15 @@ const RDVariableSuggestions: React.FC<RDVariableSuggestionsProps> = ({
           <h3 style={styles.title}>RD AI Variable Assistant</h3>
         </div>
       </div>
+
+      {(treatmentVariable || outcomeVariable || causalQuestion) && !suggestions && (
+        <div style={styles.hintBanner}>
+          <span style={{ fontWeight: 600, marginRight: 6 }}>💡 Using your inputs from Method Selection:</span>
+          {outcomeVariable && <span style={styles.hintChip}>Outcome: <strong>{outcomeVariable}</strong></span>}
+          {treatmentVariable && <span style={styles.hintChip}>Treatment hint: <strong>{treatmentVariable}</strong></span>}
+          {causalQuestion && <span style={styles.hintChip}>Research question included</span>}
+        </div>
+      )}
 
       {!expanded && !loading && (
         <button
@@ -199,25 +221,47 @@ const RDVariableSuggestions: React.FC<RDVariableSuggestionsProps> = ({
 };
 
 const CutoffCard: React.FC<{
-  cutoff: { value: any; reasoning?: string; assumptions?: string } | null | undefined;
+  cutoff: { value: any; confidence?: number; reasoning?: string; assumptions?: string } | null | undefined;
 }> = ({ cutoff }) => {
   if (!cutoff) return null;
 
-  const displayValue = cutoff.value === 'user to specify'
-    ? 'User to specify'
-    : String(cutoff.value);
+  const confidence = cutoff.confidence ?? 0;
+  const isUserToSpecify = cutoff.value === 'user to specify' || confidence < 0.75;
+  const displayValue = isUserToSpecify ? 'You need to specify' : String(cutoff.value);
 
   return (
-    <div style={styles.suggestionCard}>
+    <div style={{ ...styles.suggestionCard, borderTop: isUserToSpecify ? '3px solid #f59e0b' : '3px solid #28a745' }}>
       <div style={styles.cardHeader}>
         <span>✂️</span>
         <span style={styles.cardTitle}>Cutoff Threshold</span>
       </div>
       <div style={styles.topSuggestion}>
-        <span style={styles.columnName}>{displayValue}</span>
+        <span style={{
+          ...styles.columnName,
+          color: isUserToSpecify ? '#92400e' : undefined,
+          backgroundColor: isUserToSpecify ? '#fef3c7' : undefined,
+        }}>
+          {displayValue}
+        </span>
+        {!isUserToSpecify && (
+          <div style={styles.confidenceBar}>
+            <div style={{
+              ...styles.confidenceFill,
+              width: `${confidence * 100}%`,
+              backgroundColor: confidence >= 0.75 ? '#28a745' : '#ffc107',
+            }} />
+          </div>
+        )}
       </div>
-      {cutoff.reasoning && <p style={styles.reasoning}>{cutoff.reasoning}</p>}
-      {cutoff.assumptions && (
+      {isUserToSpecify ? (
+        <p style={styles.reasoning}>
+          The AI could not reliably determine the cutoff from column names alone.
+          You must enter the threshold value that determines treatment assignment.
+        </p>
+      ) : (
+        cutoff.reasoning && <p style={styles.reasoning}>{cutoff.reasoning}</p>
+      )}
+      {!isUserToSpecify && cutoff.assumptions && (
         <p style={styles.assumptionText}><em>Note: {cutoff.assumptions}</em></p>
       )}
     </div>
@@ -482,6 +526,27 @@ const styles = {
     color: '#6c757d',
     fontStyle: 'italic',
     marginTop: '4px',
+  },
+  hintBanner: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    alignItems: 'center',
+    gap: '6px',
+    marginTop: '10px',
+    padding: '8px 12px',
+    backgroundColor: '#e0f2fe',
+    borderRadius: '8px',
+    border: '1px solid #7dd3fc',
+    fontSize: '13px',
+    color: '#0369a1',
+  },
+  hintChip: {
+    backgroundColor: 'white',
+    border: '1px solid #7dd3fc',
+    borderRadius: '6px',
+    padding: '2px 8px',
+    fontSize: '12px',
+    color: '#0284c7',
   },
 };
 
