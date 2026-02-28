@@ -665,6 +665,19 @@ const DiDDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> 
                 </div>
             </div>
         </div>
+
+        {/* Additional Learning Resources */}
+        <div style={styles.resourcesSection}>
+            <h4 style={styles.resourcesTitle}>📚 Additional Learning Resources</h4>
+            <div style={styles.resourcesLinks}>
+                <a href="https://cauzl.com/causal-inference/quasi-experiments/difference-in-differences" target="_blank" rel="noopener noreferrer" style={styles.resourceLink}>
+                    <span style={styles.resourceLinkIcon}>→</span> Difference-in-Differences Method
+                </a>
+                <a href="https://cauzl.com/causal-inference/quasi-experiments/did-example" target="_blank" rel="noopener noreferrer" style={styles.resourceLink}>
+                    <span style={styles.resourceLinkIcon}>→</span> Difference-in-Differences Example
+                </a>
+            </div>
+        </div>
     </div>
 );
 
@@ -777,6 +790,19 @@ const RDDDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> 
                 </div>
             </div>
         </div>
+
+        {/* Additional Learning Resources */}
+        <div style={styles.resourcesSection}>
+            <h4 style={styles.resourcesTitle}>📚 Additional Learning Resources</h4>
+            <div style={styles.resourcesLinks}>
+                <a href="https://cauzl.com/causal-inference/quasi-experiments/rdd" target="_blank" rel="noopener noreferrer" style={styles.resourceLink}>
+                    <span style={styles.resourceLinkIcon}>→</span> Regression Discontinuity Design
+                </a>
+                <a href="https://cauzl.com/causal-inference/quasi-experiments/rdd-more" target="_blank" rel="noopener noreferrer" style={styles.resourceLink}>
+                    <span style={styles.resourceLinkIcon}>→</span> More on RDD
+                </a>
+            </div>
+        </div>
     </div>
 );
 
@@ -845,23 +871,12 @@ const IVDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> =
                 </p>
             </div>
             <div style={styles.conceptsSection}>
-                <h4 style={styles.sectionTitle}>Requirements</h4>
+                <h4 style={styles.sectionTitle}>Requirements & Key Assumptions</h4>
                 <div style={styles.conceptsGrid}>
                     {[
-                        { title: 'Valid Instrument', text: 'An external variable that strongly predicts treatment assignment.' },
-                        { title: 'Strong First Stage', text: 'The instrument must have a statistically significant effect on treatment (F-statistic > 10).' },
-                    ].map((c, i) => (
-                        <div key={i} style={styles.conceptCard}>
-                            <h5 style={styles.conceptTitle}>{c.title}</h5>
-                            <p style={styles.conceptText}>{c.text}</p>
-                        </div>
-                    ))}
-                </div>
-                <h4 style={{ ...styles.sectionTitle, marginTop: '20px' }}>Key Assumptions</h4>
-                <div style={styles.conceptsGrid}>
-                    {[
-                        { title: 'Exclusion Restriction', text: 'The instrument affects the outcome only through treatment — there is no direct path from instrument to outcome.' },
-                        { title: 'Independence', text: 'The instrument is uncorrelated with unobserved confounders — ideally assigned "as-good-as-random".' },
+                        { title: 'Relevance', text: 'The instrument must be associated with the treatment variable — it needs to have a meaningful effect on who receives treatment.' },
+                        { title: 'Exclusion Restriction', text: 'The instrument must not be directly associated with the outcome except through the treatment variable — any effect it has on the outcome must flow entirely through treatment.' },
+                        { title: 'No-Confounding', text: 'The instrument does not share any causes (direct or indirect) with the outcome — it must be free from the same confounders that bias the treatment–outcome relationship.' },
                     ].map((c, i) => (
                         <div key={i} style={{ ...styles.conceptCard, borderLeft: '3px solid #f59e0b' }}>
                             <h5 style={styles.conceptTitle}>{c.title}</h5>
@@ -902,6 +917,19 @@ const IVDescription: React.FC<{ styles: Record<string, React.CSSProperties> }> =
                         <span><span style={styles.formulaBaseline}>■</span> First stage (Z → D)</span>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        {/* Additional Learning Resources */}
+        <div style={styles.resourcesSection}>
+            <h4 style={styles.resourcesTitle}>📚 Additional Learning Resources</h4>
+            <div style={styles.resourcesLinks}>
+                <a href="https://cauzl.com/causal-inference/instrumental-variables/instrumental-variables" target="_blank" rel="noopener noreferrer" style={styles.resourceLink}>
+                    <span style={styles.resourceLinkIcon}>→</span> Instrumental Variables
+                </a>
+                <a href="https://cauzl.com/causal-inference/instrumental-variables/good-instruments" target="_blank" rel="noopener noreferrer" style={styles.resourceLink}>
+                    <span style={styles.resourceLinkIcon}>→</span> What is a Good Instrument?
+                </a>
             </div>
         </div>
     </div>
@@ -1355,5 +1383,43 @@ const styles: Record<string, React.CSSProperties> = {
         textAlign: 'center', padding: '40px 20px', color: '#374151',
         backgroundColor: '#f8fafc', borderRadius: '10px', border: '2px dashed #e2e8f0'
     },
-    comingSoonText: { fontSize: '18px', fontWeight: '600', color: '#374151', margin: '0 0 10px 0' }
+    comingSoonText: { fontSize: '18px', fontWeight: '600', color: '#374151', margin: '0 0 10px 0' },
+
+    // Additional learning resources
+    resourcesSection: {
+        marginTop: '32px',
+        padding: '20px 24px',
+        backgroundColor: '#f8fafc',
+        borderRadius: '12px',
+        border: '1px solid #e2e8f0',
+        borderLeft: '4px solid #043873',
+    },
+    resourcesTitle: {
+        fontSize: '16px', fontWeight: '700', color: '#043873',
+        margin: '0 0 14px 0',
+    },
+    resourcesLinks: {
+        display: 'flex',
+        flexDirection: 'column' as const,
+        gap: '10px',
+    },
+    resourceLink: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        fontSize: '15px',
+        color: '#1d4ed8',
+        textDecoration: 'none',
+        fontWeight: '500',
+        padding: '8px 12px',
+        borderRadius: '8px',
+        backgroundColor: 'white',
+        border: '1px solid #dbeafe',
+        transition: 'background-color 0.15s',
+    },
+    resourceLinkIcon: {
+        color: '#043873',
+        fontWeight: '700',
+        fontSize: '16px',
+    }
 };

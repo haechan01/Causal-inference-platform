@@ -14,15 +14,3 @@ export function formatPValue(value: number | null | undefined): string {
   }
   return value.toFixed(4);
 }
-
-/**
- * Format a general number to a fixed number of decimal places.
- * Returns '—' for null/undefined/NaN.
- */
-export function formatNumber(
-  value: number | null | undefined,
-  decimals = 3
-): string {
-  if (value === null || value === undefined || isNaN(value)) return '—';
-  return value.toFixed(decimals);
-}
