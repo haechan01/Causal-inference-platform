@@ -24,6 +24,8 @@ def sanitize_for_json(obj):
         if math.isnan(obj) or math.isinf(obj):
             return None
         return obj
+    elif isinstance(obj, (np.bool_,)):
+        return bool(obj)
     elif isinstance(obj, (np.integer, np.floating)):
         if np.isnan(obj) or np.isinf(obj):
             return None

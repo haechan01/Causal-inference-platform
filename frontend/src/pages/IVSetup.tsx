@@ -194,7 +194,15 @@ const IVSetup: React.FC = () => {
   const [treatmentVar, setTreatmentVar] = useState('');
   const [instruments, setInstruments] = useState<string[]>([]);
   const [controls, setControls] = useState<string[]>([]);
-  const [runSensitivity, setRunSensitivity] = useState(false);
+  const [interactions, setInteractions] = useState<[string, string][]>([]);
+  const [interactionVarA, setInteractionVarA] = useState('');
+  const [interactionVarB, setInteractionVarB] = useState('');
+  const [additionalEndogenous, setAdditionalEndogenous] = useState<
+    Array<{ variable: string; instrument: string }>
+  >([]);
+  const [addEndogVar, setAddEndogVar] = useState('');
+  const [addEndogInst, setAddEndogInst] = useState('');
+  const [runSensitivity, setRunSensitivity] = useState(true);
 
   // Analysis state
   const [analyzing, setAnalyzing] = useState(false);
@@ -264,6 +272,8 @@ const IVSetup: React.FC = () => {
             if (cfg.treatmentVar) setTreatmentVar(cfg.treatmentVar);
             if (cfg.instruments) setInstruments(cfg.instruments);
             if (cfg.controls) setControls(cfg.controls);
+            if (cfg.interactions) setInteractions(cfg.interactions);
+            if (cfg.additionalEndogenous) setAdditionalEndogenous(cfg.additionalEndogenous);
             if (cfg.runSensitivity != null)
               setRunSensitivity(cfg.runSensitivity);
           }
@@ -460,6 +470,8 @@ SENSITIVITY ANALYSIS:
         run_sensitivity: runSensitivity,
       };
       if (controls.length > 0) payload.controls = controls;
+      if (interactions.length > 0) payload.interactions = interactions;
+      if (additionalEndogenous.length > 0) payload.additional_endogenous = additionalEndogenous;
 
       const response = await axios.post(
         `/datasets/${selectedDataset.id}/analyze/iv`,
@@ -486,6 +498,8 @@ SENSITIVITY ANALYSIS:
                 treatmentVar,
                 instruments,
                 controls,
+                interactions,
+                additionalEndogenous,
                 runSensitivity,
               },
               lastResults: response.data,
@@ -544,11 +558,13 @@ SENSITIVITY ANALYSIS:
   const numericVars = variables.filter((v) => v.type === 'numeric');
   const allVars = variables;
 
-  // Vars already claimed by outcome / treatment / instruments
+  // Vars already claimed by outcome / treatment / instruments / additional endogenous
   const claimedForControls = new Set([
     outcomeVar,
     treatmentVar,
     ...instruments,
+    ...additionalEndogenous.map((e) => e.variable),
+    ...additionalEndogenous.map((e) => e.instrument),
   ]);
 
   return (
@@ -849,10 +865,112 @@ SENSITIVITY ANALYSIS:
                   )}
                 </div>
 
-                {/* Card 4: Options (controls + sensitivity) */}
+                {/* Card 4: Additional Endogenous Variables */}
                 <div style={styles.card}>
                   <div style={styles.cardHeader}>
                     <div style={styles.cardNumber}>4</div>
+                    <div style={styles.cardTitle}>Additional Endogenous Variables</div>
+                    <div style={styles.optionalBadge}>Optional</div>
+                  </div>
+                  <p style={styles.helperText}>
+                    If other regressors in your model are also endogenous (e.g., experience
+                    instrumented by age), add them here. Each additional endogenous variable
+                    needs its own excluded instrument.
+                  </p>
+
+                  {/* Existing additional endogenous entries */}
+                  {additionalEndogenous.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '8px', marginBottom: '12px' }}>
+                      {additionalEndogenous.map((entry, idx) => (
+                        <div key={idx} style={{
+                          display: 'flex', alignItems: 'center', gap: '8px',
+                          backgroundColor: '#faf5ff', padding: '8px 12px',
+                          borderRadius: '8px', border: '1px solid #e9d5ff',
+                        }}>
+                          <span style={{ fontSize: '13px', color: '#6b21a8', fontWeight: '500', flex: 1 }}>
+                            <strong>{entry.variable}</strong> instrumented by <strong>{entry.instrument}</strong>
+                          </span>
+                          <button
+                            onClick={() => setAdditionalEndogenous(additionalEndogenous.filter((_, i) => i !== idx))}
+                            style={{
+                              background: 'none', border: 'none', color: '#6b21a8',
+                              cursor: 'pointer', fontSize: '16px', lineHeight: '1',
+                              padding: '0 4px', opacity: 0.7,
+                            }}
+                            title="Remove"
+                          >×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add new entry */}
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <select
+                      value={addEndogVar}
+                      onChange={(e) => setAddEndogVar(e.target.value)}
+                      style={{ ...styles.select, flex: 1, padding: '8px', fontSize: '13px' }}
+                    >
+                      <option value="">Endogenous variable</option>
+                      {numericVars
+                        .filter((v) =>
+                          v.name !== outcomeVar &&
+                          v.name !== treatmentVar &&
+                          !instruments.includes(v.name) &&
+                          !additionalEndogenous.some((e) => e.variable === v.name)
+                        )
+                        .map((v) => (
+                          <option key={v.name} value={v.name}>{v.name}</option>
+                        ))}
+                    </select>
+                    <span style={{ fontSize: '13px', color: '#666', whiteSpace: 'nowrap' as const }}>inst. by</span>
+                    <select
+                      value={addEndogInst}
+                      onChange={(e) => setAddEndogInst(e.target.value)}
+                      style={{ ...styles.select, flex: 1, padding: '8px', fontSize: '13px' }}
+                    >
+                      <option value="">Instrument</option>
+                      {numericVars
+                        .filter((v) =>
+                          v.name !== outcomeVar &&
+                          v.name !== treatmentVar &&
+                          !instruments.includes(v.name) &&
+                          !additionalEndogenous.some((e) => e.instrument === v.name) &&
+                          v.name !== addEndogVar
+                        )
+                        .map((v) => (
+                          <option key={v.name} value={v.name}>{v.name}</option>
+                        ))}
+                    </select>
+                    <button
+                      onClick={() => {
+                        if (addEndogVar && addEndogInst) {
+                          setAdditionalEndogenous([
+                            ...additionalEndogenous,
+                            { variable: addEndogVar, instrument: addEndogInst },
+                          ]);
+                          setAddEndogVar('');
+                          setAddEndogInst('');
+                        }
+                      }}
+                      disabled={!addEndogVar || !addEndogInst}
+                      style={{
+                        padding: '8px 16px', borderRadius: '8px', border: 'none',
+                        backgroundColor: addEndogVar && addEndogInst ? '#6b21a8' : '#ccc',
+                        color: 'white', fontSize: '13px', fontWeight: '600',
+                        cursor: addEndogVar && addEndogInst ? 'pointer' : 'not-allowed',
+                        whiteSpace: 'nowrap' as const,
+                      }}
+                    >
+                      + Add
+                    </button>
+                  </div>
+                </div>
+
+                {/* Card 5: Options (controls + sensitivity) */}
+                <div style={styles.card}>
+                  <div style={styles.cardHeader}>
+                    <div style={styles.cardNumber}>5</div>
                     <div style={styles.cardTitle}>Controls & Options</div>
                     <div style={styles.optionalBadge}>Optional</div>
                   </div>
@@ -875,6 +993,94 @@ SENSITIVITY ANALYSIS:
                       excludeVars={Array.from(claimedForControls)}
                       placeholder="Search control variables…"
                     />
+                  </div>
+
+                  {/* Interaction Terms */}
+                  <div style={{ ...styles.formGroup, marginTop: '20px' }}>
+                    <label style={styles.label}>Interaction Terms</label>
+                    <p style={styles.helperTextSmall}>
+                      Create product terms (Var A × Var B) to include as additional controls.
+                      Both variables must be numeric columns in your dataset.
+                    </p>
+
+                    {/* Existing interactions */}
+                    {interactions.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: '8px', marginBottom: '12px' }}>
+                        {interactions.map(([a, b], idx) => (
+                          <div key={idx} style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '6px',
+                            backgroundColor: '#f0f7ff', color: '#043873',
+                            borderRadius: '20px', padding: '5px 12px', fontSize: '13px',
+                            fontWeight: '500', border: '1px solid #bfdbfe',
+                          }}>
+                            <span>{a} × {b}</span>
+                            <button
+                              onClick={() => setInteractions(interactions.filter((_, i) => i !== idx))}
+                              style={{
+                                background: 'none', border: 'none', color: '#043873',
+                                cursor: 'pointer', fontSize: '16px', lineHeight: '1',
+                                padding: '0 2px', opacity: 0.7,
+                              }}
+                              title="Remove interaction"
+                            >×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Add new interaction */}
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <select
+                        value={interactionVarA}
+                        onChange={(e) => setInteractionVarA(e.target.value)}
+                        style={{ ...styles.select, flex: 1, padding: '8px', fontSize: '13px' }}
+                      >
+                        <option value="">Variable A</option>
+                        {numericVars.map((v) => (
+                          <option key={v.name} value={v.name}>{v.name}</option>
+                        ))}
+                      </select>
+                      <span style={{ fontSize: '16px', color: '#666', fontWeight: 'bold' }}>×</span>
+                      <select
+                        value={interactionVarB}
+                        onChange={(e) => setInteractionVarB(e.target.value)}
+                        style={{ ...styles.select, flex: 1, padding: '8px', fontSize: '13px' }}
+                      >
+                        <option value="">Variable B</option>
+                        {numericVars.map((v) => (
+                          <option key={v.name} value={v.name}>{v.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => {
+                          if (interactionVarA && interactionVarB && interactionVarA !== interactionVarB) {
+                            // Check for duplicates (in either order)
+                            const exists = interactions.some(
+                              ([a, b]) =>
+                                (a === interactionVarA && b === interactionVarB) ||
+                                (a === interactionVarB && b === interactionVarA)
+                            );
+                            if (!exists) {
+                              setInteractions([...interactions, [interactionVarA, interactionVarB]]);
+                              setInteractionVarA('');
+                              setInteractionVarB('');
+                            }
+                          }
+                        }}
+                        disabled={!interactionVarA || !interactionVarB || interactionVarA === interactionVarB}
+                        style={{
+                          padding: '8px 16px', borderRadius: '8px', border: 'none',
+                          backgroundColor: interactionVarA && interactionVarB && interactionVarA !== interactionVarB
+                            ? '#043873' : '#ccc',
+                          color: 'white', fontSize: '13px', fontWeight: '600',
+                          cursor: interactionVarA && interactionVarB && interactionVarA !== interactionVarB
+                            ? 'pointer' : 'not-allowed',
+                          whiteSpace: 'nowrap' as const,
+                        }}
+                      >
+                        + Add
+                      </button>
+                    </div>
                   </div>
 
                   <div style={{ ...styles.formGroup, marginTop: '20px' }}>

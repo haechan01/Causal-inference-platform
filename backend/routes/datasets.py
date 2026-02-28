@@ -38,6 +38,8 @@ def sanitize_for_json(obj):
         if math.isnan(obj) or math.isinf(obj):
             return None
         return obj
+    elif isinstance(obj, (np.bool_,)):
+        return bool(obj)
     elif isinstance(obj, (np.integer, np.floating)):
         if np.isnan(obj) or np.isinf(obj):
             return None
@@ -1696,12 +1698,16 @@ def run_iv_analysis(dataset_id):
         treatment_var  = data.get('treatment')
         instrument_vars = data.get('instruments', [])
         control_vars   = data.get('controls') or []
+        interactions   = data.get('interactions') or []   # list of [varA, varB] pairs
+        additional_endogenous = data.get('additional_endogenous') or []  # list of {variable, instrument}
         run_sensitivity = bool(data.get('run_sensitivity', False))
 
         print(f"  outcome:     {outcome_var}")
         print(f"  treatment:   {treatment_var}")
         print(f"  instruments: {instrument_vars}")
         print(f"  controls:    {control_vars}")
+        print(f"  interactions: {interactions}")
+        print(f"  additional_endogenous: {additional_endogenous}")
         print(f"  sensitivity: {run_sensitivity}")
 
         # Validate required parameters
@@ -1728,13 +1734,38 @@ def run_iv_analysis(dataset_id):
             print(f"Dataset shape: {df.shape}")
             print(f"Columns: {list(df.columns)}")
 
-            # Validate all columns exist
-            all_cols = [outcome_var, treatment_var] + instrument_vars + control_vars
-            missing_cols = [c for c in all_cols if c not in df.columns]
+            # Validate all columns exist (before creating interactions)
+            all_base_cols = [outcome_var, treatment_var] + instrument_vars + control_vars
+            # Collect columns needed for additional endogenous variables
+            for entry in additional_endogenous:
+                if isinstance(entry, dict):
+                    if entry.get('variable'):
+                        all_base_cols.append(entry['variable'])
+                    if entry.get('instrument'):
+                        all_base_cols.append(entry['instrument'])
+            # Collect columns needed for interactions
+            for pair in interactions:
+                if isinstance(pair, list) and len(pair) == 2:
+                    all_base_cols.extend(pair)
+            all_base_cols = list(set(all_base_cols))
+            missing_cols = [c for c in all_base_cols if c not in df.columns]
             if missing_cols:
                 return jsonify({
                     "error": f"Columns not found in dataset: {', '.join(missing_cols)}"
                 }), 400
+
+            # Create interaction term columns and add to controls
+            interaction_col_names = []
+            for pair in interactions:
+                if isinstance(pair, list) and len(pair) == 2:
+                    var_a, var_b = pair
+                    col_name = f"{var_a}_x_{var_b}"
+                    df[col_name] = pd.to_numeric(df[var_a], errors='coerce') * pd.to_numeric(df[var_b], errors='coerce')
+                    interaction_col_names.append(col_name)
+                    if col_name not in control_vars:
+                        control_vars.append(col_name)
+            if interaction_col_names:
+                print(f"  Created interaction columns: {interaction_col_names}")
 
             # Run IV estimation
             estimator = IVEstimator(
@@ -1743,6 +1774,7 @@ def run_iv_analysis(dataset_id):
                 treatment_var=treatment_var,
                 instrument_vars=instrument_vars,
                 control_vars=control_vars if control_vars else None,
+                additional_endogenous=additional_endogenous if additional_endogenous else None,
             )
 
             try:
@@ -1754,7 +1786,37 @@ def run_iv_analysis(dataset_id):
             sensitivity = None
             if run_sensitivity:
                 try:
-                    sensitivity = estimator.sensitivity_analysis()
+                    raw_sensitivity = estimator.sensitivity_analysis()
+                    # Reshape to match frontend expectations
+                    sensitivity = {}
+                    if raw_sensitivity.get("type") == "anderson_rubin_ci":
+                        sensitivity["anderson_rubin_ci"] = {
+                            "ci_lower": raw_sensitivity.get("ar_ci_lower"),
+                            "ci_upper": raw_sensitivity.get("ar_ci_upper"),
+                            "tsls_ci_lower": raw_sensitivity.get("tsls_ci_lower"),
+                            "tsls_ci_upper": raw_sensitivity.get("tsls_ci_upper"),
+                            "alpha": 0.05,
+                            "note": raw_sensitivity.get("note", ""),
+                            "description": raw_sensitivity.get("description", ""),
+                        }
+                    elif raw_sensitivity.get("type") == "leave_one_out":
+                        loo_results = []
+                        for r in raw_sensitivity.get("results", []):
+                            loo_results.append({
+                                "dropped_instrument": r.get("dropped_instrument"),
+                                "estimate": r.get("treatment_effect"),
+                                "se": r.get("se"),
+                                "p_value": r.get("p_value"),
+                                "ci_lower": r.get("ci_lower"),
+                                "ci_upper": r.get("ci_upper"),
+                                "first_stage_f": r.get("first_stage_f"),
+                                "error": r.get("error"),
+                            })
+                        sensitivity["leave_one_out"] = loo_results
+                        sensitivity["stable"] = raw_sensitivity.get("stable")
+                        sensitivity["stability_message"] = raw_sensitivity.get("stability_message")
+                    else:
+                        sensitivity = raw_sensitivity
                 except Exception as se:
                     sensitivity = {"error": str(se)}
 
@@ -1763,10 +1825,12 @@ def run_iv_analysis(dataset_id):
                 'analysis_type': 'instrumental_variable',
                 'dataset_id': dataset_id,
                 'parameters': {
-                    'outcome_var': outcome_var,
-                    'treatment_var': treatment_var,
-                    'instrument_vars': instrument_vars,
-                    'control_vars': control_vars,
+                    'outcome': outcome_var,
+                    'treatment': treatment_var,
+                    'instruments': instrument_vars,
+                    'controls': control_vars,
+                    'interactions': [[a, b] for a, b in interactions] if interactions else [],
+                    'additional_endogenous': additional_endogenous,
                 },
                 'results': result,
                 'sensitivity_analysis': sensitivity,

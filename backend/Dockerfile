@@ -27,4 +27,4 @@ USER appuser
 EXPOSE 5001
 
 # Run gunicorn (matches Procfile)
-CMD ["sh", "-c", "python -c \"from app import app, db; app.app_context().push(); db.create_all(); print('Database tables ready')\" && python -m gunicorn -w 4 -b 0.0.0.0:${PORT:-5001} app:app"]
+CMD ["sh", "-c", "python -c \"from app import app, db; app.app_context().push(); db.create_all(); print('Database tables ready')\" && python -m gunicorn -w 2 --worker-class gthread --threads 4 -b 0.0.0.0:${PORT:-5001} --timeout 300 --graceful-timeout 60 --keep-alive 5 app:app"]

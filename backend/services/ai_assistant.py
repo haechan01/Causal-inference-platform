@@ -482,6 +482,11 @@ Respond with JSON only:
         context_prompt = ""
         if analysis_context:
             context_parts = []
+            if analysis_context.get('method') == 'iv' or analysis_context.get('analysis_type') == 'instrumental_variable':
+                context_parts.append(
+                    "Analysis method: Instrumental Variables (2SLS). Do NOT discuss difference-in-differences or parallel trends. "
+                    "Focus on IV assumptions (relevance, exclusion restriction), instrument strength (first-stage F), and LATE/compliers."
+                )
             if analysis_context.get('parameters'):
                 params = analysis_context['parameters']
                 context_parts.append(f"Current Analysis Parameters:")
@@ -507,6 +512,10 @@ Respond with JSON only:
                     context_parts.append(f"- Cutoff: {params.get('cutoff', 'N/A')}")
                 if params.get('treatment_side'):
                     context_parts.append(f"- Treatment side: {params.get('treatment_side', 'N/A')}")
+                # IV parameters
+                if params.get('instruments'):
+                    inst = params.get('instruments')
+                    context_parts.append(f"- Instruments: {', '.join(inst) if isinstance(inst, list) else inst}")
             
             if analysis_context.get('results'):
                 results = analysis_context['results']
@@ -581,6 +590,17 @@ Respond with JSON only:
                         context_parts.append(f"- Effect Direction: {interp.get('effect_direction', 'N/A')}")
                     if 'significance' in interp:
                         context_parts.append(f"- Significance: {interp.get('significance', 'N/A')}")
+                # IV-specific results
+                if analysis_context.get('method') == 'iv' or analysis_context.get('analysis_type') == 'instrumental_variable':
+                    if 'first_stage' in results:
+                        fs = results.get('first_stage', {})
+                        context_parts.append(f"\nFirst-stage: F-statistic={fs.get('f_statistic', 'N/A')}")
+                    if 'endogeneity_test' in results:
+                        et = results.get('endogeneity_test', {})
+                        context_parts.append(f"- Endogeneity (Wu-Hausman): is_endogenous={et.get('is_endogenous', 'N/A')}, p_value={et.get('p_value', 'N/A')}")
+                    if 'ols_comparison' in results:
+                        ols = results.get('ols_comparison', {})
+                        context_parts.append(f"- OLS comparison: estimate={ols.get('estimate', 'N/A')}, se={ols.get('se', 'N/A')}")
             
             if analysis_context.get('did_guidelines'):
                 context_parts.append(f"\n{analysis_context.get('did_guidelines')}")

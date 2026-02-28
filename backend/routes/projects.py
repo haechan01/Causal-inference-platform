@@ -773,12 +773,13 @@ def upload_user_dataset():
 def delete_user_dataset(dataset_id):
     """
     Delete a dataset owned by the current user.
+    Sample datasets (negative id) cannot be deleted.
     """
     try:
+        if dataset_id < 0:
+            return jsonify({"error": "Sample datasets cannot be deleted"}), 400
         current_user_id = int(get_jwt_identity())
-        
         from models import Dataset
-        
         dataset = Dataset.query.get(dataset_id)
         if not dataset:
             return jsonify({"error": "Dataset not found"}), 404
@@ -806,4 +807,41 @@ def delete_user_dataset(dataset_id):
         db.session.rollback()
         return jsonify({"error": f"Failed to delete dataset: {str(e)}"}), 500
 
+
+@projects_bp.route('/user/datasets/<int:dataset_id>', methods=['PATCH'])
+@jwt_required()
+def update_user_dataset(dataset_id):
+    """
+    Update a dataset owned by the current user (e.g. rename).
+    Expects JSON body: { "name": "New display name" }
+    """
+    try:
+        if dataset_id < 0:
+            return jsonify({"error": "Sample datasets cannot be renamed"}), 400
+        current_user_id = int(get_jwt_identity())
+        from models import Dataset
+        dataset = Dataset.query.get(dataset_id)
+        if not dataset:
+            return jsonify({"error": "Dataset not found"}), 404
+        if dataset.user_id != current_user_id:
+            return jsonify({"error": "Access denied"}), 403
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        new_name = (data.get("name") or "").strip()
+        if not new_name:
+            return jsonify({"error": "Dataset name cannot be empty"}), 400
+        if len(new_name) > 255:
+            return jsonify({"error": "Dataset name is too long"}), 400
+        dataset.name = new_name
+        db.session.commit()
+        return jsonify({
+            "message": "Dataset updated successfully",
+            "dataset": dataset.to_dict()
+        }), 200
+    except ValueError:
+        return jsonify({"error": "Invalid token identity"}), 401
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to update dataset: {str(e)}"}), 500
 

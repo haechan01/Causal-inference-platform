@@ -7,6 +7,7 @@ no Flask dependencies.
 Supports:
 - Just-identified IV  (1 instrument, 1 endogenous variable)
 - Overidentified IV   (multiple instruments, 1 endogenous variable)
+- Multiple endogenous variables (e.g., education + experience + experience²)
 - Optional controls   (included exogenous variables)
 
 Key diagnostics implemented:
@@ -38,7 +39,8 @@ from .iv_helpers import (
 
 class IVEstimator:
     """
-    Two-Stage Least Squares (2SLS) estimator for a single endogenous treatment.
+    Two-Stage Least Squares (2SLS) estimator supporting one or more
+    endogenous variables.
 
     Parameters
     ----------
@@ -46,14 +48,17 @@ class IVEstimator:
     outcome_var : str
         Dependent variable (Y).
     treatment_var : str
-        Endogenous treatment variable (D) — the variable you suspect is
-        correlated with the error term.
+        Primary endogenous treatment variable (D) — the variable whose
+        causal effect you want to estimate.
     instrument_vars : list[str]
-        One or more instrumental variables (Z). Must be:
-        1. Relevant  — correlated with treatment (testable via first-stage F)
-        2. Exogenous — uncorrelated with the error term (untestable assumption)
+        Instruments for the *primary* treatment (excluded instruments).
     control_vars : list[str] | None
         Exogenous controls (X) included in both stages.
+    additional_endogenous : list[dict] | None
+        Extra endogenous regressors beyond the primary treatment.
+        Each entry: {"variable": str, "instrument": str}.
+        These variables go into the structural equation as regressors,
+        and their instruments go into the instrument matrix.
     """
 
     def __init__(
@@ -63,12 +68,28 @@ class IVEstimator:
         treatment_var: str,
         instrument_vars: List[str],
         control_vars: Optional[List[str]] = None,
+        additional_endogenous: Optional[List[Dict[str, str]]] = None,
     ):
         self.data = data
         self.outcome_var = outcome_var
         self.treatment_var = treatment_var
         self.instrument_vars = list(instrument_vars)
         self.control_vars = list(control_vars or [])
+        self.additional_endogenous = list(additional_endogenous or [])
+
+        # Build combined lists
+        # All endogenous variables: [primary_treatment, additional...]
+        self.all_endogenous_vars = [self.treatment_var]
+        # All excluded instruments: [primary_instruments..., additional_instruments...]
+        self.all_instrument_vars = list(self.instrument_vars)
+
+        for entry in self.additional_endogenous:
+            var = entry["variable"]
+            inst = entry["instrument"]
+            if var not in self.all_endogenous_vars:
+                self.all_endogenous_vars.append(var)
+            if inst not in self.all_instrument_vars:
+                self.all_instrument_vars.append(inst)
 
     # ------------------------------------------------------------------
     # Public API
@@ -81,7 +102,7 @@ class IVEstimator:
         Returns
         -------
         dict with keys:
-            treatment_effect   float   — 2SLS LATE estimate
+            treatment_effect   float   — 2SLS estimate for primary treatment
             se                 float   — standard error
             ci_lower/ci_upper  float   — 95% confidence interval
             p_value            float
@@ -93,6 +114,7 @@ class IVEstimator:
             endogeneity_test   dict    — Wu-Hausman result
             overidentification_test dict | None — Sargan-Hansen (if overidentified)
             ols_comparison     dict    — naive OLS estimate for reference
+            additional_endogenous_results list | None — coefficients for extra endogenous vars
             warnings           list[str]
         """
         # ---- 1. Validate & prepare clean working frame ----
@@ -104,11 +126,13 @@ class IVEstimator:
             self.control_vars,
         )
 
-        all_cols = (
-            [self.outcome_var, self.treatment_var]
-            + self.instrument_vars
+        # Collect ALL columns we need
+        all_cols = list(set(
+            [self.outcome_var]
+            + self.all_endogenous_vars
+            + self.all_instrument_vars
             + self.control_vars
-        )
+        ))
         df = self.data[all_cols].copy()
         for col in all_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -121,21 +145,30 @@ class IVEstimator:
 
         warnings: List[str] = list(data_warnings)
         n = len(df)
-        n_inst = len(self.instrument_vars)
+        n_all_inst = len(self.all_instrument_vars)
+        n_all_endog = len(self.all_endogenous_vars)
         n_ctrl = len(self.control_vars)
 
+        # Order condition: need at least as many instruments as endogenous vars
+        if n_all_inst < n_all_endog:
+            raise ValueError(
+                f"Under-identified: {n_all_endog} endogenous variable(s) but "
+                f"only {n_all_inst} excluded instrument(s). Need at least as "
+                "many instruments as endogenous variables."
+            )
+
         # ---- 2. Build matrices for 2SLS ----
-        # Structural regressors: [intercept, treatment, controls]
-        # Instrument matrix:     [intercept, instruments, controls]
+        # X = [1, endog_1, endog_2, ..., controls]   (structural regressors)
+        # Z = [1, inst_1, inst_2, ..., controls]      (instrument matrix)
         Y, X, Z = _build_matrices(
-            df, self.outcome_var, self.treatment_var,
-            self.instrument_vars, self.control_vars
+            df, self.outcome_var, self.all_endogenous_vars,
+            self.all_instrument_vars, self.control_vars
         )
 
         # ---- 3. 2SLS estimation ----
         beta, se_vec, resid, sigma2, X_hat = _tsls(Y, X, Z)
 
-        # Coefficient index: [intercept=0, treatment=1, controls=2..]
+        # Coefficient index: [intercept=0, primary_treatment=1, additional_endog=2.., controls..]
         tau = float(beta[1])
         se_tau = float(se_vec[1])
 
@@ -152,28 +185,80 @@ class IVEstimator:
         ci_lower = tau - z_crit * se_tau
         ci_upper = tau + z_crit * se_tau
 
-        # ---- 4. First-stage diagnostics ----
+        # ---- 3b. Additional endogenous variable results ----
+        additional_results = None
+        if len(self.all_endogenous_vars) > 1:
+            additional_results = []
+            for i, var in enumerate(self.all_endogenous_vars[1:], start=2):
+                coef_i = float(beta[i])
+                se_i = float(se_vec[i])
+                z_i = coef_i / se_i if se_i > 0 else float("nan")
+                p_i = float(2.0 * norm.sf(abs(z_i))) if np.isfinite(z_i) else float("nan")
+                additional_results.append({
+                    "variable": var,
+                    "coefficient": round(coef_i, 4),
+                    "se": round(se_i, 4),
+                    "z_statistic": round(z_i, 4),
+                    "p_value": round(p_i, 4),
+                })
+
+        # ---- 4. First-stage diagnostics — one per treatment-instrument pair ----
+        # Primary treatment uses only its own instruments (self.instrument_vars),
+        # not the additional endogenous instruments.
         fs_diag = first_stage_partial_f(
             df, self.treatment_var, self.instrument_vars, self.control_vars or None
         )
         strength_interp = interpret_instrument_strength(
-            fs_diag["f_statistic"], n_inst
+            fs_diag["f_statistic"], len(self.instrument_vars)
         )
 
         if strength_interp["is_weak"]:
             warnings.append(strength_interp["message"])
 
+        # Per-pair first stages (primary + each additional endogenous variable)
+        first_stage_per_endogenous: Dict[str, Any] = {}
+        first_stage_per_endogenous[self.treatment_var] = {
+            "instruments": self.instrument_vars,
+            "first_stage": fs_diag,
+            "instrument_strength": strength_interp,
+        }
+        for entry in self.additional_endogenous:
+            endo_var = entry["variable"]
+            endo_inst = entry["instrument"]
+            try:
+                fs_pair = first_stage_partial_f(
+                    df, endo_var, [endo_inst], self.control_vars or None
+                )
+                strength_pair = interpret_instrument_strength(fs_pair["f_statistic"], 1)
+                if strength_pair["is_weak"]:
+                    warnings.append(
+                        f"Instrument '{endo_inst}' for '{endo_var}': "
+                        + strength_pair["message"]
+                    )
+                first_stage_per_endogenous[endo_var] = {
+                    "instruments": [endo_inst],
+                    "first_stage": fs_pair,
+                    "instrument_strength": strength_pair,
+                }
+            except Exception as fs_err:
+                first_stage_per_endogenous[endo_var] = {
+                    "instruments": [endo_inst],
+                    "error": str(fs_err),
+                }
+
         # ---- 5. Wu-Hausman endogeneity test ----
         wh_test = _wu_hausman_test(
-            df, self.outcome_var, self.treatment_var,
-            self.instrument_vars, self.control_vars
+            df, self.outcome_var, self.all_endogenous_vars,
+            self.all_instrument_vars, self.control_vars
         )
 
         # ---- 6. Sargan-Hansen overidentification test (if overidentified) ----
         sargan_test = None
-        if n_inst > 1:
+        n_overid = n_all_inst - n_all_endog
+        if n_overid > 0:
             sargan_test = _sargan_hansen_test(
-                df, resid, self.instrument_vars, self.control_vars
+                df, resid, self.all_instrument_vars, self.control_vars,
+                n_endogenous=n_all_endog
             )
             if sargan_test.get("p_value") is not None and sargan_test["p_value"] < 0.05:
                 warnings.append(
@@ -182,9 +267,14 @@ class IVEstimator:
                     "may violate the exclusion restriction."
                 )
 
-        # ---- 7. OLS comparison ----
+        # ---- 7. OLS comparison (primary treatment only, with additional endog as controls) ----
+        # In OLS we include additional endogenous vars as regressors alongside controls
+        ols_controls = list(self.control_vars)
+        for var in self.all_endogenous_vars[1:]:
+            if var not in ols_controls:
+                ols_controls.append(var)
         ols_est = ols_estimate(
-            df, self.outcome_var, self.treatment_var, self.control_vars or None
+            df, self.outcome_var, self.treatment_var, ols_controls or None
         )
         ols_bias = round(tau - ols_est["estimate"], 4)
 
@@ -195,6 +285,7 @@ class IVEstimator:
                 "may perform poorly in small samples. Confidence intervals may be "
                 "too narrow."
             )
+
 
         return {
             # Primary result
@@ -208,12 +299,14 @@ class IVEstimator:
 
             # Sample info
             "n_obs": n,
-            "n_instruments": n_inst,
+            "n_instruments": n_all_inst,
+            "n_endogenous": n_all_endog,
             "n_controls": n_ctrl,
 
             # Instrument diagnostics
             "first_stage": fs_diag,
             "instrument_strength": strength_interp,
+            "first_stage_per_endogenous": first_stage_per_endogenous,
 
             # Specification tests
             "endogeneity_test": wh_test,
@@ -226,6 +319,9 @@ class IVEstimator:
                 "interpretation": _interpret_ols_gap(ols_bias, tau, ols_est["estimate"]),
             },
 
+            # Additional endogenous variable coefficients
+            "additional_endogenous_results": additional_results,
+
             "warnings": warnings,
         }
 
@@ -234,17 +330,22 @@ class IVEstimator:
         Assess how sensitive the 2SLS estimate is to dropping individual
         instruments (leave-one-out, only applicable when overidentified).
 
-        For just-identified IV, instead returns a comparison between 2SLS and
-        LIML (Limited Information Maximum Likelihood), which is robust to
-        weak instruments.
+        For just-identified IV, instead returns the Anderson-Rubin confidence
+        interval, which is valid even under weak instruments.
         """
-        if len(self.instrument_vars) == 1:
+        n_all_inst = len(self.all_instrument_vars)
+        n_all_endog = len(self.all_endogenous_vars)
+
+        if n_all_inst <= n_all_endog:
+            # Just-identified: Anderson-Rubin CI
             return _liml_comparison(self.data, self.outcome_var,
                                     self.treatment_var, self.instrument_vars,
-                                    self.control_vars)
+                                    self.control_vars,
+                                    self.additional_endogenous)
         return _leave_one_out_instruments(self.data, self.outcome_var,
                                           self.treatment_var, self.instrument_vars,
-                                          self.control_vars)
+                                          self.control_vars,
+                                          self.additional_endogenous)
 
 
 # ---------------------------------------------------------------------------
@@ -254,34 +355,37 @@ class IVEstimator:
 def _build_matrices(
     df: pd.DataFrame,
     outcome_var: str,
-    treatment_var: str,
+    endogenous_vars: List[str],
     instrument_vars: List[str],
     control_vars: List[str],
 ) -> tuple:
     """
     Construct Y, X, Z numpy matrices for 2SLS.
 
-    X = [1, treatment, controls]  — structural regressors
-    Z = [1, instruments, controls] — instrument matrix (same exogenous cols)
+    X = [1, endog_1, endog_2, ..., controls]   — structural regressors
+    Z = [1, inst_1, inst_2, ..., controls]      — instrument matrix
     """
     Y = df[outcome_var].to_numpy(dtype=float)
 
-    treatment = df[treatment_var].to_numpy(dtype=float).reshape(-1, 1)
+    endogenous = df[endogenous_vars].to_numpy(dtype=float)
+    if endogenous.ndim == 1:
+        endogenous = endogenous.reshape(-1, 1)
+
     controls = (
         df[control_vars].to_numpy(dtype=float)
         if control_vars
         else np.empty((len(df), 0))
     )
-    instruments = (
-        df[instrument_vars].to_numpy(dtype=float)
-    )
+    instruments = df[instrument_vars].to_numpy(dtype=float)
+    if instruments.ndim == 1:
+        instruments = instruments.reshape(-1, 1)
 
     ones = np.ones((len(df), 1))
 
-    # X: [intercept, treatment, controls]
-    X = np.hstack([ones, treatment, controls])
+    # X: [intercept, endogenous vars, controls]
+    X = np.hstack([ones, endogenous, controls])
 
-    # Z: [intercept, instruments, controls]
+    # Z: [intercept, excluded instruments, controls]
     Z = np.hstack([ones, instruments, controls])
 
     return Y, X, Z
@@ -361,81 +465,128 @@ def _tsls(
 def _wu_hausman_test(
     df: pd.DataFrame,
     outcome_var: str,
-    treatment_var: str,
+    endogenous_vars: List[str],
     instrument_vars: List[str],
     control_vars: List[str],
 ) -> Dict[str, Any]:
     """
-    Wu-Hausman endogeneity test.
+    Wu-Hausman endogeneity test (generalized for multiple endogenous vars).
 
-    H0: treatment is exogenous (OLS is consistent, 2SLS is just inefficient)
-    H1: treatment is endogenous (OLS is inconsistent, 2SLS is needed)
+    H0: all endogenous variables are actually exogenous (OLS consistent)
+    H1: at least one is endogenous (OLS inconsistent, 2SLS needed)
 
     Implementation: augmented regression (Rivers-Vuong, 1988).
-    1. Regress treatment on instruments + controls → get residuals v_hat.
-    2. Add v_hat to the structural equation and run OLS.
-    3. Test if the coefficient on v_hat is zero (t-test / F-test).
-
-    Rejecting H0 (p < 0.05) supports using IV over OLS.
+    For each endogenous var, regress it on all instruments + controls to get
+    residuals v_hat_i. Then add all v_hat_i to the structural equation and
+    test their joint significance.
     """
     controls = control_vars or []
-
-    # Step 1: first-stage residuals
-    rhs_fs = " + ".join(
-        [_quote(z) for z in instrument_vars] + [_quote(c) for c in controls]
-    )
-    fs_formula = f"{_quote(treatment_var)} ~ {rhs_fs}"
-    fs_model = smf.ols(fs_formula, data=df).fit()
-
     df = df.copy()
-    df["_v_hat"] = fs_model.resid
+
+    # Step 1: first-stage residuals for each endogenous variable
+    v_hat_names = []
+    for i, endog_var in enumerate(endogenous_vars):
+        rhs_fs = " + ".join(
+            [_quote(z) for z in instrument_vars] + [_quote(c) for c in controls]
+        )
+        fs_formula = f"{_quote(endog_var)} ~ {rhs_fs}"
+        fs_model = smf.ols(fs_formula, data=df).fit()
+        vname = f"_v_hat_{i}"
+        df[vname] = fs_model.resid
+        v_hat_names.append(vname)
 
     # Step 2: augmented structural equation
     rhs_aug = " + ".join(
-        [_quote(treatment_var)] + [_quote(c) for c in controls] + ["_v_hat"]
+        [_quote(e) for e in endogenous_vars]
+        + [_quote(c) for c in controls]
+        + v_hat_names
     )
     aug_formula = f"{_quote(outcome_var)} ~ {rhs_aug}"
     aug_model = smf.ols(aug_formula, data=df).fit()
 
-    # Step 3: test coefficient on _v_hat
-    pname = _param_name(aug_model, "_v_hat")
-    if pname is None:
+    # Step 3: joint F-test on all v_hat coefficients
+    if len(v_hat_names) == 1:
+        # Single endogenous: t-test on _v_hat_0
+        pname = _param_name(aug_model, v_hat_names[0])
+        if pname is None:
+            return {
+                "statistic": None,
+                "p_value": None,
+                "endogenous": None,
+                "error": "Could not locate first-stage residuals in augmented model.",
+            }
+        t_stat = float(aug_model.tvalues[pname])
+        p_value = float(aug_model.pvalues[pname])
+        coef = float(aug_model.params[pname])
+        endogenous = p_value < 0.05
+
         return {
-            "statistic": None,
-            "p_value": None,
-            "endogenous": None,
-            "error": "Could not locate first-stage residuals in augmented model.",
+            "statistic": round(t_stat, 4),
+            "p_value": round(p_value, 4),
+            "endogenous": endogenous,
+            "v_hat_coefficient": round(coef, 4),
+            "message": (
+                f"Endogeneity detected (p = {p_value:.3f}). "
+                "The treatment appears to be correlated with the error term. "
+                "2SLS is preferred over OLS."
+            ) if endogenous else (
+                f"No significant endogeneity detected (p = {p_value:.3f}). "
+                "OLS may be consistent, but 2SLS remains valid if the exclusion "
+                "restriction holds."
+            ),
+            "interpretation": (
+                "Reject H0 (treatment is endogenous)" if endogenous
+                else "Fail to reject H0 (treatment may be exogenous)"
+            ),
         }
-
-    t_stat = float(aug_model.tvalues[pname])
-    p_value = float(aug_model.pvalues[pname])
-    coef = float(aug_model.params[pname])
-    endogenous = p_value < 0.05
-
-    if endogenous:
-        message = (
-            f"Endogeneity detected (p = {p_value:.3f}). "
-            "The treatment appears to be correlated with the error term. "
-            "2SLS is preferred over OLS."
-        )
     else:
-        message = (
-            f"No significant endogeneity detected (p = {p_value:.3f}). "
-            "OLS may be consistent, but 2SLS remains valid if the exclusion "
-            "restriction holds."
-        )
+        # Multiple endogenous: joint F-test on all v_hat coefficients
+        try:
+            # Build restriction string for statsmodels
+            restriction_strs = []
+            for vname in v_hat_names:
+                pname = _param_name(aug_model, vname)
+                if pname:
+                    restriction_strs.append(f"{pname} = 0")
+            if not restriction_strs:
+                return {
+                    "statistic": None,
+                    "p_value": None,
+                    "endogenous": None,
+                    "error": "Could not locate first-stage residuals in augmented model.",
+                }
+            f_test = aug_model.f_test(restriction_strs)
+            f_stat = float(f_test.fvalue)
+            p_value = float(f_test.pvalue)
+            endogenous = p_value < 0.05
 
-    return {
-        "statistic": round(t_stat, 4),
-        "p_value": round(p_value, 4),
-        "endogenous": endogenous,
-        "v_hat_coefficient": round(coef, 4),
-        "message": message,
-        "interpretation": (
-            "Reject H0 (treatment is endogenous)" if endogenous
-            else "Fail to reject H0 (treatment may be exogenous)"
-        ),
-    }
+            return {
+                "statistic": round(f_stat, 4),
+                "p_value": round(p_value, 4),
+                "endogenous": endogenous,
+                "test_type": "joint_F",
+                "n_endogenous": len(endogenous_vars),
+                "message": (
+                    f"Joint endogeneity detected (F = {f_stat:.3f}, p = {p_value:.3f}). "
+                    f"At least one of the {len(endogenous_vars)} endogenous variables "
+                    "appears correlated with the error term. 2SLS is preferred over OLS."
+                ) if endogenous else (
+                    f"No significant joint endogeneity detected (F = {f_stat:.3f}, p = {p_value:.3f}). "
+                    "OLS may be consistent, but 2SLS remains valid if the exclusion "
+                    "restriction holds."
+                ),
+                "interpretation": (
+                    "Reject H0 (endogeneity present)" if endogenous
+                    else "Fail to reject H0 (variables may be exogenous)"
+                ),
+            }
+        except Exception as e:
+            return {
+                "statistic": None,
+                "p_value": None,
+                "endogenous": None,
+                "error": f"Joint F-test failed: {str(e)}",
+            }
 
 
 def _sargan_hansen_test(
@@ -443,20 +594,18 @@ def _sargan_hansen_test(
     iv_residuals: np.ndarray,
     instrument_vars: List[str],
     control_vars: List[str],
+    n_endogenous: int = 1,
 ) -> Dict[str, Any]:
     """
     Sargan-Hansen overidentification test.
 
-    Only meaningful when n_instruments > 1 (overidentified model).
+    Only meaningful when n_instruments > n_endogenous (overidentified model).
 
     H0: all instruments are valid (orthogonal to structural error)
     H1: at least one instrument is invalid
 
     Test statistic: J = n * R² of regressing 2SLS residuals on all instruments
-    + controls. Under H0, J ~ χ²(n_instruments - 1).
-
-    Failing to reject H0 is necessary (but not sufficient) for instrument
-    validity.
+    + controls. Under H0, J ~ χ²(n_instruments - n_endogenous).
     """
     controls = control_vars or []
     n_inst = len(instrument_vars)
@@ -472,7 +621,7 @@ def _sargan_hansen_test(
     n = int(model.nobs)
     r2 = float(model.rsquared)
     j_stat = n * r2
-    dof = n_inst - 1   # degrees of freedom = over-identification count
+    dof = n_inst - n_endogenous   # degrees of freedom = over-identification count
     p_value = float(chi2.sf(j_stat, df=dof)) if dof > 0 else None
 
     if p_value is None:
@@ -481,7 +630,7 @@ def _sargan_hansen_test(
             "p_value": None,
             "dof": dof,
             "n_instruments": n_inst,
-            "message": "Test requires at least 2 instruments.",
+            "message": "Model is exactly identified — overidentification test not applicable.",
         }
 
     rejected = p_value < 0.05
@@ -523,22 +672,21 @@ def _liml_comparison(
     treatment_var: str,
     instrument_vars: List[str],
     control_vars: List[str],
+    additional_endogenous: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
     """
-    For just-identified IV: compare 2SLS vs LIML.
-
-    LIML (Limited Information Maximum Likelihood) is median-unbiased and
-    more robust to weak instruments than 2SLS.  In the just-identified case,
-    LIML = 2SLS, so the comparison is trivially identical — we instead
-    return the Anderson-Rubin confidence interval, which is valid even under
-    weak instruments.
-
-    Anderson-Rubin CI: invert the test of H0: beta = b0 using the reduced-
-    form regression.
+    For just-identified IV: return the Anderson-Rubin confidence interval,
+    which is valid even under weak instruments.
     """
-    all_cols = (
-        [outcome_var, treatment_var] + instrument_vars + (control_vars or [])
-    )
+    additional_endogenous = additional_endogenous or []
+
+    # Collect all columns
+    all_endog = [treatment_var] + [e["variable"] for e in additional_endogenous]
+    all_inst = list(instrument_vars) + [e["instrument"] for e in additional_endogenous]
+    all_cols = list(set(
+        [outcome_var] + all_endog + all_inst + (control_vars or [])
+    ))
+
     df = data[all_cols].copy()
     for c in all_cols:
         df[c] = pd.to_numeric(df[c], errors="coerce")
@@ -547,10 +695,10 @@ def _liml_comparison(
     controls = control_vars or []
     z = instrument_vars[0]
 
-    # Anderson-Rubin statistic over a grid of b0 values
-    # AR(b0): regress Y - b0*D on Z and controls, test Z coefficient = 0.
+    # Anderson-Rubin statistic over a grid of b0 values for primary treatment
     tsls_est = IVEstimator(df, outcome_var, treatment_var,
-                           instrument_vars, controls).estimate()
+                           instrument_vars, controls,
+                           additional_endogenous).estimate()
     tau_hat = tsls_est["treatment_effect"]
     se_hat = tsls_est["se"]
 
@@ -594,30 +742,45 @@ def _leave_one_out_instruments(
     treatment_var: str,
     instrument_vars: List[str],
     control_vars: List[str],
+    additional_endogenous: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
     """
-    Leave-one-out sensitivity: re-run 2SLS dropping each instrument in turn.
-
-    Estimates should be stable across these sub-specifications if the
-    identifying variation is not driven by a single (potentially invalid)
-    instrument.
+    Leave-one-out sensitivity: re-run 2SLS dropping each primary instrument
+    in turn (only for the primary treatment's instruments).
     """
-    all_cols = (
-        [outcome_var, treatment_var] + instrument_vars + (control_vars or [])
-    )
+    additional_endogenous = additional_endogenous or []
+
+    all_endog = [treatment_var] + [e["variable"] for e in additional_endogenous]
+    all_inst = list(instrument_vars) + [e["instrument"] for e in additional_endogenous]
+    all_cols = list(set(
+        [outcome_var] + all_endog + all_inst + (control_vars or [])
+    ))
+
     df = data[all_cols].copy()
     for c in all_cols:
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df = df.dropna()
 
     results = []
+    # Only drop primary treatment instruments (not additional endog instruments)
     for drop_z in instrument_vars:
         remaining = [z for z in instrument_vars if z != drop_z]
         if not remaining:
             continue
+        # Check we still satisfy order condition
+        total_inst = len(remaining) + len([e["instrument"] for e in additional_endogenous])
+        total_endog = len(all_endog)
+        if total_inst < total_endog:
+            results.append({
+                "dropped_instrument": drop_z,
+                "remaining_instruments": remaining,
+                "error": "Under-identified after dropping this instrument.",
+            })
+            continue
         try:
             est = IVEstimator(df, outcome_var, treatment_var,
-                              remaining, control_vars).estimate()
+                              remaining, control_vars,
+                              additional_endogenous).estimate()
             results.append({
                 "dropped_instrument": drop_z,
                 "remaining_instruments": remaining,
