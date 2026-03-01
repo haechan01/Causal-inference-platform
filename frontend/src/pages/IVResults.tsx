@@ -1,4 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
+  ResponsiveContainer, Cell, ErrorBar,
+} from 'recharts';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Navbar, BottomProgressBar } from '../components/layout';
 import { formatPValue } from '../utils/format';
@@ -98,6 +102,15 @@ const IVResults: React.FC = () => {
   const [codeLanguage, setCodeLanguage] = useState<'python' | 'r' | 'stata'>('python');
   const [outcomeLabel, setOutcomeLabel] = useState<string>('');
   const [editingOutcomeLabel, setEditingOutcomeLabel] = useState(false);
+
+  // ── Chart label customisation ─────────────────────────────────────────────
+  const [chartTitle, setChartTitle] = useState('OLS vs 2SLS: Causal Effect Estimate');
+  const [chartYLabel, setChartYLabel] = useState('Estimated Effect');
+  const [chartXLabel, setChartXLabel] = useState('Estimator');
+  const [chartOlsLabel, setChartOlsLabel] = useState('OLS');
+  const [chart2slsLabel, setChart2slsLabel] = useState('2SLS');
+  const [editingChartField, setEditingChartField] = useState<string | null>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
 
   const recommendedQuestions = [
     'What is the exclusion restriction assumption?',
@@ -727,6 +740,25 @@ display "  → Compare with 2SLS to gauge endogeneity bias corrected by IV"
     }
   };
 
+  // ── Chart download ────────────────────────────────────────────────────────
+  const downloadChart = useCallback(async () => {
+    if (!chartRef.current) return;
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const canvas = await html2canvas(chartRef.current, {
+        background: '#ffffff',
+        scale: 2,
+        useCORS: true,
+      } as any);
+      const link = document.createElement('a');
+      link.download = 'iv_comparison_chart.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      console.error('Chart download failed:', err);
+    }
+  }, []);
+
   // ── Loading / no results ──────────────────────────────────────────────────
   if (loading) {
     return (
@@ -813,74 +845,7 @@ display "  → Compare with 2SLS to gauge endogeneity bias corrected by IV"
 
             <div style={styles.content}>
 
-              {/* ── Results at a Glance ── */}
-              <div style={styles.glanceCard}>
-                <h3 style={styles.glanceTitle}>Results at a Glance</h3>
-                <div style={styles.glanceGrid}>
-                  <div style={{
-                    ...styles.glanceItem,
-                    borderColor: isSignificant ? '#059669' : '#ca8a04',
-                    backgroundColor: isSignificant ? '#f0fdf4' : '#fffbeb',
-                  }}>
-                    <div>
-                      <div style={styles.glanceItemTitle}>Causal Effect</div>
-                      <div style={styles.glanceItemDesc}>
-                        {isSignificant
-                          ? 'Statistically significant — the effect is unlikely due to chance'
-                          : 'Not statistically significant — the effect may be due to chance'}
-                      </div>
-                    </div>
-                  </div>
-                  {res.instrument_strength && (
-                    <div style={{
-                      ...styles.glanceItem,
-                      borderColor: isWeak ? '#dc3545' : '#059669',
-                      backgroundColor: isWeak ? '#fff5f5' : '#f0fdf4',
-                    }}>
-                      <div>
-                        <div style={styles.glanceItemTitle}>Instrument Strength</div>
-                        <div style={styles.glanceItemDesc}>
-                          {isWeak
-                            ? `Weak instruments (F = ${res.first_stage?.f_statistic?.toFixed(1)}) — estimates may be unreliable`
-                            : `Strong instruments (F = ${res.first_stage?.f_statistic?.toFixed(1)}) — reliable prediction of treatment`}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {res.endogeneity_test && (
-                    <div style={{
-                      ...styles.glanceItem,
-                      borderColor: res.endogeneity_test.is_endogenous ? '#059669' : '#ca8a04',
-                      backgroundColor: res.endogeneity_test.is_endogenous ? '#f0fdf4' : '#fffbeb',
-                    }}>
-                      <div>
-                        <div style={styles.glanceItemTitle}>IV Justified?</div>
-                        <div style={styles.glanceItemDesc}>
-                          {res.endogeneity_test.is_endogenous
-                            ? 'Yes — standard regression would be biased here'
-                            : 'Unclear — standard regression might also be valid'}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {overidApplicable && (
-                    <div style={{
-                      ...styles.glanceItem,
-                      borderColor: overid.is_overidentified_rejected ? '#dc3545' : '#059669',
-                      backgroundColor: overid.is_overidentified_rejected ? '#fff5f5' : '#f0fdf4',
-                    }}>
-                      <div>
-                        <div style={styles.glanceItemTitle}>Instrument Validity</div>
-                        <div style={styles.glanceItemDesc}>
-                          {overid.is_overidentified_rejected
-                            ? 'Test failed — at least one instrument may be invalid'
-                            : 'Test passed — instruments appear consistent and valid'}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+
 
               {/* ── Main result card ── */}
               <div style={styles.mainResultCard}>
@@ -1358,69 +1323,267 @@ display "  → Compare with 2SLS to gauge endogeneity bias corrected by IV"
                 </div>
               ) : null}
 
-              {/* ── OLS Comparison ── */}
-              {res.ols_comparison && (
-                <div style={styles.infoCard}>
-                  <h3 style={styles.infoTitle}>OLS vs. 2SLS Comparison</h3>
-                  <p style={styles.infoSubtitle}>
-                    The difference between OLS and 2SLS estimates reflects the
-                    degree of endogeneity bias corrected by IV.
-                  </p>
-                  <div style={styles.comparisonGrid}>
-                    <div style={styles.comparisonItem}>
-                      <div style={styles.comparisonLabel}>OLS Estimate</div>
-                      <div style={styles.comparisonValue}>
-                        {res.ols_comparison.estimate?.toFixed(4)}
-                      </div>
-                      <div style={styles.comparisonSub}>
-                        SE: {res.ols_comparison.se?.toFixed(4)} &nbsp;|&nbsp; 95%
-                        CI: [{res.ols_comparison.ci_lower?.toFixed(3)},{' '}
-                        {res.ols_comparison.ci_upper?.toFixed(3)}]
-                      </div>
-                    </div>
-                    <div style={styles.comparisonArrow}>→</div>
-                    <div
+              {/* ── OLS vs 2SLS Interactive Chart ── */}
+              {res.ols_comparison && (() => {
+                const olsEst = res.ols_comparison.estimate ?? 0;
+                const slsEst = res.treatment_effect ?? 0;
+                const olsSe = res.ols_comparison.se ?? 0;
+                const slsSe = res.se ?? 0;
+                const diff = slsEst - olsEst;
+                const absDiff = Math.abs(diff);
+                const pctDiff = olsEst
+                  ? (absDiff / Math.abs(olsEst)) * 100
+                  : null;
+
+                const chartData = [
+                  {
+                    name: chartOlsLabel,
+                    estimate: olsEst,
+                    errorY: [olsSe * 1.96, olsSe * 1.96] as [number, number],
+                    ciLower: res.ols_comparison.ci_lower,
+                    ciUpper: res.ols_comparison.ci_upper,
+                    se: olsSe,
+                    color: '#FF6B6B',
+                  },
+                  {
+                    name: chart2slsLabel,
+                    estimate: slsEst,
+                    errorY: [slsSe * 1.96, slsSe * 1.96] as [number, number],
+                    ciLower: res.ci_lower,
+                    ciUpper: res.ci_upper,
+                    se: slsSe,
+                    color: '#4F9CF9',
+                  },
+                ];
+
+                const EditableLabel: React.FC<{
+                  field: string;
+                  value: string;
+                  onChange: (v: string) => void;
+                  style?: React.CSSProperties;
+                  inputStyle?: React.CSSProperties;
+                }> = ({ field, value, onChange, style, inputStyle }) =>
+                  editingChartField === field ? (
+                    <input
+                      autoFocus
+                      value={value}
+                      onChange={e => onChange(e.target.value)}
+                      onBlur={() => setEditingChartField(null)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === 'Escape')
+                          setEditingChartField(null);
+                      }}
                       style={{
-                        ...styles.comparisonItem,
-                        borderColor: '#043873',
-                        backgroundColor: '#f0f7ff',
+                        border: 'none',
+                        borderBottom: '2px solid #4F9CF9',
+                        background: 'transparent',
+                        outline: 'none',
+                        textAlign: 'center',
+                        padding: '2px 4px',
+                        fontFamily: 'inherit',
+                        ...inputStyle,
+                      }}
+                    />
+                  ) : (
+                    <span
+                      onClick={() => setEditingChartField(field)}
+                      title="Click to edit"
+                      style={{
+                        cursor: 'text',
+                        borderBottom: '1px dashed #b3d0ff',
+                        paddingBottom: '1px',
+                        ...style,
                       }}
                     >
-                      <div style={styles.comparisonLabel}>2SLS Estimate</div>
-                      <div
-                        style={{ ...styles.comparisonValue, color: '#043873' }}
-                      >
-                        {res.treatment_effect?.toFixed(4)}
+                      {value}
+                    </span>
+                  );
+
+                const CustomTooltip = ({ active, payload }: any) => {
+                  if (!active || !payload?.length) return null;
+                  const d = payload[0].payload;
+                  return (
+                    <div style={{
+                      background: '#fff', border: '1px solid #e9ecef',
+                      borderRadius: '8px', padding: '10px 14px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                      fontSize: '13px', minWidth: '180px',
+                    }}>
+                      <p style={{ fontWeight: 700, marginBottom: '6px', color: d.color }}>{d.name}</p>
+                      <p style={{ margin: '3px 0', color: '#444' }}>Estimate: <strong>{d.estimate?.toFixed(4)}</strong></p>
+                      <p style={{ margin: '3px 0', color: '#888' }}>SE: {d.se?.toFixed(4)}</p>
+                      <p style={{ margin: '3px 0', color: '#888' }}>
+                        95% CI: [{d.ciLower?.toFixed(3)}, {d.ciUpper?.toFixed(3)}]
+                      </p>
+                    </div>
+                  );
+                };
+
+                return (
+                  <div style={styles.infoCard}>
+                    {/* Header row */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                      <div>
+                        <h3 style={{ ...styles.infoTitle, marginBottom: '4px' }}>OLS vs. 2SLS Comparison</h3>
+                        <p style={styles.infoSubtitle}>
+                          The difference between OLS and 2SLS estimates reflects the
+                          degree of endogeneity bias corrected by IV.
+                        </p>
                       </div>
-                      <div style={styles.comparisonSub}>
-                        SE: {res.se?.toFixed(4)} &nbsp;|&nbsp; 95% CI: [
-                        {res.ci_lower?.toFixed(3)}, {res.ci_upper?.toFixed(3)}]
+                      <button
+                        onClick={downloadChart}
+                        title="Download chart as PNG"
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '6px',
+                          padding: '7px 14px', borderRadius: '8px',
+                          border: '1px solid #d0dff5', background: '#f0f7ff',
+                          color: '#043873', fontSize: '13px', fontWeight: 600,
+                          cursor: 'pointer', flexShrink: 0, marginLeft: '16px',
+                          transition: 'background 0.15s',
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#dceeff')}
+                        onMouseLeave={e => (e.currentTarget.style.background = '#f0f7ff')}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                          <polyline points="7 10 12 15 17 10"/>
+                          <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        Download PNG
+                      </button>
+                    </div>
+
+                    {/* Chart */}
+                    <div ref={chartRef} style={{ background: '#fff', padding: '20px 8px 12px', borderRadius: '10px', border: '1px solid #f0f0f0', marginTop: '12px' }}>
+                      {/* Editable chart title */}
+                      <div style={{ textAlign: 'center', marginBottom: '4px' }}>
+                        <EditableLabel
+                          field="title"
+                          value={chartTitle}
+                          onChange={setChartTitle}
+                          style={{ fontSize: '14px', fontWeight: 700, color: '#222' }}
+                          inputStyle={{ fontSize: '14px', fontWeight: 700, color: '#222', width: '340px' }}
+                        />
+                      </div>
+
+                      <ResponsiveContainer width="100%" height={320}>
+                        <BarChart
+                          data={chartData}
+                          margin={{ top: 20, right: 40, left: 20, bottom: 30 }}
+                          barCategoryGap="40%"
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                          <XAxis
+                            dataKey="name"
+                            tick={{ fontSize: 13, fill: '#444' }}
+                            label={{
+                              value: chartXLabel,
+                              position: 'insideBottom',
+                              offset: -16,
+                              style: { fontSize: 12, fill: '#888' },
+                            }}
+                          />
+                          <YAxis
+                            tick={{ fontSize: 12, fill: '#888' }}
+                            label={{
+                              value: chartYLabel,
+                              angle: -90,
+                              position: 'insideLeft',
+                              offset: 10,
+                              style: { fontSize: 12, fill: '#888' },
+                            }}
+                          />
+                          <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
+                          <ReferenceLine y={0} stroke="#999" strokeDasharray="4 2" />
+                          <Bar dataKey="estimate" radius={[6, 6, 0, 0]} maxBarSize={80}>
+                            {chartData.map((entry, index) => (
+                              <Cell key={index} fill={entry.color} />
+                            ))}
+                            <ErrorBar dataKey="errorY" width={8} strokeWidth={2} stroke="#444" />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+
+                      {/* Editable axis label hints */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', padding: '0 8px' }}>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px', color: '#aaa' }}>Y-axis:</span>
+                          <EditableLabel
+                            field="ylabel"
+                            value={chartYLabel}
+                            onChange={setChartYLabel}
+                            style={{ fontSize: '11px', color: '#888' }}
+                            inputStyle={{ fontSize: '11px', color: '#888', width: '120px' }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px', color: '#aaa' }}>X-axis:</span>
+                          <EditableLabel
+                            field="xlabel"
+                            value={chartXLabel}
+                            onChange={setChartXLabel}
+                            style={{ fontSize: '11px', color: '#888' }}
+                            inputStyle={{ fontSize: '11px', color: '#888', width: '100px' }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px', color: '#aaa' }}>Bar labels:</span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ width: '10px', height: '10px', background: '#FF6B6B', borderRadius: '2px', display: 'inline-block' }} />
+                            <EditableLabel
+                              field="olslabel"
+                              value={chartOlsLabel}
+                              onChange={setChartOlsLabel}
+                              style={{ fontSize: '11px', color: '#888' }}
+                              inputStyle={{ fontSize: '11px', color: '#888', width: '60px' }}
+                            />
+                          </span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ width: '10px', height: '10px', background: '#4F9CF9', borderRadius: '2px', display: 'inline-block' }} />
+                            <EditableLabel
+                              field="slslabel"
+                              value={chart2slsLabel}
+                              onChange={setChart2slsLabel}
+                              style={{ fontSize: '11px', color: '#888' }}
+                              inputStyle={{ fontSize: '11px', color: '#888', width: '60px' }}
+                            />
+                          </span>
+                        </div>
+                      </div>
+                      <p style={{ textAlign: 'center', fontSize: '10px', color: '#ccc', marginTop: '6px' }}>
+                        Error bars show ±1.96 SE &nbsp;·&nbsp; Click any label above to edit &nbsp;·&nbsp; Generated by Causal Platform
+                      </p>
+                    </div>
+
+                    {/* Bias correction note */}
+                    <p style={styles.biasCorrectionNote}>
+                      <strong>Bias correction:</strong> 2SLS corrects{' '}
+                      {diff > 0 ? 'upward' : 'downward'} by {absDiff.toFixed(4)}
+                      {pctDiff != null ? ` (${pctDiff.toFixed(1)}% relative to OLS)` : ''}.
+                      A large difference suggests substantial endogeneity in the OLS estimate.
+                    </p>
+
+                    {/* Compact numeric summary */}
+                    <div style={styles.comparisonGrid}>
+                      <div style={styles.comparisonItem}>
+                        <div style={styles.comparisonLabel}>OLS Estimate</div>
+                        <div style={styles.comparisonValue}>{olsEst.toFixed(4)}</div>
+                        <div style={styles.comparisonSub}>
+                          SE: {olsSe.toFixed(4)} &nbsp;|&nbsp; 95% CI: [{res.ols_comparison.ci_lower?.toFixed(3)}, {res.ols_comparison.ci_upper?.toFixed(3)}]
+                        </div>
+                      </div>
+                      <div style={styles.comparisonArrow}>→</div>
+                      <div style={{ ...styles.comparisonItem, borderColor: '#043873', backgroundColor: '#f0f7ff' }}>
+                        <div style={styles.comparisonLabel}>2SLS Estimate</div>
+                        <div style={{ ...styles.comparisonValue, color: '#043873' }}>{slsEst.toFixed(4)}</div>
+                        <div style={styles.comparisonSub}>
+                          SE: {slsSe.toFixed(4)} &nbsp;|&nbsp; 95% CI: [{res.ci_lower?.toFixed(3)}, {res.ci_upper?.toFixed(3)}]
+                        </div>
                       </div>
                     </div>
                   </div>
-                  {(() => {
-                    const diff =
-                      (res.treatment_effect || 0) -
-                      (res.ols_comparison.estimate || 0);
-                    const absDiff = Math.abs(diff);
-                    const pctDiff = res.ols_comparison.estimate
-                      ? (absDiff / Math.abs(res.ols_comparison.estimate)) * 100
-                      : null;
-                    return (
-                      <p style={styles.biasCorrectionNote}>
-                        <strong>Bias correction:</strong> 2SLS corrects{' '}
-                        {diff > 0 ? 'upward' : 'downward'} by{' '}
-                        {absDiff.toFixed(4)}
-                        {pctDiff != null
-                          ? ` (${pctDiff.toFixed(1)}% relative to OLS)`
-                          : ''}
-                        . A large difference suggests substantial endogeneity in
-                        the OLS estimate.
-                      </p>
-                    );
-                  })()}
-                </div>
-              )}
+                );
+              })()}
 
               {/* ── Sensitivity Analysis ── */}
               <div style={styles.infoCard}>
@@ -2854,47 +3017,7 @@ const styles = {
     fontStyle: 'italic',
   },
 
-  // ── Results at a Glance card ──────────────────────────────────────────────
-  glanceCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: '12px',
-    padding: '20px 24px',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.07)',
-    border: '1px solid #e9ecef',
-    marginBottom: '20px',
-  },
-  glanceTitle: {
-    fontSize: '16px',
-    fontWeight: 'bold' as const,
-    color: '#333',
-    margin: '0 0 16px 0',
-  },
-  glanceGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-    gap: '12px',
-  },
-  glanceItem: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: '12px',
-    padding: '12px 14px',
-    borderRadius: '8px',
-    border: '1.5px solid',
-    borderColor: '#e0e0e0',
-    backgroundColor: '#f8f9fa',
-  },
-  glanceItemTitle: {
-    fontSize: '13px',
-    fontWeight: '700' as const,
-    color: '#333',
-    marginBottom: '3px',
-  },
-  glanceItemDesc: {
-    fontSize: '12px',
-    color: '#555',
-    lineHeight: '1.5',
-  },
+
   // ── Plain English box ─────────────────────────────────────────────────────
   plainEnglishBox: {
     backgroundColor: '#eff6ff',

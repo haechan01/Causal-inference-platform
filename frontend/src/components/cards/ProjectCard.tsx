@@ -50,7 +50,9 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
       'variables': 'Configuring Variables',
       'results': 'Analysis Complete',
       'rd-setup': 'Configuring Variables',
-      'rd-results': 'Analysis Complete'
+      'rd-results': 'Analysis Complete',
+      'iv-setup': 'Configuring Variables',
+      'iv-results': 'Analysis Complete',
     };
 
     const stepColors: Record<string, string> = {
@@ -58,7 +60,9 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
       'variables': '#f39c12',
       'results': '#27ae60',
       'rd-setup': '#f39c12',
-      'rd-results': '#27ae60'
+      'rd-results': '#27ae60',
+      'iv-setup': '#f39c12',
+      'iv-results': '#27ae60',
     };
 
     return {
@@ -75,14 +79,13 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
     if (!project.current_step || !hasDatasets) return false;
 
     const steps = ['projects', 'method', 'variables', 'results'];
-    // Map RD-specific steps to generic steps for index comparison
-    const normalizedStep =
-      project.current_step === 'rd-setup'
-        ? 'variables'
-        : project.current_step === 'rd-results'
-          ? 'results'
-          : project.current_step;
-    const currentIndex = steps.indexOf(normalizedStep);
+    // Normalise method-specific step names to their generic equivalents
+    const normalizeStep = (s: string) => {
+      if (s === 'rd-setup' || s === 'iv-setup') return 'variables';
+      if (s === 'rd-results' || s === 'iv-results') return 'results';
+      return s;
+    };
+    const currentIndex = steps.indexOf(normalizeStep(project.current_step));
     const targetIndex = steps.indexOf(step);
 
     // Allow navigation to current or previous steps

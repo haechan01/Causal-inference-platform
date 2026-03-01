@@ -634,7 +634,7 @@ const RDSetup: React.FC = () => {
                       onChange={() => setTreatmentSide('above')}
                       style={styles.radioInput}
                     />
-                    Units at or above {cutoff || 'the cutoff'} (Standard)
+                    Units at or above {cutoff || 'the cutoff'}
                   </label>
                   <label style={styles.radioLabel}>
                     <input
