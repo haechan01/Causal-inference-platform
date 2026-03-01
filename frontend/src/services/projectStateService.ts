@@ -113,17 +113,20 @@ class ProjectStateService {
    * Uses selectedMethod to route to method-specific pages (e.g. RD uses /rd-setup, /rd-results).
    */
   getStepPath(step: string, selectedMethod?: string): string {
-    // Handle RD-specific step names that may come from backend
+    // Handle method-specific step names saved directly as step keys
     if (step === 'rd-setup') return '/rd-setup';
     if (step === 'rd-results') return '/rd-results';
+    if (step === 'iv-setup') return '/iv-setup';
+    if (step === 'iv-results') return '/iv-results';
 
     const isRD = selectedMethod === 'rdd';
+    const isIV = selectedMethod === 'iv';
     const stepPaths: Record<string, string> = {
       'upload': '/upload-data',
       'projects': '/projects',
       'method': '/method-selection',
-      'variables': isRD ? '/rd-setup' : '/variable-selection',
-      'results': isRD ? '/rd-results' : '/results'
+      'variables': isRD ? '/rd-setup' : isIV ? '/iv-setup' : '/variable-selection',
+      'results': isRD ? '/rd-results' : isIV ? '/iv-results' : '/results'
     };
     return stepPaths[step] || '/projects';
   }
@@ -138,7 +141,11 @@ class ProjectStateService {
       '/method-selection': 'method',
       '/variable-selection': 'variables',
       '/results': 'results',
-      '/analysis': 'results'
+      '/analysis': 'results',
+      '/iv-setup': 'iv-setup',
+      '/iv-results': 'iv-results',
+      '/rd-setup': 'rd-setup',
+      '/rd-results': 'rd-results',
     };
     return pathSteps[path] || 'projects';
   }
