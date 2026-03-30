@@ -496,6 +496,376 @@ class RDEstimator:
         }
 
 
+    # ------------------------------------------------------------------
+    # Placebo Cutoff Test
+    # ------------------------------------------------------------------
+
+    def placebo_cutoff_test(
+        self,
+        bandwidth: float,
+        polynomial_order: int = 1,
+        n_placebos: int = 20,
+    ) -> Dict[str, Any]:
+        """
+        Placebo cutoff test: apply RD at many fake cutoff values away from
+        the real cutoff.
+
+        Under the continuity assumption there should be no jump in the outcome
+        at arbitrary points of the running variable.  If we detect large
+        "effects" at fake cutoffs, that suggests the running variable predicts
+        the outcome through channels other than the treatment — a sign that
+        the continuity assumption may be violated.
+
+        Strategy
+        --------
+        1. Place n_placebos fake cutoffs spread over the portion of the
+           running-variable support that is NOT used by the real estimate
+           (i.e. outside [cutoff - bandwidth, cutoff + bandwidth]).
+        2. For each fake cutoff, run the same local polynomial estimator
+           with the same bandwidth.
+        3. Compare the distribution of fake effects to the real effect.
+
+        Returns
+        -------
+        dict with placebo_estimates, pseudo_p_value, passed, message,
+        chart_data (for a dot-plot).
+        """
+        df = self.data[[self.running_var, self.outcome_var]].copy()
+        df[self.running_var] = pd.to_numeric(df[self.running_var], errors="coerce")
+        df[self.outcome_var] = pd.to_numeric(df[self.outcome_var], errors="coerce")
+        df = df.dropna(subset=[self.running_var, self.outcome_var])
+
+        if df.empty:
+            return _empty_placebo_cutoff_result(
+                "No valid data after cleaning."
+            )
+
+        order = validate_polynomial_order(int(polynomial_order))
+        h = float(bandwidth)
+        c = self.cutoff
+        rv = df[self.running_var]
+
+        rv_min, rv_max = float(rv.min()), float(rv.max())
+
+        # Safe zones for fake cutoffs: left side and right side, each
+        # requiring at least `h` gap from the real cutoff.
+        left_max  = c - h - (rv_max - rv_min) * 0.02   # leave 2% buffer
+        left_min  = rv_min + h + (rv_max - rv_min) * 0.02
+        right_min = c + h + (rv_max - rv_min) * 0.02
+        right_max = rv_max - h - (rv_max - rv_min) * 0.02
+
+        candidates: List[float] = []
+        n_each = n_placebos // 2
+
+        if left_min < left_max:
+            candidates += list(np.linspace(left_min, left_max, n_each))
+        if right_min < right_max:
+            candidates += list(np.linspace(right_min, right_max, n_each))
+
+        if not candidates:
+            return _empty_placebo_cutoff_result(
+                "Not enough running-variable support away from the cutoff "
+                "to place placebo cutoffs. Try a smaller bandwidth."
+            )
+
+        placebo_estimates: List[Dict[str, Any]] = []
+        real_result = None
+        try:
+            real_result = self.estimate(bandwidth=h, polynomial_order=order)
+        except Exception:
+            pass
+        real_effect = real_result["treatment_effect"] if real_result else None
+
+        for fake_c in candidates:
+            try:
+                fake_rd = RDEstimator(
+                    data=df,
+                    running_var=self.running_var,
+                    outcome_var=self.outcome_var,
+                    cutoff=fake_c,
+                    treatment_side=self.treatment_side,
+                )
+                est = fake_rd.estimate(bandwidth=h, polynomial_order=order)
+                placebo_estimates.append({
+                    "fake_cutoff": round(float(fake_c), 4),
+                    "estimate":    round(float(est["treatment_effect"]), 4),
+                    "se":          round(float(est["se"]), 4),
+                    "ci_lower":    round(float(est["ci_lower"]), 4),
+                    "ci_upper":    round(float(est["ci_upper"]), 4),
+                    "p_value":     round(float(est["p_value"]), 4),
+                    "n_total":     est["n_total"],
+                    "is_significant": bool(est["p_value"] < 0.05),
+                })
+            except Exception:
+                continue
+
+        if not placebo_estimates:
+            return _empty_placebo_cutoff_result(
+                "No placebo estimates could be computed. "
+                "Try a larger dataset or smaller bandwidth."
+            )
+
+        n_total = len(placebo_estimates)
+        n_sig   = sum(1 for e in placebo_estimates if e["is_significant"])
+        fpr     = round(n_sig / n_total * 100, 1)
+
+        # Pseudo p-value: fraction of |placebo effects| >= |real effect|
+        pseudo_p = None
+        rank_pct = None
+        passed   = None
+
+        if real_effect is not None and np.isfinite(real_effect):
+            abs_real = abs(real_effect)
+            abs_plc  = [abs(e["estimate"]) for e in placebo_estimates]
+            pseudo_p = round(sum(1 for v in abs_plc if v >= abs_real) / n_total, 4)
+            rank_pct = round(
+                sum(1 for v in abs_plc if v < abs_real) / n_total * 100, 1
+            )
+            passed   = pseudo_p <= 0.05
+
+        # Human-readable message
+        if pseudo_p is not None:
+            if passed:
+                message = (
+                    f"✅ Placebo cutoff test passed. The real effect at {c} is more "
+                    f"extreme than {rank_pct}% of placebo estimates "
+                    f"(pseudo p = {pseudo_p:.3f}). This supports the continuity assumption."
+                )
+            else:
+                message = (
+                    f"⚠️ Placebo cutoff test inconclusive. The real effect at {c} is not "
+                    f"clearly more extreme than the placebo distribution "
+                    f"(pseudo p = {pseudo_p:.3f}). Interpret results with caution."
+                )
+        else:
+            if fpr <= 10:
+                message = (
+                    f"✅ Only {n_sig}/{n_total} ({fpr}%) placebo cutoffs show significant "
+                    f"effects, consistent with the expected 5% false-positive rate."
+                )
+            else:
+                message = (
+                    f"⚠️ {n_sig}/{n_total} ({fpr}%) placebo cutoffs show significant "
+                    f"effects — more than the expected 5%. The outcome may not be smooth "
+                    f"along the running variable."
+                )
+
+        chart_data = {
+            "placeboEstimates": placebo_estimates,
+            "realCutoff":       round(float(c), 4),
+            "realEffect":       round(float(real_effect), 4) if real_effect is not None else None,
+            "pseudoPValue":     pseudo_p,
+            "xAxisLabel":       f"{self.running_var} (fake cutoff value)",
+            "yAxisLabel":       f"Estimated Effect on {self.outcome_var}",
+            "title":            "Placebo Cutoff Test",
+        }
+
+        return {
+            "placebo_estimates": placebo_estimates,
+            "n_total":           n_total,
+            "n_significant":     n_sig,
+            "false_positive_rate": fpr,
+            "pseudo_p_value":    pseudo_p,
+            "rank_pct":          rank_pct,
+            "real_effect":       (round(float(real_effect), 4)
+                                  if real_effect is not None else None),
+            "passed":            passed,
+            "message":           message,
+            "chart_data":        chart_data,
+        }
+
+    # ------------------------------------------------------------------
+    # Density / Manipulation Test  (simplified McCrary 2008)
+    # ------------------------------------------------------------------
+
+    def density_test(self, n_bins: int = 30) -> Dict[str, Any]:
+        """
+        Test for a discontinuity in the density of the running variable at
+        the cutoff (McCrary 2008 / sorting test).
+
+        Method
+        ------
+        1. Bin the running variable into ``n_bins`` equal-width bins.
+        2. Fit separate weighted local linear regressions (triangular kernel)
+           on the bin counts (normalised to density) on each side of the
+           cutoff.
+        3. The test statistic is the difference in extrapolated densities at
+           the cutoff, divided by the pooled SE (both via OLS, HC2 errors).
+        4. Return a Z-statistic, p-value, and rich chart data for the
+           frontend histogram.
+
+        Returns
+        -------
+        dict with z_stat, p_value, passed, message, chart_data
+        """
+        df = self.data[[self.running_var]].copy()
+        df[self.running_var] = pd.to_numeric(df[self.running_var], errors="coerce")
+        df = df.dropna(subset=[self.running_var])
+
+        if df.empty or len(df) < 20:
+            return _empty_density_result("Not enough data to run the density test.")
+
+        rv   = df[self.running_var].values
+        c    = self.cutoff
+        n    = len(rv)
+
+        rv_min, rv_max = float(rv.min()), float(rv.max())
+        if rv_min >= rv_max:
+            return _empty_density_result("Running variable has zero range.")
+
+        # ---- Build histogram bins ----
+        bin_width = (rv_max - rv_min) / n_bins
+        bin_edges = np.linspace(rv_min, rv_max, n_bins + 1)
+        bin_mids  = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+        bin_counts = np.histogram(rv, bins=bin_edges)[0].astype(float)
+        # Normalise to density (probability per unit width)
+        bin_density = bin_counts / (n * bin_width)
+
+        # ---- Split bins by side ----
+        left_mask  = bin_mids < c
+        right_mask = bin_mids >= c
+
+        if left_mask.sum() < 2 or right_mask.sum() < 2:
+            return _empty_density_result(
+                "Not enough bins on both sides of the cutoff. "
+                "Try adjusting n_bins."
+            )
+
+        def _fit_side(mids, densities, cutoff_val, side_name):
+            """Fit local linear regression and extrapolate to cutoff."""
+            x  = mids - cutoff_val          # center at cutoff
+            y  = densities
+            # triangular weights: bins closer to cutoff get higher weight
+            bw_side = abs(x).max()
+            w  = np.maximum(1.0 - abs(x) / (bw_side + 1e-10), 0.0)
+            w  = np.maximum(w, 1e-6)        # avoid zero weights
+            X  = sm.add_constant(x, has_constant="add")
+            try:
+                model = sm.WLS(y, X, weights=w).fit(cov_type="HC2")
+                intercept     = float(model.params[0])   # density at cutoff
+                intercept_se  = float(model.bse[0])
+                return intercept, intercept_se, model
+            except Exception:
+                return None, None, None
+
+        left_interp,  left_se,  _  = _fit_side(
+            bin_mids[left_mask],  bin_density[left_mask],  c, "left"
+        )
+        right_interp, right_se, _  = _fit_side(
+            bin_mids[right_mask], bin_density[right_mask], c, "right"
+        )
+
+        if left_interp is None or right_interp is None:
+            return _empty_density_result(
+                "Could not fit density regressions on one or both sides."
+            )
+
+        # ---- Test statistic ----
+        diff    = right_interp - left_interp
+        diff_se = float(np.sqrt(left_se ** 2 + right_se ** 2))
+        z_stat  = diff / diff_se if diff_se > 1e-10 else 0.0
+        p_value = float(2.0 * norm.sf(abs(z_stat)))
+        passed  = p_value >= 0.05   # we WANT to fail to reject (no jump)
+
+        # ---- Smooth fitted lines for chart (50 points each side) ----
+        def _smooth_curve(mids, densities, cutoff_val):
+            x   = mids - cutoff_val
+            bw  = abs(x).max()
+            w   = np.maximum(1.0 - abs(x) / (bw + 1e-10), 1e-6)
+            X   = sm.add_constant(x, has_constant="add")
+            try:
+                mdl = sm.WLS(densities, X, weights=w).fit(cov_type="HC2")
+                x_pred = np.linspace(x.min(), x.max(), 50)
+                y_pred = mdl.params[0] + mdl.params[1] * x_pred
+                return (x_pred + cutoff_val).tolist(), y_pred.tolist()
+            except Exception:
+                return mids.tolist(), densities.tolist()
+
+        left_xs,  left_ys  = _smooth_curve(
+            bin_mids[left_mask],  bin_density[left_mask],  c
+        )
+        right_xs, right_ys = _smooth_curve(
+            bin_mids[right_mask], bin_density[right_mask], c
+        )
+
+        # ---- Message ----
+        if passed:
+            message = (
+                f"✅ No significant discontinuity in density detected at the cutoff "
+                f"(Z = {z_stat:.3f}, p = {p_value:.3f}). "
+                f"There is no strong evidence of manipulation or sorting."
+            )
+        else:
+            message = (
+                f"⚠️ Significant density discontinuity detected at the cutoff "
+                f"(Z = {z_stat:.3f}, p = {p_value:.3f}). "
+                f"This may indicate that units are sorting around the cutoff, "
+                f"which would bias the RD estimate."
+            )
+
+        chart_data = {
+            "bins": [
+                {
+                    "mid":     round(float(m), 6),
+                    "density": round(float(d), 8),
+                    "isLeft":  bool(m < c),
+                }
+                for m, d in zip(bin_mids, bin_density)
+            ],
+            "leftCurve":  [{"x": round(float(xi), 6), "y": round(float(yi), 8)}
+                           for xi, yi in zip(left_xs, left_ys)],
+            "rightCurve": [{"x": round(float(xi), 6), "y": round(float(yi), 8)}
+                           for xi, yi in zip(right_xs, right_ys)],
+            "cutoff":      float(c),
+            "leftDensityAtCutoff":  round(float(left_interp), 8),
+            "rightDensityAtCutoff": round(float(right_interp), 8),
+            "xAxisLabel": self.running_var,
+            "yAxisLabel": "Density",
+            "title":      f"Density of {self.running_var} Around Cutoff ({c})",
+        }
+
+        return {
+            "z_stat":    round(float(z_stat), 4),
+            "p_value":   round(float(p_value), 4),
+            "diff":      round(float(diff), 6),
+            "diff_se":   round(float(diff_se), 6),
+            "left_density_at_cutoff":  round(float(left_interp), 6),
+            "right_density_at_cutoff": round(float(right_interp), 6),
+            "passed":    passed,
+            "message":   message,
+            "chart_data": chart_data,
+        }
+
+
+def _empty_placebo_cutoff_result(message: str) -> Dict[str, Any]:
+    return {
+        "placebo_estimates":   [],
+        "n_total":             0,
+        "n_significant":       0,
+        "false_positive_rate": None,
+        "pseudo_p_value":      None,
+        "rank_pct":            None,
+        "real_effect":         None,
+        "passed":              None,
+        "message":             message,
+        "chart_data":          None,
+    }
+
+
+def _empty_density_result(message: str) -> Dict[str, Any]:
+    return {
+        "z_stat":    None,
+        "p_value":   None,
+        "diff":      None,
+        "diff_se":   None,
+        "left_density_at_cutoff":  None,
+        "right_density_at_cutoff": None,
+        "passed":    None,
+        "message":   message,
+        "chart_data": None,
+    }
+
+
 def _stability_from_effects(effects: list[float]) -> Dict[str, Any]:
     """
     Assess stability of treatment effects across bandwidth choices.

@@ -91,6 +91,17 @@ class IVEstimator:
             if inst not in self.all_instrument_vars:
                 self.all_instrument_vars.append(inst)
 
+        # Remove any additional endogenous variables and their instruments
+        # from the controls list to prevent duplicate columns in the
+        # X and Z matrices, which would cause rank deficiency and
+        # numerically meaningless 2SLS results.
+        if self.additional_endogenous:
+            self.control_vars = [
+                c for c in self.control_vars
+                if c not in self.all_endogenous_vars
+                and c not in self.all_instrument_vars
+            ]
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------

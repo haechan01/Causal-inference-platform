@@ -17,7 +17,7 @@ from io import BytesIO
 from scipy.stats import t, norm
 import math
 from models import Dataset
-from utils.did_analysis import check_parallel_trends
+from utils.did_analysis import check_parallel_trends, run_placebo_test
 from analysis.rd_analysis import RDEstimator
 from analysis.iv_analysis import IVEstimator
 from sample_data_utils import get_sample_dataset_by_id, get_sample_file_path
@@ -1145,7 +1145,37 @@ def run_did_analysis(dataset_id):
             # Calculate z-statistic and p-value using proper normal distribution
             z_stat = abs(did_estimate / se_did) if se_did > epsilon else 0
             p_value = 2 * (1 - norm.cdf(z_stat)) if se_did > epsilon else 1.0
-            
+
+            # Run placebo test
+            placebo_result = None
+            try:
+                print("Running placebo test...")
+                placebo_result = run_placebo_test(
+                    df=df,
+                    treatment_col='is_treated',
+                    time_col=time_var,
+                    outcome_col=outcome_var,
+                    treatment_time=treatment_time_for_test,
+                    unit_col=unit_var if unit_var and unit_var in df.columns else None,
+                    real_estimate=float(did_estimate)
+                )
+                print(f"Placebo test completed: n_total={placebo_result.get('n_total')}, passed={placebo_result.get('passed')}")
+            except Exception as e:
+                print(f"Error in placebo test: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                placebo_result = {
+                    "placebo_estimates": [],
+                    "n_total": 0,
+                    "n_significant": 0,
+                    "false_positive_rate": None,
+                    "pseudo_p_value": None,
+                    "rank_pct": None,
+                    "passed": None,
+                    "message": f"Could not run placebo test: {str(e)}",
+                    "chart_data": None
+                }
+
             # Results
             print(f"Creating results object with did_estimate: {did_estimate}, se_did: {se_did}, z_stat: {z_stat}, p_value: {p_value}")
             results = {
@@ -1167,7 +1197,8 @@ def run_did_analysis(dataset_id):
                 'chart': chart_base64 or '',
                 'chart_data': chart_data,
                 'parallel_trends_test': parallel_trends_test,  # Backward compatibility
-                'parallel_trends': parallel_trends_result  # New improved structure
+                'parallel_trends': parallel_trends_result,  # New improved structure
+                'placebo_test': placebo_result
             }
             print(f"Results object created successfully with keys: {list(results.keys())}")
             
@@ -1664,6 +1695,229 @@ def run_rd_sensitivity_analysis(dataset_id):
         return jsonify({
             "error": f"Failed to run RD sensitivity analysis: {str(e)}"
         }), 500
+
+
+@datasets_bp.route('/<int:dataset_id>/analyze/rd/placebo', methods=['POST'])
+@jwt_required()
+def run_rd_placebo_test(dataset_id):
+    """Run RD placebo cutoff test."""
+    print("=== RD PLACEBO CUTOFF TEST STARTED ===")
+    try:
+        current_user_id = get_jwt_identity()
+        if not isinstance(current_user_id, str):
+            raise ValueError("Invalid token identity")
+
+        dataset = Dataset.query.get(dataset_id)
+        if not dataset:
+            return jsonify({"error": f"Dataset {dataset_id} not found"}), 404
+
+        has_access = (
+            str(dataset.user_id) == str(current_user_id)
+            or (dataset.project and str(dataset.project.user_id) == str(current_user_id))
+        )
+        if not has_access:
+            return jsonify({"error": "Access denied"}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No analysis parameters provided"}), 400
+
+        running_var      = data.get('running_var')
+        outcome_var      = data.get('outcome_var')
+        cutoff           = data.get('cutoff')
+        bandwidth        = data.get('bandwidth')
+        polynomial_order = int(data.get('polynomial_order', 1))
+        treatment_side   = data.get('treatment_side', 'above')
+        n_placebos       = int(data.get('n_placebos', 20))
+
+        if not running_var:
+            return jsonify({"error": "Missing required parameter: running_var"}), 400
+        if not outcome_var:
+            return jsonify({"error": "Missing required parameter: outcome_var"}), 400
+        if cutoff is None:
+            return jsonify({"error": "Missing required parameter: cutoff"}), 400
+        if bandwidth is None:
+            return jsonify({"error": "Missing required parameter: bandwidth"}), 400
+
+        try:
+            cutoff    = float(cutoff)
+            bandwidth = float(bandwidth)
+        except (ValueError, TypeError):
+            return jsonify({"error": "cutoff and bandwidth must be numbers"}), 400
+
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            region_name=AWS_REGION
+        )
+        temp_file_path = f"/tmp/rd_placebo_{dataset_id}.csv"
+
+        try:
+            s3_client.download_file(S3_BUCKET_NAME, dataset.s3_key, temp_file_path)
+            df = pd.read_csv(temp_file_path)
+            print(f"Dataset shape: {df.shape}")
+
+            if running_var not in df.columns:
+                return jsonify({"error": f"running_var '{running_var}' not found"}), 400
+            if outcome_var not in df.columns:
+                return jsonify({"error": f"outcome_var '{outcome_var}' not found"}), 400
+
+            rd = RDEstimator(
+                data=df,
+                running_var=running_var,
+                outcome_var=outcome_var,
+                cutoff=cutoff,
+                treatment_side=treatment_side
+            )
+
+            print(f"Running placebo cutoff test with {n_placebos} placebos, bandwidth={bandwidth}...")
+            try:
+                result = rd.placebo_cutoff_test(
+                    bandwidth=bandwidth,
+                    polynomial_order=polynomial_order,
+                    n_placebos=n_placebos
+                )
+                print(f"  Placebo test completed: n_total={result.get('n_total')}, passed={result.get('passed')}")
+            except Exception as pe:
+                print(f"  Placebo test failed: {pe}")
+                return jsonify({"error": f"Placebo test failed: {str(pe)}"}), 400
+
+            response_data = {
+                'analysis_type': 'rd_placebo',
+                'dataset_id': dataset_id,
+                'parameters': {
+                    'running_var': running_var,
+                    'outcome_var': outcome_var,
+                    'cutoff': cutoff,
+                    'bandwidth': bandwidth,
+                    'polynomial_order': polynomial_order,
+                    'treatment_side': treatment_side,
+                    'n_placebos': n_placebos,
+                },
+                'results': result,
+            }
+
+            response_data = sanitize_for_json(response_data)
+            return jsonify(response_data), 200
+
+        finally:
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+
+    except ValueError:
+        return jsonify({"error": "Invalid token identity"}), 401
+    except Exception as e:
+        print(f"ERROR in run_rd_placebo_test: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to run placebo test: {str(e)}"}), 500
+
+
+@datasets_bp.route('/<int:dataset_id>/analyze/rd/density', methods=['POST'])
+@jwt_required()
+def run_rd_density_test(dataset_id):
+    """Run RD density (manipulation) test."""
+    print("=== RD DENSITY TEST STARTED ===")
+    try:
+        current_user_id = get_jwt_identity()
+        if not isinstance(current_user_id, str):
+            raise ValueError("Invalid token identity")
+
+        dataset = Dataset.query.get(dataset_id)
+        if not dataset:
+            return jsonify({"error": f"Dataset {dataset_id} not found"}), 404
+
+        has_access = (
+            str(dataset.user_id) == str(current_user_id)
+            or (dataset.project and str(dataset.project.user_id) == str(current_user_id))
+        )
+        if not has_access:
+            return jsonify({"error": "Access denied"}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No analysis parameters provided"}), 400
+
+        running_var = data.get('running_var')
+        outcome_var = data.get('outcome_var', running_var)   # density test only needs running_var
+        cutoff      = data.get('cutoff')
+        n_bins      = int(data.get('n_bins', 30))
+        treatment_side = data.get('treatment_side', 'above')
+
+        if not running_var:
+            return jsonify({"error": "Missing required parameter: running_var"}), 400
+        if cutoff is None:
+            return jsonify({"error": "Missing required parameter: cutoff"}), 400
+
+        try:
+            cutoff = float(cutoff)
+        except (ValueError, TypeError):
+            return jsonify({"error": "cutoff must be a number"}), 400
+
+        n_bins = max(10, min(n_bins, 100))
+
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            region_name=AWS_REGION
+        )
+        temp_file_path = f"/tmp/rd_density_{dataset_id}.csv"
+
+        try:
+            s3_client.download_file(S3_BUCKET_NAME, dataset.s3_key, temp_file_path)
+            df = pd.read_csv(temp_file_path)
+            print(f"Dataset shape: {df.shape}")
+
+            if running_var not in df.columns:
+                return jsonify({"error": f"running_var '{running_var}' not found"}), 400
+            # density test only needs running_var; fall back gracefully if outcome absent
+            if outcome_var not in df.columns:
+                outcome_var = running_var
+
+            rd = RDEstimator(
+                data=df,
+                running_var=running_var,
+                outcome_var=outcome_var,
+                cutoff=cutoff,
+                treatment_side=treatment_side
+            )
+
+            print(f"Running density test with n_bins={n_bins}...")
+            try:
+                result = rd.density_test(n_bins=n_bins)
+                print(f"  Density test completed: z={result.get('z_stat')}, p={result.get('p_value')}, passed={result.get('passed')}")
+            except Exception as de:
+                print(f"  Density test failed: {de}")
+                return jsonify({"error": f"Density test failed: {str(de)}"}), 400
+
+            response_data = {
+                'analysis_type': 'rd_density',
+                'dataset_id': dataset_id,
+                'parameters': {
+                    'running_var': running_var,
+                    'cutoff': cutoff,
+                    'n_bins': n_bins,
+                    'treatment_side': treatment_side,
+                },
+                'results': result,
+            }
+
+            response_data = sanitize_for_json(response_data)
+            return jsonify(response_data), 200
+
+        finally:
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+
+    except ValueError:
+        return jsonify({"error": "Invalid token identity"}), 401
+    except Exception as e:
+        print(f"ERROR in run_rd_density_test: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to run density test: {str(e)}"}), 500
 
 
 @datasets_bp.route('/<int:dataset_id>/analyze/iv', methods=['POST'])
