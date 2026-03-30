@@ -4,8 +4,9 @@ AI Assistant Service - Comprehensive AI support throughout the analysis workflow
 
 import os
 import json
-import google.generativeai as genai
 from typing import Dict, Any, Optional, List
+
+from services.gemini_client import generate_content_text, resolve_model_id_from_env
 
 
 class CausalAIAssistant:
@@ -24,82 +25,12 @@ class CausalAIAssistant:
         if not self.api_key:
             # Don't raise error on init, just warn, so app can start even if not configured
             print("WARNING: GOOGLE_API_KEY not found in environment variables. AI features will be disabled.")
-            self.model = None
+            self._model_id = None
             return
-        
-        try:
-            genai.configure(api_key=self.api_key)
-            
-            # Find a suitable model
-            model_name = os.getenv('AI_MODEL_NAME', 'gemini-1.5-flash')
-            
-            # List models to confirm availability or find alternative
-            try:
-                available_models = []
-                for model in genai.list_models():
-                    # Safely check supported_generation_methods (handles different SDK versions)
-                    try:
-                        supported_methods = getattr(model, 'supported_generation_methods', [])
-                        # Convert to list if needed
-                        if hasattr(supported_methods, '__iter__') and not isinstance(supported_methods, str):
-                            methods_list = list(supported_methods)
-                        else:
-                            methods_list = []
-                        if 'generateContent' in methods_list:
-                            model_name_short = model.name.split('/')[-1] if '/' in model.name else model.name
-                            available_models.append((model_name_short, model.name))
-                    except Exception:
-                        # If we can't check methods, skip this model
-                        continue
-                
-                # Check if preferred model is available
-                model_found = False
-                for short, full in available_models:
-                    if short == model_name or full == model_name:
-                        model_name = full
-                        model_found = True
-                        break
-                
-                if not model_found and available_models:
-                    model_name = available_models[0][1]
-            except Exception:
-                model_name = None  # Will try fallbacks below
 
-            # If model listing failed or no model found, try common fallbacks
-            if not model_name or model_name == os.getenv('AI_MODEL_NAME', ''):
-                fallback_models = [
-                    'gemini-2.0-flash',
-                    'gemini-1.5-flash', 
-                    'gemini-1.5-pro',
-                    'gemini-pro',
-                    'models/gemini-2.0-flash',
-                    'models/gemini-1.5-flash',
-                    'models/gemini-pro',
-                ]
-                
-                for fallback in fallback_models:
-                    try:
-                        test_model = genai.GenerativeModel(model_name=fallback)
-                        # Try a simple call to verify it works
-                        test_model.generate_content("test", generation_config={'max_output_tokens': 10})
-                        model_name = fallback
-                        break
-                    except Exception:
-                        continue
-                
-                if not model_name:
-                    raise Exception("No working Gemini model found. Please check your API key permissions.")
-
-            self.model = genai.GenerativeModel(
-                model_name=model_name,
-                generation_config={
-                    'temperature': 0.3,  # Lower for more consistent responses
-                    'max_output_tokens': 8192, # Increase token limit
-                }
-            )
-            self._model_name = model_name
-        except Exception:
-            self.model = None
+        # Same model resolution as CausalAIService (no list_models() or probe calls).
+        self._model_id = resolve_model_id_from_env()
+        self._model_name = self._model_id
     
     def assess_data_quality(self, schema_info: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -475,9 +406,9 @@ Respond with JSON only:
         Returns:
             Dictionary with "response" (str) and "followup_questions" (list of 3 strings)
         """
-        if not self.model:
+        if not self._model_id:
             raise Exception("AI service is not initialized (missing API key?)")
-        
+
         # Build context prompt
         context_prompt = ""
         if analysis_context:
@@ -738,34 +669,13 @@ IMPORTANT: At the end of your response, include exactly 3 follow-up questions in
         
         # Call Gemini
         try:
-            response = self.model.generate_content(
+            response_text = generate_content_text(
                 full_prompt,
-                generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=2000,  # Limit response length
-                    temperature=0.7,  # Slightly higher for more conversational tone
-                )
+                model_id=self._model_id,
+                max_output_tokens=2000,
+                temperature=0.7,
             )
-            
-            # Extract response text
-            response_text = None
-            try:
-                response_text = response.text
-            except Exception:
-                candidates = getattr(response, 'candidates', None)
-                if candidates and len(candidates) > 0:
-                    candidate = candidates[0]
-                    content = getattr(candidate, 'content', None)
-                    if content:
-                        parts = getattr(content, 'parts', None)
-                        if parts:
-                            parts_text = []
-                            for part in parts:
-                                text = getattr(part, 'text', '')
-                                if text:
-                                    parts_text.append(str(text))
-                            if parts_text:
-                                response_text = ''.join(parts_text)
-            
+
             if response_text and response_text.strip():
                 # Extract follow-up questions
                 followup_questions = []
@@ -833,93 +743,16 @@ IMPORTANT: At the end of your response, include exactly 3 follow-up questions in
         Simple wrapper for Gemini API calls.
         Matches robust error handling from CausalAIService.
         """
-        if not self.model:
+        if not self._model_id:
             raise Exception("AI service is not initialized (missing API key?)")
-            
+
         try:
-            # Use a reasonable token limit
-            max_tokens = 8192
-            
-            try:
-                # Override generation config to use higher token limit
-                response = self.model.generate_content(
-                    prompt,
-                    generation_config=genai.types.GenerationConfig(
-                        max_output_tokens=max_tokens,
-                        temperature=0.3,
-                    )
-                )
-            except Exception:
-                raise
-            
-            # Try multiple approaches to extract text
-            response_text = None
-            finish_reason = None
-            
-            # Approach 1: Direct response.text (works on some SDK versions)
-            try:
-                response_text = response.text
-                if response_text and response_text.strip():
-                    return response_text.strip()
-            except Exception:
-                pass  # Fall through to other extraction methods
-            
-            # Approach 2: Extract from candidates -> content -> parts
-            candidates = getattr(response, 'candidates', None)
-            if candidates and len(candidates) > 0:
-                candidate = candidates[0]
-                finish_reason = getattr(candidate, 'finish_reason', None)
-                content = getattr(candidate, 'content', None)
-                
-                if content:
-                    parts = getattr(content, 'parts', None)
-                    if parts:
-                        # Try to iterate through parts and extract text
-                        parts_text = []
-                        try:
-                            for part in parts:
-                                # Direct attribute access
-                                text = getattr(part, 'text', '')
-                                if text:
-                                    parts_text.append(str(text))
-                        except TypeError:
-                            # If iteration fails, try treating as single part
-                            text = getattr(parts, 'text', '')
-                            if text:
-                                parts_text.append(str(text))
-                        
-                        if parts_text:
-                            response_text = ''.join(parts_text)
-            
-            # Approach 3: Try response.parts directly (some SDK versions)
-            if not response_text:
-                try:
-                    parts = getattr(response, 'parts', None)
-                    if parts:
-                        parts_text = []
-                        for part in parts:
-                            text = getattr(part, 'text', '')
-                            if text:
-                                parts_text.append(str(text))
-                        if parts_text:
-                            response_text = ''.join(parts_text)
-                except Exception:
-                    pass
-            
-            # Check finish reason for errors
-            if finish_reason == 2:
-                if not response_text:
-                    raise Exception("Response hit token limit before generating content.")
-            elif finish_reason == 3:
-                raise Exception("Content was blocked by safety filters.")
-            elif finish_reason == 4:
-                raise Exception("Content was blocked due to recitation detection.")
-            
-            if response_text and response_text.strip():
-                return response_text.strip()
-            
-            raise Exception(f"Gemini API returned empty response. finish_reason={finish_reason}")
-            
+            return generate_content_text(
+                prompt,
+                model_id=self._model_id,
+                max_output_tokens=8192,
+                temperature=0.3,
+            )
         except Exception as e:
             raise Exception(f"AI service error: {str(e)}")
     

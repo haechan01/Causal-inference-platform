@@ -42,8 +42,8 @@ try:
         print("⚠️  Cannot test initialization without GOOGLE_API_KEY")
 except ImportError as e:
     print(f"❌ Failed to import AI service: {str(e)}")
-    print("   Make sure google-generativeai is installed:")
-    print("   pip install google-generativeai==0.3.2")
+    print("   Make sure google-genai is installed:")
+    print("   pip install google-genai")
 except Exception as e:
     print(f"❌ Unexpected error: {str(e)}")
 

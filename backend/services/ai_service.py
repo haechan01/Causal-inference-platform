@@ -7,8 +7,12 @@ import json
 import math
 import os
 import sys
-import google.generativeai as genai
 from typing import Dict, Any, Optional
+
+from services.gemini_client import (
+    generate_content_text,
+    resolve_model_id_from_env,
+)
 
 
 def _safe_num(v: Any, default: float = 0) -> float:
@@ -37,70 +41,12 @@ class CausalAIService:
             print(f"ERROR: {error_msg}", file=sys.stderr)
             print(f"Available env vars starting with GOOGLE: {[k for k in os.environ.keys() if 'GOOGLE' in k.upper()]}", file=sys.stderr)
             raise ValueError(error_msg)
-        
-        # Configure Gemini
-        try:
-            genai.configure(api_key=self.api_key)
-        except Exception as e:
-            error_msg = f"Failed to configure Gemini API: {str(e)}"
-            print(f"ERROR: {error_msg}", file=sys.stderr)
-            raise ValueError(error_msg)
-        
-        # Resolve which model to use. If AI_MODEL_NAME is set we skip the
-        # expensive genai.list_models() network call entirely (it enumerates
-        # every model and was blocking sync Gunicorn workers for >30 s).
-        model_name_to_use = None
-        user_model = os.getenv('AI_MODEL_NAME')
-        if user_model:
-            # Normalise: accept both "gemini-2.0-flash" and "models/gemini-2.0-flash"
-            model_name_to_use = user_model if user_model.startswith('models/') else f'models/{user_model}'
-            print(f"DEBUG: Using configured model: {model_name_to_use}", file=sys.stderr)
-            sys.stderr.flush()
-        else:
-            # No model configured — fall back to a sensible default without listing
-            fallback_models = [
-                'models/gemini-2.0-flash',
-                'models/gemini-1.5-flash',
-                'models/gemini-1.5-pro',
-                'models/gemini-pro',
-            ]
-            model_name_to_use = fallback_models[0]
-            print(f"DEBUG: AI_MODEL_NAME not set, defaulting to: {model_name_to_use}", file=sys.stderr)
-            sys.stderr.flush()
 
-        if not model_name_to_use:
-            raise ValueError("Could not determine a Gemini model to use. Set AI_MODEL_NAME in your .env file (e.g. AI_MODEL_NAME=gemini-2.0-flash).")
-        
-        # Create model instance with adjusted safety settings
-        # Lower safety thresholds to allow analysis of statistical results
-        safety_settings = [
-            {
-                "category": "HARM_CATEGORY_HARASSMENT",
-                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-                "category": "HARM_CATEGORY_HATE_SPEECH",
-                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-            },
-        ]
-        
-        self.model = genai.GenerativeModel(
-            model_name=model_name_to_use,
-            generation_config={
-                'temperature': float(os.getenv('AI_TEMPERATURE', '0.7')),
-                'max_output_tokens': int(os.getenv('AI_MAX_TOKENS', '16384')),  # Default to 16384 for longer responses
-            },
-            safety_settings=safety_settings
-        )
-        self._model_name = model_name_to_use
+        # Model id without expensive list_models() (google-genai SDK).
+        self._model_id = resolve_model_id_from_env()
+        print(f"DEBUG: Using Gemini model: {self._model_id}", file=sys.stderr)
+        sys.stderr.flush()
+        self._model_name = self._model_id
         
         # Knowledge base (embedded in prompts)
         self.knowledge_base = self._get_knowledge_base()
@@ -155,114 +101,14 @@ PARALLEL TRENDS ASSUMPTION:
             Response text from Gemini
         """
         try:
-            # Generate with a higher token limit
-            max_tokens_str = os.getenv('AI_MAX_TOKENS', '16384')
-            max_tokens = int(max_tokens_str)
-            
-            try:
-                response = self.model.generate_content(
-                    prompt,
-                    generation_config=genai.types.GenerationConfig(
-                        max_output_tokens=max_tokens,
-                        temperature=float(os.getenv('AI_TEMPERATURE', '0.7')),
-                    ),
-                    request_options={'timeout': 120},
-                )
-            except Exception as api_error:
-                # Check for quota/rate limit errors
-                error_str = str(api_error)
-                if '429' in error_str or 'quota' in error_str.lower() or 'rate.limit' in error_str.lower():
-                    # Try to extract retry delay from error message
-                    retry_delay = None
-                    if 'retry_delay' in error_str or 'retry in' in error_str.lower():
-                        import re
-                        delay_match = re.search(r'retry.*?(\d+\.?\d*)\s*s', error_str, re.IGNORECASE)
-                        if delay_match:
-                            retry_delay = float(delay_match.group(1))
-                    
-                    # Create a user-friendly error message
-                    if retry_delay:
-                        error_msg = f"API quota exceeded. Please wait {int(retry_delay)} seconds before trying again. You can check your usage at https://ai.dev/usage"
-                    else:
-                        error_msg = "API quota exceeded. Please check your Google Cloud billing and quota limits at https://ai.dev/usage"
-                    
-                    # Create a custom exception that includes the retry delay
-                    quota_error = ValueError(error_msg)
-                    quota_error.retry_delay = retry_delay
-                    quota_error.is_quota_error = True
-                    raise quota_error
-                else:
-                    # Re-raise other errors as-is
-                    raise
-            
-            # Try multiple approaches to extract text
-            response_text = None
-            finish_reason = None
-            
-            # Approach 1: Direct response.text (works on some SDK versions)
-            try:
-                response_text = response.text
-                if response_text and response_text.strip():
-                    return response_text.strip()
-            except Exception:
-                pass  # Fall through to other extraction methods
-            
-            # Approach 2: Extract from candidates -> content -> parts
-            candidates = getattr(response, 'candidates', None)
-            if candidates and len(candidates) > 0:
-                candidate = candidates[0]
-                finish_reason = getattr(candidate, 'finish_reason', None)
-                content = getattr(candidate, 'content', None)
-                
-                if content:
-                    parts = getattr(content, 'parts', None)
-                    if parts:
-                        # Try to iterate through parts and extract text
-                        parts_text = []
-                        try:
-                            for part in parts:
-                                # Direct attribute access
-                                text = getattr(part, 'text', '')
-                                if text:
-                                    parts_text.append(str(text))
-                        except TypeError:
-                            # If iteration fails, try treating as single part
-                            text = getattr(parts, 'text', '')
-                            if text:
-                                parts_text.append(str(text))
-                        
-                        if parts_text:
-                            response_text = ''.join(parts_text)
-            
-            # Approach 3: Try response.parts directly (some SDK versions)
-            if not response_text:
-                try:
-                    parts = getattr(response, 'parts', None)
-                    if parts:
-                        parts_text = []
-                        for part in parts:
-                            text = getattr(part, 'text', '')
-                            if text:
-                                parts_text.append(str(text))
-                        if parts_text:
-                            response_text = ''.join(parts_text)
-                except Exception:
-                    pass
-            
-            # Check finish reason for errors
-            if finish_reason == 2:
-                if not response_text:
-                    raise Exception("Response hit token limit before generating content.")
-            elif finish_reason == 3:
-                raise Exception("Content was blocked by safety filters.")
-            elif finish_reason == 4:
-                raise Exception("Content was blocked due to recitation detection.")
-            
-            if response_text and response_text.strip():
-                return response_text.strip()
-            
-            raise Exception(f"Gemini API returned empty response. finish_reason={finish_reason}")
-            
+            max_tokens = int(os.getenv("AI_MAX_TOKENS", "16384"))
+            temperature = float(os.getenv("AI_TEMPERATURE", "0.7"))
+            return generate_content_text(
+                prompt,
+                model_id=self._model_id,
+                max_output_tokens=max_tokens,
+                temperature=temperature,
+            )
         except Exception as e:
             raise Exception(f"Gemini API error: {str(e)}")
     
