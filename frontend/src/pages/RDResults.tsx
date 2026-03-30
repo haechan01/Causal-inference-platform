@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { Navbar, BottomProgressBar } from '../components/layout';
 import { formatPValue } from '../utils/format';
 import { useProgressStep } from '../hooks/useProgressStep';
-import { RDSensitivityPlot, RDScatterPlot } from '../components/charts';
+import { RDSensitivityPlot, RDScatterPlot, RDPlaceboChart, RDDensityChart } from '../components/charts';
 import { aiService, ResultsInterpretation } from '../services/aiService';
 import { useAuth } from '../contexts/AuthContext';
 import { projectStateService } from '../services/projectStateService';
@@ -37,6 +38,18 @@ const RDResults: React.FC = () => {
   const [showDesignType, setShowDesignType] = useState(false);
   const [outcomeLabel, setOutcomeLabel] = useState<string>('');
   const [editingOutcomeLabel, setEditingOutcomeLabel] = useState(false);
+
+  // Placebo cutoff test state
+  const [placeboResult, setPlaceboResult] = useState<any>(null);
+  const [placeboLoading, setPlaceboLoading] = useState(false);
+  const [placeboError, setPlaceboError] = useState<string | null>(null);
+  const [placeboRun, setPlaceboRun] = useState(false);
+
+  // Density test state
+  const [densityResult, setDensityResult] = useState<any>(null);
+  const [densityLoading, setDensityLoading] = useState(false);
+  const [densityError, setDensityError] = useState<string | null>(null);
+  const [densityRun, setDensityRun] = useState(false);
   const [recommendedQuestions] = useState<string[]>([
     'What is the local continuity assumption in RD?',
     'How do I interpret my RD estimate?',
@@ -683,6 +696,60 @@ foreach mult in 0.5 0.75 1.0 1.25 1.5 {
 
   const { results: res, parameters, bandwidth_info } = results;
   const isSignificant = res.p_value < 0.05;
+
+  // ---- Placebo cutoff test handler ----
+  const runPlaceboTest = async () => {
+    if (!accessToken) return;
+    setPlaceboLoading(true);
+    setPlaceboError(null);
+    setPlaceboRun(true);
+    try {
+      const response = await axios.post(
+        `/datasets/${results.dataset_id}/analyze/rd/placebo`,
+        {
+          running_var:      parameters.running_var,
+          outcome_var:      parameters.outcome_var,
+          cutoff:           parameters.cutoff,
+          bandwidth:        res.bandwidth_used,
+          polynomial_order: res.polynomial_order || 1,
+          treatment_side:   parameters.treatment_side || 'above',
+          n_placebos:       20,
+        },
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      setPlaceboResult(response.data.results);
+    } catch (err: any) {
+      setPlaceboError(err.response?.data?.error || err.message || 'Placebo test failed');
+    } finally {
+      setPlaceboLoading(false);
+    }
+  };
+
+  // ---- Density test handler ----
+  const runDensityTest = async () => {
+    if (!accessToken) return;
+    setDensityLoading(true);
+    setDensityError(null);
+    setDensityRun(true);
+    try {
+      const response = await axios.post(
+        `/datasets/${results.dataset_id}/analyze/rd/density`,
+        {
+          running_var:    parameters.running_var,
+          outcome_var:    parameters.outcome_var,
+          cutoff:         parameters.cutoff,
+          treatment_side: parameters.treatment_side || 'above',
+          n_bins:         30,
+        },
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      setDensityResult(response.data.results);
+    } catch (err: any) {
+      setDensityError(err.response?.data?.error || err.message || 'Density test failed');
+    } finally {
+      setDensityLoading(false);
+    }
+  };
   const rdType: 'sharp' | 'fuzzy' = (res.rd_type === 'fuzzy' || parameters.rd_type === 'fuzzy') ? 'fuzzy' : 'sharp';
   const isFuzzy = rdType === 'fuzzy';
   const DesignBadge = () => (
@@ -1151,6 +1218,207 @@ foreach mult in 0.5 0.75 1.0 1.25 1.5 {
             selectedBandwidth={res.bandwidth_used}
             treatmentSide={parameters.treatment_side}
           />
+
+          {/* ── Placebo Cutoff Test ── */}
+          <div style={styles.infoCard}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div>
+                <h3 style={styles.infoTitle}>Placebo Cutoff Test</h3>
+                <p style={{ fontSize: 14, color: '#555', margin: 0, lineHeight: 1.5 }}>
+                  Runs RD at many fake cutoff values away from the cutoff ({parameters.cutoff}).
+                  Under the continuity assumption there should be no jump at arbitrary points —
+                  the real estimate should be a clear outlier in the placebo distribution.
+                </p>
+              </div>
+              {!placeboRun && (
+                <button
+                  onClick={runPlaceboTest}
+                  style={{
+                    marginLeft: 20,
+                    flexShrink: 0,
+                    padding: '10px 20px',
+                    backgroundColor: '#043873',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Run Test
+                </button>
+              )}
+            </div>
+
+            {placeboLoading && (
+              <div style={{ textAlign: 'center', padding: '30px 0', color: '#6b7280', fontSize: 14 }}>
+                Running placebo cutoff test…
+              </div>
+            )}
+
+            {placeboError && (
+              <div style={{ padding: '12px 16px', backgroundColor: '#f8d7da', borderRadius: 8, color: '#721c24', fontSize: 14, marginTop: 8 }}>
+                ⚠ {placeboError}
+              </div>
+            )}
+
+            {placeboResult && !placeboLoading && (
+              <>
+                {/* Status banner */}
+                {(() => {
+                  const passed = placeboResult.passed;
+                  const statusBg    = passed === true ? '#d4edda' : passed === false ? '#fff3cd' : '#f8f9fa';
+                  const statusColor = passed === true ? '#155724' : passed === false ? '#856404' : '#495057';
+                  const statusBorder = passed === true ? '#c3e6cb' : passed === false ? '#ffeaa7' : '#dee2e6';
+                  return (
+                    <div style={{ padding: '12px 16px', backgroundColor: statusBg, border: `1px solid ${statusBorder}`, borderRadius: 8, marginBottom: 16 }}>
+                      <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: statusColor, lineHeight: 1.5 }}>
+                        {placeboResult.message}
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                {/* Summary stats */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 20 }}>
+                  {[
+                    { label: 'Placebo Estimates', value: placeboResult.n_total },
+                    { label: 'Significant at 5%', value: placeboResult.n_significant },
+                    { label: 'False-positive Rate', value: placeboResult.false_positive_rate != null ? `${placeboResult.false_positive_rate}%` : '—' },
+                    { label: 'Pseudo p-value', value: placeboResult.pseudo_p_value != null ? placeboResult.pseudo_p_value.toFixed(3) : '—' },
+                    { label: 'Placebos Smaller', value: placeboResult.rank_pct != null ? `${placeboResult.rank_pct}%` : '—' },
+                  ].map(({ label, value }) => (
+                    <div key={label} style={{ background: '#f8f9fa', borderRadius: 8, padding: '12px 14px', border: '1px solid #e9ecef' }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#043873' }}>{value}</div>
+                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Dot-plot chart */}
+                {placeboResult.chart_data && placeboResult.chart_data.placeboEstimates?.length > 0 && (
+                  <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e9ecef', padding: '20px 16px 8px', marginBottom: 16 }}>
+                    <RDPlaceboChart chartData={placeboResult.chart_data} />
+                  </div>
+                )}
+
+                {/* Guide */}
+                <div style={{ background: '#f0f7ff', borderRadius: 8, padding: '12px 16px', border: '1px solid #bfdbfe', fontSize: 14, color: '#1e40af', lineHeight: 1.6 }}>
+                  <strong>How to read:</strong> Each dot is the RD estimate at a fake cutoff placed
+                  away from the cutoff ({parameters.cutoff}). The vertical red line marks the
+                  cutoff; the horizontal dashed line is the real estimate. Under the continuity
+                  assumption, fake estimates should scatter near zero. The <em>pseudo p-value</em> is
+                  the fraction of fake effects as large as (or larger than) the real one.
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* ── Density / Manipulation Test ── */}
+          <div style={styles.infoCard}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div>
+                <h3 style={styles.infoTitle}>Density Test (No Manipulation)</h3>
+                <p style={{ fontSize: 14, color: '#555', margin: 0, lineHeight: 1.5 }}>
+                  Tests whether units are <em>sorting</em> around the cutoff ({parameters.cutoff}) —
+                  a key threat to RD validity. A discontinuity in the density of{' '}
+                  <strong>{parameters.running_var}</strong> at the cutoff suggests strategic
+                  manipulation (McCrary 2008).
+                </p>
+              </div>
+              {!densityRun && (
+                <button
+                  onClick={runDensityTest}
+                  style={{
+                    marginLeft: 20,
+                    flexShrink: 0,
+                    padding: '10px 20px',
+                    backgroundColor: '#043873',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Run Test
+                </button>
+              )}
+            </div>
+
+            {densityLoading && (
+              <div style={{ textAlign: 'center', padding: '30px 0', color: '#6b7280', fontSize: 14 }}>
+                Running density test…
+              </div>
+            )}
+
+            {densityError && (
+              <div style={{ padding: '12px 16px', backgroundColor: '#f8d7da', borderRadius: 8, color: '#721c24', fontSize: 14, marginTop: 8 }}>
+                ⚠ {densityError}
+              </div>
+            )}
+
+            {densityResult && !densityLoading && (
+              <>
+                {/* Status banner */}
+                {(() => {
+                  const passed = densityResult.passed;
+                  const statusBg    = passed === true ? '#d4edda' : passed === false ? '#f8d7da' : '#f8f9fa';
+                  const statusColor = passed === true ? '#155724' : passed === false ? '#721c24' : '#495057';
+                  const statusBorder = passed === true ? '#c3e6cb' : passed === false ? '#f5c6cb' : '#dee2e6';
+                  return (
+                    <div style={{ padding: '12px 16px', backgroundColor: statusBg, border: `1px solid ${statusBorder}`, borderRadius: 8, marginBottom: 16 }}>
+                      <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: statusColor, lineHeight: 1.5 }}>
+                        {densityResult.message}
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                {/* Summary stats */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
+                  {[
+                    { label: 'Z-statistic', value: densityResult.z_stat != null ? densityResult.z_stat.toFixed(3) : '—' },
+                    { label: 'p-value', value: densityResult.p_value != null ? densityResult.p_value.toFixed(4) : '—' },
+                    { label: 'Left density at cutoff', value: densityResult.left_density_at_cutoff != null ? densityResult.left_density_at_cutoff.toFixed(4) : '—' },
+                    { label: 'Right density at cutoff', value: densityResult.right_density_at_cutoff != null ? densityResult.right_density_at_cutoff.toFixed(4) : '—' },
+                  ].map(({ label, value }) => (
+                    <div key={label} style={{ background: '#f8f9fa', borderRadius: 8, padding: '12px 14px', border: '1px solid #e9ecef' }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#043873' }}>{value}</div>
+                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Density chart */}
+                {densityResult.chart_data && (
+                  <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e9ecef', padding: '20px 16px 8px', marginBottom: 16 }}>
+                    <RDDensityChart
+                      chartData={densityResult.chart_data}
+                      zStat={densityResult.z_stat}
+                      pValue={densityResult.p_value}
+                      passed={densityResult.passed}
+                    />
+                  </div>
+                )}
+
+                {/* Guide */}
+                <div style={{ background: '#f0f7ff', borderRadius: 8, padding: '12px 16px', border: '1px solid #bfdbfe', fontSize: 14, color: '#1e40af', lineHeight: 1.6 }}>
+                  <strong>How to read:</strong> The histogram shows the empirical density of{' '}
+                  <em>{parameters.running_var}</em>. The fitted curves (blue = left of cutoff,
+                  red = right) are extrapolated to the cutoff. A visible jump in height at the
+                  cutoff, confirmed by a significant Z-statistic (p &lt; 0.05), indicates
+                  that observations are not distributed smoothly — a sign of potential
+                  sorting or gaming. If the test is non-significant (p ≥ 0.05), the density
+                  appears continuous and manipulation is less likely.
+                </div>
+              </>
+            )}
+          </div>
 
           {/* ── Reproducible Code Section ── */}
           <div style={styles.codeSection}>

@@ -22,6 +22,7 @@ import re
 import logging
 
 from utils.rate_limiter import limiter
+from models import db, User
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
@@ -62,9 +63,6 @@ def register():
     }
     """
     try:
-        from app import db
-        from models import User
-
         data = request.get_json()
 
         # Validate required fields
@@ -154,9 +152,6 @@ def login():
     }
     """
     try:
-        from app import db
-        from models import User
-
         data = request.get_json()
 
         if not data:
@@ -211,9 +206,6 @@ def refresh():
     Requires refresh token in Authorization header: Bearer <refresh_token>
     """
     try:
-        from app import db
-        from models import User
-
         # Validate JWT identity is a valid integer
         try:
             jwt_identity = get_jwt_identity()
@@ -256,9 +248,6 @@ def get_current_user():
     Requires access token in Authorization header: Bearer <access_token>
     """
     try:
-        from app import db
-        from models import User
-
         # Validate JWT identity is a valid integer
         try:
             jwt_identity = get_jwt_identity()

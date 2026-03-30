@@ -6,7 +6,7 @@ import { useProgressStep } from '../hooks/useProgressStep';
 import { aiService, ResultsInterpretation } from '../services/aiService';
 import { useAuth } from '../contexts/AuthContext';
 import { projectStateService } from '../services/projectStateService';
-import { InteractiveDiDChart } from '../components/charts';
+import { InteractiveDiDChart, PlaceboTestChart } from '../components/charts';
 
 // Download chart as PNG helper function
 const downloadChartAsPNG = (base64Data: string, filename: string) => {
@@ -97,6 +97,34 @@ interface DiDResults {
         is_pre_treatment: boolean;
       }>;
       all_pre_periods_include_zero?: boolean;
+    };
+    placebo_test?: {
+      placebo_estimates: Array<{
+        fake_treatment_time: number | string;
+        estimate: number;
+        se: number;
+        p_value: number;
+        ci_lower: number;
+        ci_upper: number;
+        is_significant: boolean;
+      }>;
+      n_total: number;
+      n_significant: number;
+      false_positive_rate: number | null;
+      pseudo_p_value: number | null;
+      rank_pct: number | null;
+      passed: boolean | null;
+      message: string;
+      chart_data: {
+        placeboEstimates: number[];
+        realEstimate: number | null;
+        pseudoPValue: number | null;
+        xAxisLabel: string;
+        yAxisLabel: string;
+        title: string;
+        realLabel: string;
+        placeboLabel: string;
+      } | null;
     };
   };
 }
@@ -1812,6 +1840,118 @@ ggsave("did_chart.png", width = 10, height = 6, dpi = 300)`;
                 );
               })()}
             </div>
+
+            {/* Placebo Test Section */}
+            {results.results.placebo_test && (
+              <div style={styles.parallelTrendsSection}>
+                <h2 style={styles.subsectionTitle}>Placebo Test</h2>
+                <p style={styles.explanation}>
+                  A placebo test checks whether the treatment effect is a genuine causal impact
+                  or an artifact of pre-existing trends. We repeatedly assign a <em>fake</em> treatment
+                  date inside the pre-treatment window and re-run the DiD. Under parallel trends,
+                  those fake estimates should cluster near zero and be much smaller than the real estimate.
+                </p>
+
+                {(() => {
+                  const pt = results.results.placebo_test!;
+                  const passed = pt.passed;
+                  const hasPseudoP = pt.pseudo_p_value !== null && pt.pseudo_p_value !== undefined;
+                  const hasPlacebo = pt.n_total > 0;
+
+                  const statusColor = passed === true ? '#155724' : passed === false ? '#856404' : '#495057';
+                  const statusBg   = passed === true ? '#d4edda'  : passed === false ? '#fff3cd'  : '#f8f9fa';
+                  const statusBorder = passed === true ? '#c3e6cb' : passed === false ? '#ffeaa7' : '#dee2e6';
+
+                  return (
+                    <>
+                      {/* Status banner */}
+                      <div style={{
+                        padding: '14px 18px',
+                        backgroundColor: statusBg,
+                        borderRadius: '8px',
+                        border: `1px solid ${statusBorder}`,
+                        marginBottom: '20px',
+                      }}>
+                        <p style={{ margin: 0, fontSize: '15px', fontWeight: 500, color: statusColor, lineHeight: 1.5 }}>
+                          {pt.message}
+                        </p>
+                      </div>
+
+                      {/* Summary stats row */}
+                      {hasPlacebo && (
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                          gap: '12px',
+                          marginBottom: '24px',
+                        }}>
+                          <div style={{ background: '#f8f9fa', borderRadius: 8, padding: '14px 16px', border: '1px solid #e9ecef' }}>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: '#043873' }}>{pt.n_total}</div>
+                            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>Placebo Estimates</div>
+                          </div>
+                          <div style={{ background: '#f8f9fa', borderRadius: 8, padding: '14px 16px', border: '1px solid #e9ecef' }}>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: '#043873' }}>{pt.n_significant}</div>
+                            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>Significant at 5%</div>
+                          </div>
+                          {pt.false_positive_rate !== null && (
+                            <div style={{ background: '#f8f9fa', borderRadius: 8, padding: '14px 16px', border: '1px solid #e9ecef' }}>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: '#043873' }}>{pt.false_positive_rate}%</div>
+                              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>False-positive rate</div>
+                            </div>
+                          )}
+                          {hasPseudoP && (
+                            <div style={{ background: '#f8f9fa', borderRadius: 8, padding: '14px 16px', border: '1px solid #e9ecef' }}>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: '#043873' }}>
+                                {pt.pseudo_p_value!.toFixed(3)}
+                              </div>
+                              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>Pseudo p-value</div>
+                            </div>
+                          )}
+                          {pt.rank_pct !== null && (
+                            <div style={{ background: '#f8f9fa', borderRadius: 8, padding: '14px 16px', border: '1px solid #e9ecef' }}>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: '#043873' }}>{pt.rank_pct}%</div>
+                              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>Placebos smaller than real</div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Histogram chart */}
+                      {pt.chart_data && pt.chart_data.placeboEstimates.length > 0 && (
+                        <div style={{
+                          background: '#fff',
+                          borderRadius: 10,
+                          border: '1px solid #e9ecef',
+                          padding: '20px 16px 8px',
+                          marginBottom: '20px',
+                        }}>
+                          <PlaceboTestChart chartData={pt.chart_data} />
+                        </div>
+                      )}
+
+                      {/* Interpretation guide */}
+                      <div style={{
+                        background: '#f0f7ff',
+                        borderRadius: 8,
+                        padding: '14px 18px',
+                        border: '1px solid #bfdbfe',
+                        fontSize: 14,
+                        color: '#1e40af',
+                        lineHeight: 1.6,
+                      }}>
+                        <strong>How to read this test:</strong> Each bar represents one "fake" treatment
+                        estimate computed entirely within the pre-treatment window. The red line marks your
+                        real treatment effect. If the real effect lies far to the right (or left) of the
+                        placebo distribution, it is unlikely to be driven by pre-existing trends.
+                        The <em>pseudo p-value</em> is the fraction of placebo estimates that are at least
+                        as large in magnitude as the real estimate — analogous to a randomisation-inference
+                        p-value.
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* Additional Assumption Checks */}
             <div style={styles.parallelTrendsSection}>

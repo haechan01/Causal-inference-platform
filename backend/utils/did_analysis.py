@@ -1175,6 +1175,281 @@ def _fig_to_base64(fig):
     return base64.b64encode(buf.getvalue()).decode()
 
 # =============================================================================
+# PLACEBO TEST
+# =============================================================================
+
+def run_placebo_test(df, treatment_col, time_col, outcome_col, treatment_time,
+                     unit_col=None, real_estimate=None):
+    """
+    Placebo test for DiD: apply fake treatment times in the pre-treatment window.
+
+    For each candidate fake treatment time we restrict the data to the
+    pre-treatment period only and run a simple 2×2 DiD.  Under parallel trends,
+    those "fake treatment" effects should cluster around zero.  Comparing the
+    real estimate against this placebo distribution gives an informal
+    randomisation-inference p-value.
+
+    Parameters
+    ----------
+    df : pandas DataFrame
+    treatment_col : str   binary 0/1 indicator for treated group
+    time_col : str
+    outcome_col : str
+    treatment_time : numeric / comparable
+        The actual first treatment period (used to filter pre-treatment data).
+    unit_col : str, optional
+    real_estimate : float, optional
+        The real DiD estimate to compare against the placebo distribution.
+
+    Returns
+    -------
+    dict with keys:
+        placebo_estimates, n_significant, n_total,
+        pseudo_p_value, passed, message, summary_chart_data
+    """
+    try:
+        # ---- normalise treatment_time type ----
+        if pd.api.types.is_numeric_dtype(df[time_col]):
+            treatment_time = pd.to_numeric(treatment_time, errors='coerce')
+        else:
+            treatment_time = str(treatment_time)
+
+        # ---- restrict to pre-treatment periods ----
+        pre_df = df[df[time_col] < treatment_time].copy()
+
+        if outcome_col in pre_df.columns:
+            pre_df[outcome_col] = pd.to_numeric(pre_df[outcome_col], errors='coerce')
+            pre_df = pre_df.dropna(subset=[outcome_col])
+
+        pre_periods = sorted(pre_df[time_col].unique())
+
+        # need at least 3 pre-treatment periods to have at least 1 candidate
+        if len(pre_periods) < 3:
+            return _empty_placebo_result(
+                "Need at least 3 pre-treatment periods to run a placebo test."
+            )
+
+        # verify both groups exist in pre-treatment data
+        if pre_df[treatment_col].nunique() < 2:
+            return _empty_placebo_result(
+                "Need both treatment and control groups in pre-treatment data."
+            )
+
+        # candidate fake treatment times: every pre-period that has at least one
+        # period before it AND one period after it (all still within pre-treatment)
+        candidates = pre_periods[1:-1]  # exclude first and last
+
+        if not candidates:
+            return _empty_placebo_result(
+                "Insufficient variation in pre-treatment periods for a placebo test."
+            )
+
+        placebo_estimates = []
+
+        for fake_time in candidates:
+            try:
+                fake_pre = pre_df[pre_df[time_col] < fake_time]
+                fake_post = pre_df[pre_df[time_col] >= fake_time]
+
+                if fake_pre.empty or fake_post.empty:
+                    continue
+                # need both groups in both fake sub-periods
+                if (fake_pre[treatment_col].nunique() < 2 or
+                        fake_post[treatment_col].nunique() < 2):
+                    continue
+
+                estimate, se, p_val, ci_lower, ci_upper = _simple_did(
+                    fake_pre, fake_post, treatment_col, outcome_col, unit_col
+                )
+
+                if estimate is None:
+                    continue
+
+                fake_time_val = (int(fake_time)
+                                 if isinstance(fake_time, (int, float))
+                                    and float(fake_time).is_integer()
+                                 else float(fake_time)
+                                 if isinstance(fake_time, (int, float))
+                                 else str(fake_time))
+
+                placebo_estimates.append({
+                    "fake_treatment_time": fake_time_val,
+                    "estimate": round(float(estimate), 4),
+                    "se": round(float(se), 4),
+                    "p_value": round(float(p_val), 4),
+                    "ci_lower": round(float(ci_lower), 4),
+                    "ci_upper": round(float(ci_upper), 4),
+                    "is_significant": bool(p_val < 0.05)
+                })
+
+            except Exception:
+                continue
+
+        if not placebo_estimates:
+            return _empty_placebo_result(
+                "Could not compute any placebo estimates."
+            )
+
+        n_total = len(placebo_estimates)
+        n_significant = sum(1 for e in placebo_estimates if e["is_significant"])
+
+        # ---- compare real estimate to distribution ----
+        pseudo_p_value = None
+        passed = None
+        rank_pct = None
+
+        if real_estimate is not None and not math.isnan(real_estimate):
+            abs_real = abs(real_estimate)
+            abs_placebos = [abs(e["estimate"]) for e in placebo_estimates]
+            n_more_extreme = sum(1 for v in abs_placebos if v >= abs_real)
+            pseudo_p_value = round(n_more_extreme / n_total, 4)
+            # rank: what fraction of placebos are SMALLER than real estimate
+            rank_pct = round(
+                sum(1 for v in abs_placebos if v < abs_real) / n_total * 100, 1
+            )
+            # "pass" if fewer than 5% of placebos are as extreme as the real estimate
+            passed = pseudo_p_value <= 0.05
+
+        # ---- generate message ----
+        false_positive_rate = round(n_significant / n_total * 100, 1)
+
+        if pseudo_p_value is not None:
+            if passed:
+                message = (
+                    f"✅ Placebo test passed. Your real treatment effect is more extreme "
+                    f"than {rank_pct}% of the {n_total} placebo estimates, giving a "
+                    f"pseudo p-value of {pseudo_p_value:.3f}. "
+                    f"This suggests the observed effect is unlikely to be a statistical artifact."
+                )
+            else:
+                message = (
+                    f"⚠️ Placebo test inconclusive. Your real treatment effect falls within "
+                    f"the range of placebo estimates (pseudo p-value = {pseudo_p_value:.3f}). "
+                    f"Consider whether pre-treatment trends may be driving the results."
+                )
+        else:
+            if false_positive_rate <= 10:
+                message = (
+                    f"✅ Only {n_significant} of {n_total} placebo estimates "
+                    f"({false_positive_rate}%) are statistically significant, consistent "
+                    f"with the expected 5% false-positive rate under parallel trends."
+                )
+            else:
+                message = (
+                    f"⚠️ {n_significant} of {n_total} placebo estimates "
+                    f"({false_positive_rate}%) are statistically significant, which exceeds "
+                    f"the expected 5% false-positive rate and suggests pre-treatment "
+                    f"trend differences."
+                )
+
+        # ---- chart data for frontend ----
+        estimates_only = [e["estimate"] for e in placebo_estimates]
+        chart_data = {
+            "placeboEstimates": estimates_only,
+            "realEstimate": (round(float(real_estimate), 4)
+                             if real_estimate is not None and not math.isnan(real_estimate)
+                             else None),
+            "pseudoPValue": pseudo_p_value,
+            "xAxisLabel": "Estimated Effect",
+            "yAxisLabel": "Count",
+            "title": "Placebo Test: Distribution of Fake Treatment Effects",
+            "realLabel": "Real Treatment Effect",
+            "placeboLabel": "Placebo Estimates"
+        }
+
+        return sanitize_for_json({
+            "placebo_estimates": placebo_estimates,
+            "n_total": n_total,
+            "n_significant": n_significant,
+            "false_positive_rate": false_positive_rate,
+            "pseudo_p_value": pseudo_p_value,
+            "rank_pct": rank_pct,
+            "passed": passed,
+            "message": message,
+            "chart_data": chart_data
+        })
+
+    except Exception as e:
+        logger.error(f"[run_placebo_test] Error: {str(e)}", exc_info=True)
+        return _empty_placebo_result(f"Error running placebo test: {str(e)}")
+
+
+def _simple_did(pre_df, post_df, treatment_col, outcome_col, unit_col=None):
+    """
+    Simple 2×2 DiD: (treat_post - treat_pre) - (ctrl_post - ctrl_pre).
+    Returns (estimate, se, p_value, ci_lower, ci_upper) or (None, ...) on failure.
+    """
+    treat_pre  = pre_df[pre_df[treatment_col] == 1][outcome_col]
+    ctrl_pre   = pre_df[pre_df[treatment_col] == 0][outcome_col]
+    treat_post = post_df[post_df[treatment_col] == 1][outcome_col]
+    ctrl_post  = post_df[post_df[treatment_col] == 0][outcome_col]
+
+    for s in [treat_pre, ctrl_pre, treat_post, ctrl_post]:
+        if len(s) == 0:
+            return None, None, None, None, None
+
+    estimate = (treat_post.mean() - treat_pre.mean()) - (ctrl_post.mean() - ctrl_pre.mean())
+
+    # Variance: if unit_col provided, cluster by unit; otherwise use simple formula
+    epsilon = 1e-10
+    if unit_col:
+        all_df = pd.concat([pre_df.assign(_post=0), post_df.assign(_post=1)], ignore_index=True)
+        unit_diffs = []
+        for unit in all_df[unit_col].unique():
+            u = all_df[all_df[unit_col] == unit]
+            u_pre  = u[u['_post'] == 0][outcome_col]
+            u_post = u[u['_post'] == 1][outcome_col]
+            if len(u_pre) > 0 and len(u_post) > 0:
+                unit_diffs.append(
+                    float(u[u[treatment_col] == 1][outcome_col].mean()
+                          if u[treatment_col].iloc[0] == 1 else 0)
+                )
+        # fallback to per-group variance when clustering isn't feasible
+        if len(unit_diffs) < 4:
+            se = _pooled_se(treat_pre, ctrl_pre, treat_post, ctrl_post, epsilon)
+        else:
+            se = max(np.std(unit_diffs, ddof=1) / np.sqrt(len(unit_diffs)), epsilon)
+    else:
+        se = _pooled_se(treat_pre, ctrl_pre, treat_post, ctrl_post, epsilon)
+
+    z = abs(estimate / se)
+    p_val = float(2 * (1 - _norm_cdf(z)))
+    ci_lower = estimate - 1.96 * se
+    ci_upper = estimate + 1.96 * se
+    return estimate, se, p_val, ci_lower, ci_upper
+
+
+def _pooled_se(treat_pre, ctrl_pre, treat_post, ctrl_post, epsilon=1e-10):
+    """Pooled standard error for a simple 2×2 DiD."""
+    n1, n2, n3, n4 = (max(len(s), 1) for s in [treat_pre, treat_post, ctrl_pre, ctrl_post])
+    v1 = treat_pre.var(ddof=1) if len(treat_pre) > 1 else 0.0
+    v2 = treat_post.var(ddof=1) if len(treat_post) > 1 else 0.0
+    v3 = ctrl_pre.var(ddof=1) if len(ctrl_pre) > 1 else 0.0
+    v4 = ctrl_post.var(ddof=1) if len(ctrl_post) > 1 else 0.0
+    return max(math.sqrt(v1/n1 + v2/n2 + v3/n3 + v4/n4), epsilon)
+
+
+def _norm_cdf(z):
+    """Standard normal CDF using the error function."""
+    import math as _math
+    return (1.0 + _math.erf(z / _math.sqrt(2.0))) / 2.0
+
+
+def _empty_placebo_result(message):
+    return {
+        "placebo_estimates": [],
+        "n_total": 0,
+        "n_significant": 0,
+        "false_positive_rate": None,
+        "pseudo_p_value": None,
+        "rank_pct": None,
+        "passed": None,
+        "message": message,
+        "chart_data": None
+    }
+
+
+# =============================================================================
 # MAIN DiD FUNCTION (UPDATED)
 # =============================================================================
 
