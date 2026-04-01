@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { SearchableDropdown } from '../components/inputs';
 import { RDVariableSuggestions } from '../components/rd';
 import { projectStateService } from '../services/projectStateService';
+import { AnalysisValidationModal } from '../components/modals';
 
 const COLLAPSE_THRESHOLD = 200;
 
@@ -47,6 +48,11 @@ const RDSetup: React.FC = () => {
   // Analysis state
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  // Validation modal state
+  const [showValidationModal, setShowValidationModal] = useState(false);
+  const [validationParameters, setValidationParameters] = useState<any>(null);
+  const [validationDataSummary, setValidationDataSummary] = useState<any>(null);
 
   // AI panel state
   const [schemaInfo, setSchemaInfo] = useState<any>(null);
@@ -276,6 +282,45 @@ const RDSetup: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
     setIsResizing(true);
+  };
+
+  // ── Open validation modal ─────────────────────────────────────────────────
+  const handleOpenValidation = () => {
+    if (!canProceed || !selectedDataset) return;
+
+    const cutoffNum = parseFloat(cutoff);
+
+    // Build concise name→type map for all columns
+    const columnTypes: Record<string, string> = {};
+    variables.forEach((v) => { columnTypes[v.name] = v.type; });
+
+    // Pull running variable and outcome stats directly from schema metadata
+    const runningCol = schemaInfo?.columns?.find((c: any) => c.name === runningVar);
+    const outcomeCol  = schemaInfo?.columns?.find((c: any) => c.name === outcomeVar);
+
+    setValidationParameters({
+      method: 'rd',
+      running_var: runningVar,
+      outcome_var: outcomeVar,
+      cutoff: cutoffNum,
+      treatment_side: treatmentSide,
+      rd_type: rdType,
+      treatment_var: rdType === 'fuzzy' ? treatmentVar : undefined,
+      bandwidth: bandwidth || 'auto',
+    });
+
+    setValidationDataSummary({
+      total_rows: schemaInfo?.total_rows ?? null,
+      structure_info: {
+        column_types: columnTypes,
+        running_var_min: runningCol?.min ?? null,
+        running_var_max: runningCol?.max ?? null,
+        missing_running_pct: runningCol?.missing_pct ?? null,
+        missing_outcome_pct: outcomeCol?.missing_pct ?? null,
+      },
+    });
+
+    setShowValidationModal(true);
   };
 
   const handleRunAnalysis = async () => {
@@ -848,7 +893,7 @@ const RDSetup: React.FC = () => {
                 ...styles.runButton,
                 ...((!canProceed || analyzing) && styles.runButtonDisabled),
               }}
-              onClick={handleRunAnalysis}
+              onClick={handleOpenValidation}
               disabled={!canProceed || analyzing}
             >
               {analyzing ? 'Running Analysis...' : 'Run RD Analysis'}
@@ -905,12 +950,20 @@ const RDSetup: React.FC = () => {
         </div>
       </div>
 
+      <AnalysisValidationModal
+        isOpen={showValidationModal}
+        parameters={validationParameters}
+        dataSummary={validationDataSummary}
+        onProceed={handleRunAnalysis}
+        onCancel={() => setShowValidationModal(false)}
+      />
+
       {/* Bottom Progress Bar */}
       <BottomProgressBar
         currentStep={currentStep}
         steps={steps}
         onPrev={goToPreviousStep}
-        onNext={handleRunAnalysis}
+        onNext={handleOpenValidation}
         canGoNext={canProceed && !analyzing}
         onStepClick={(path) => navigateToStep(path)}
       />

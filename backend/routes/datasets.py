@@ -383,14 +383,21 @@ def get_dataset_schema(dataset_id):
                         if len(unique_vals) <= 10:
                             unique_values = [str(v) for v in unique_vals]
 
-                columns_info.append({
+                col_info_s: dict = {
                     'name': column,
                     'type': col_type,
                     'unique_values': unique_values,
                     'unique_count': int(col_data.nunique()),
                     'null_count': int(col_data.isnull().sum()),
-                    'total_count': len(col_data)
-                })
+                    'total_count': len(col_data),
+                    'missing_pct': round(col_data.isnull().sum() / len(col_data) * 100, 2) if len(col_data) > 0 else 0,
+                }
+                if col_type == 'numeric':
+                    numeric_data = pd.to_numeric(col_data, errors='coerce').dropna()
+                    if len(numeric_data) > 0:
+                        col_info_s['min'] = float(numeric_data.min())
+                        col_info_s['max'] = float(numeric_data.max())
+                columns_info.append(col_info_s)
 
             return jsonify({
                 "dataset_id": dataset_id,
@@ -497,14 +504,21 @@ def get_dataset_schema(dataset_id):
                         if len(unique_vals) <= 10:  # Reasonable limit for treatment values
                             unique_values = [str(val) for val in unique_vals]
 
-                columns_info.append({
+                col_info: dict = {
                     'name': column,
                     'type': col_type,
                     'unique_values': unique_values,
                     'unique_count': int(col_data.nunique()),
                     'null_count': int(col_data.isnull().sum()),
-                    'total_count': len(col_data)
-                })
+                    'total_count': len(col_data),
+                    'missing_pct': round(col_data.isnull().sum() / len(col_data) * 100, 2) if len(col_data) > 0 else 0,
+                }
+                if col_type == 'numeric':
+                    numeric_data = pd.to_numeric(col_data, errors='coerce').dropna()
+                    if len(numeric_data) > 0:
+                        col_info['min'] = float(numeric_data.min())
+                        col_info['max'] = float(numeric_data.max())
+                columns_info.append(col_info)
 
             return jsonify({
                 "dataset_id": dataset_id,

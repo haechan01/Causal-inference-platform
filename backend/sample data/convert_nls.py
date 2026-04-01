@@ -70,7 +70,37 @@ COLUMNS = [
     (169, 169, "libcrd14", "1 if lib card in home age 14"),
 ]
 
-HEADER = [col[2] for col in COLUMNS]
+
+def _header_with_famed_dummies():
+    """
+    Column names: Card (1993) uses f1–f8 dummies from famed (1–8);
+    famed==9 is the omitted reference category.
+    """
+    names = []
+    for col in COLUMNS:
+        names.append(col[2])
+        if col[2] == "famed":
+            for i in range(1, 9):
+                names.append(f"f{i}")
+    return names
+
+
+HEADER = _header_with_famed_dummies()
+
+# Index of famed in the raw fixed-width row (before inserting f1–f8)
+FAMED_COL_INDEX = [col[2] for col in COLUMNS].index("famed")
+
+
+def _famed_dummy_values(famed_str: str) -> list[str]:
+    """f_i = 1 iff famed == i (i=1..8); empty/missing famed -> all zeros."""
+    if not famed_str or famed_str.strip() == "":
+        return ["0"] * 8
+    try:
+        v = int(float(famed_str.strip()))
+    except ValueError:
+        return ["0"] * 8
+    return ["1" if v == i else "0" for i in range(1, 9)]
+
 
 def extract_value(line, start, end):
     """
@@ -104,6 +134,9 @@ def convert(dat_path, csv_path):
                 continue
 
             row = [extract_value(line, s, e) for s, e, *_ in COLUMNS]
+            dummies = _famed_dummy_values(row[FAMED_COL_INDEX])
+            cut = FAMED_COL_INDEX + 1
+            row = row[:cut] + dummies + row[cut:]
             writer.writerow(row)
             written += 1
 
