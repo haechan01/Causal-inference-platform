@@ -313,6 +313,151 @@ Respond with JSON only:
         response = self._call_gemini(prompt)
         return self._parse_json_response(response)
     
+    def validate_iv_setup(
+        self,
+        parameters: Dict[str, Any],
+        data_summary: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Validate IV (2SLS) analysis setup before running.
+        Checks variable types, data compatibility, and instrument requirements.
+        """
+        structure_info = data_summary.get('structure_info', {})
+        total_rows = data_summary.get('total_rows', 'unknown')
+        column_types = structure_info.get('column_types', {})
+        missing_by_col = structure_info.get('missing_pct_by_column', {})
+        selected_cols = structure_info.get('selected_columns', [])
+
+        # Build a concise type summary for ONLY the selected variables
+        outcome = parameters.get('outcome', '')
+        treatment = parameters.get('treatment', '')
+        instruments = parameters.get('instruments', [])
+        controls = parameters.get('controls', [])
+
+        all_selected = [v for v in [outcome, treatment] + instruments + controls if v]
+        selected_types = {c: column_types.get(c, 'unknown') for c in all_selected}
+        selected_missing = {c: missing_by_col.get(c) for c in all_selected if c in missing_by_col}
+
+        n_variables = len(all_selected)
+
+        prompt = f"""You are a causal inference expert. Validate this Instrumental Variables (2SLS) setup before running.
+Use plain language — no jargon.
+
+Selected variables:
+- Outcome: {outcome}
+- Treatment (the variable whose effect we want to measure): {treatment}
+- Instruments: {instruments}
+- Controls: {controls}
+- Additional endogenous variables: {parameters.get('additional_endogenous', [])}
+
+Dataset information:
+- Total rows: {total_rows}
+- Number of variables selected: {n_variables}
+- Data type of each selected variable (must be "numeric" to work in regression):
+{json.dumps(selected_types, indent=2)}
+- Missing data percentage per selected variable (None means data was not available):
+{json.dumps(selected_missing, indent=2)}
+
+Run these checks. Use simple everyday language — explain what you found, not just pass/fail:
+1. Variable types — are ALL selected variables of type "numeric"? List any that are not.
+2. Sample size — does the dataset have at least 30 rows, and at least 10 rows per variable used?
+3. No overlap — is the treatment variable different from the outcome? Are the instruments different from both?
+4. Missing data — is missing data below 20% for each selected variable?
+
+Respond with JSON only:
+{{
+    "is_valid": true/false,
+    "validation_checks": [
+        {{"check": "short name", "passed": true/false, "details": "plain English explanation"}}
+    ],
+    "critical_issues": ["plain language issues that will cause the analysis to fail"],
+    "warnings": ["things to be aware of that might affect results"],
+    "suggestions": ["simple tips to improve the setup"],
+    "proceed_recommendation": "proceed|review|stop"
+}}"""
+
+        response = self._call_gemini(prompt)
+        return self._parse_json_response(response)
+
+    def validate_rd_setup(
+        self,
+        parameters: Dict[str, Any],
+        data_summary: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Validate RD (Regression Discontinuity) setup before running.
+        Checks variable types, cutoff placement, and obs counts on each side.
+        """
+        structure_info = data_summary.get('structure_info', {})
+        total_rows = data_summary.get('total_rows', 'unknown')
+        column_types = structure_info.get('column_types', {})
+
+        running_var = parameters.get('running_var', '')
+        outcome_var = parameters.get('outcome_var', '')
+        cutoff = parameters.get('cutoff')
+        running_min = structure_info.get('running_var_min')
+        running_max = structure_info.get('running_var_max')
+        missing_running = structure_info.get('missing_running_pct')
+        missing_outcome = structure_info.get('missing_outcome_pct')
+
+        running_type = column_types.get(running_var, 'unknown')
+        outcome_type = column_types.get(outcome_var, 'unknown')
+
+        # Determine if cutoff is within range
+        cutoff_in_range = (
+            running_min is not None
+            and running_max is not None
+            and cutoff is not None
+            and running_min < float(cutoff) < running_max
+        )
+
+        fuzzy_var = parameters.get('treatment_var')
+        fuzzy_type = column_types.get(fuzzy_var, 'unknown') if fuzzy_var else None
+
+        prompt = f"""You are a causal inference expert. Validate this Regression Discontinuity (RD) setup before running.
+Use plain language — no jargon.
+
+Selected variables and settings:
+- Running variable (the score that determines who gets treatment): {running_var}
+- Outcome (what we are measuring): {outcome_var}
+- Cutoff threshold: {cutoff}
+- Treatment side: {parameters.get('treatment_side')} (units on this side of the cutoff receive treatment)
+- Design type: {parameters.get('rd_type', 'sharp')}
+- Fuzzy treatment variable: {fuzzy_var if fuzzy_var else 'not used'}
+- Bandwidth: {parameters.get('bandwidth', 'auto')} (window of data around the cutoff used for estimation)
+
+Data information:
+- Total rows in dataset: {total_rows}
+- Data type of running variable "{running_var}": {running_type} (must be "numeric")
+- Data type of outcome variable "{outcome_var}": {outcome_type} (must be "numeric")
+- Running variable range: {running_min} to {running_max}
+- Cutoff {cutoff} is {"inside" if cutoff_in_range else "OUTSIDE or at the edge of"} the running variable range
+- Missing data in running variable: {f"{missing_running:.1f}%" if missing_running is not None else "unknown"}
+- Missing data in outcome: {f"{missing_outcome:.1f}%" if missing_outcome is not None else "unknown"}
+{f'- Data type of fuzzy treatment variable "{fuzzy_var}": {fuzzy_type}' if fuzzy_var else ''}
+
+Run these checks. Use simple everyday language — explain what you found:
+1. Variable types — are both the running variable and outcome variable "numeric"?
+2. Cutoff placement — does the cutoff value fall well inside the running variable range (not at an edge)?
+3. Sample size — does the total row count look sufficient? We need enough data on BOTH sides of the cutoff (at least 20 rows on each side, ideally 50+). Since we only know total rows, estimate whether the split is likely adequate.
+4. Missing data — is missing data below 20% for the running variable and outcome?
+5. Fuzzy design check (only if design type is "fuzzy") — is the fuzzy treatment variable suitable (binary 0/1 or similar)?
+
+Respond with JSON only:
+{{
+    "is_valid": true/false,
+    "validation_checks": [
+        {{"check": "short name", "passed": true/false, "details": "plain English explanation"}}
+    ],
+    "critical_issues": ["plain language issues that will prevent the analysis from working"],
+    "warnings": ["things to keep in mind that might affect results"],
+    "suggestions": ["simple tips to improve the setup"],
+    "proceed_recommendation": "proceed|review|stop"
+}}"""
+
+        response = self._call_gemini(prompt)
+        return self._parse_json_response(response)
+
     def explain_concept(self, concept: str, user_level: str = "beginner") -> Dict[str, Any]:
         """
         Explain a causal inference concept at the user's level.

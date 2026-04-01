@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { SearchableDropdown, HelpTooltip } from '../components/inputs';
 import { aiService } from '../services/aiService';
 import { projectStateService } from '../services/projectStateService';
+import { AnalysisValidationModal } from '../components/modals';
 
 const MAX_MESSAGE_LENGTH = 2000;
 
@@ -207,6 +208,11 @@ const IVSetup: React.FC = () => {
   // Analysis state
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  // Validation modal state
+  const [showValidationModal, setShowValidationModal] = useState(false);
+  const [validationParameters, setValidationParameters] = useState<any>(null);
+  const [validationDataSummary, setValidationDataSummary] = useState<any>(null);
 
   // AI panel resize
   const [aiSidebarWidth, setAiSidebarWidth] = useState(400);
@@ -454,6 +460,43 @@ SENSITIVITY ANALYSIS:
     instruments.length >= 1 &&
     !instruments.includes(outcomeVar) &&
     !instruments.includes(treatmentVar);
+
+  // ── Open validation modal ─────────────────────────────────────────────────
+  const handleOpenValidation = () => {
+    if (!canProceed || !selectedDataset) return;
+
+    // Build a concise name→type map for all columns
+    const columnTypes: Record<string, string> = {};
+    variables.forEach((v) => { columnTypes[v.name] = v.type; });
+
+    // Build missing-% info for selected columns from schema
+    const selectedCols = [outcomeVar, treatmentVar, ...instruments, ...controls].filter(Boolean);
+    const missingInfo: Record<string, number | null> = {};
+    selectedCols.forEach((col) => {
+      const colMeta = schemaInfo?.columns?.find((c: any) => c.name === col);
+      missingInfo[col] = colMeta?.missing_pct ?? null;
+    });
+
+    setValidationParameters({
+      method: 'iv',
+      outcome: outcomeVar,
+      treatment: treatmentVar,
+      instruments,
+      controls,
+      additional_endogenous: additionalEndogenous,
+    });
+
+    setValidationDataSummary({
+      total_rows: schemaInfo?.total_rows ?? null,
+      structure_info: {
+        column_types: columnTypes,
+        selected_columns: selectedCols,
+        missing_pct_by_column: missingInfo,
+      },
+    });
+
+    setShowValidationModal(true);
+  };
 
   // ── Run analysis ──────────────────────────────────────────────────────────
   const handleRunAnalysis = async () => {
@@ -1121,7 +1164,7 @@ SENSITIVITY ANALYSIS:
                     ...styles.runButton,
                     ...(!canProceed || analyzing ? styles.runButtonDisabled : {}),
                   }}
-                  onClick={handleRunAnalysis}
+                  onClick={handleOpenValidation}
                   disabled={!canProceed || analyzing}
                 >
                   {analyzing ? 'Running Analysis…' : 'Run IV Analysis'}
@@ -1347,11 +1390,19 @@ SENSITIVITY ANALYSIS:
         </div>
       </div>
 
+      <AnalysisValidationModal
+        isOpen={showValidationModal}
+        parameters={validationParameters}
+        dataSummary={validationDataSummary}
+        onProceed={handleRunAnalysis}
+        onCancel={() => setShowValidationModal(false)}
+      />
+
       <BottomProgressBar
         currentStep={currentStep}
         steps={steps}
         onPrev={goToPreviousStep}
-        onNext={handleRunAnalysis}
+        onNext={handleOpenValidation}
         canGoNext={canProceed && !analyzing}
         onStepClick={(path) => navigateToStep(path)}
       />

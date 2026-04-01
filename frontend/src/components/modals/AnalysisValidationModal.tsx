@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
 interface ValidationResult {
@@ -33,6 +33,13 @@ const AnalysisValidationModal: React.FC<Props> = ({
   const [loading, setLoading] = useState(true);
   const [runningAnalysis, setRunningAnalysis] = useState(false);
 
+  // Keep refs always pointing at the latest props so the effect never
+  // reads a stale closure value regardless of batching order.
+  const parametersRef = useRef(parameters);
+  const dataSummaryRef = useRef(dataSummary);
+  parametersRef.current = parameters;
+  dataSummaryRef.current = dataSummary;
+
   const handleRunClick = async () => {
     setRunningAnalysis(true);
     try {
@@ -43,33 +50,37 @@ const AnalysisValidationModal: React.FC<Props> = ({
     }
   };
 
-  const validateSetup = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await axios.post('/ai/validate-setup', {
-        parameters,
-        data_summary: dataSummary
-      });
-      setValidation(response.data);
-    } catch (error) {
-      setValidation({
-        is_valid: true,
-        validation_checks: [],
-        critical_issues: [],
-        warnings: ['Could not perform AI validation'],
-        suggestions: [],
-        proceed_recommendation: 'proceed'
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [parameters, dataSummary]);
-
   useEffect(() => {
-    if (isOpen) {
-      validateSetup();
-    }
-  }, [isOpen, parameters, validateSetup]);
+    if (!isOpen) return;
+
+    let cancelled = false;
+    setLoading(true);
+    setValidation(null);
+
+    const run = async () => {
+      try {
+        const response = await axios.post('/ai/validate-setup', {
+          parameters: parametersRef.current,
+          data_summary: dataSummaryRef.current,
+        });
+        if (!cancelled) setValidation(response.data);
+      } catch {
+        if (!cancelled) setValidation({
+          is_valid: true,
+          validation_checks: [],
+          critical_issues: [],
+          warnings: ['Could not perform AI validation. Please check your setup manually.'],
+          suggestions: [],
+          proceed_recommendation: 'proceed',
+        });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    run();
+    return () => { cancelled = true; };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

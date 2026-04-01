@@ -334,13 +334,57 @@ def validate_setup():
         data = request.get_json()
         parameters = data.get('parameters')
         data_summary = data.get('data_summary')
-        
+
         if not parameters:
             return jsonify({"error": "parameters are required"}), 400
-        
+
+        method = parameters.get('method', 'did')
         assistant = get_ai_assistant()
-        validation = assistant.validate_did_setup(parameters, data_summary or {})
-        
+
+        # Guard: return a structured error instead of calling the AI with
+        # null/empty variable names (which produces confusing AI messages).
+        if method == 'iv':
+            missing = [f for f in ('outcome', 'treatment') if not parameters.get(f)]
+            if not parameters.get('instruments'):
+                missing.append('instruments')
+            if missing:
+                checks = [{"check": f"Missing {f}", "passed": False,
+                           "details": f"No {f} variable was received by the server. Please re-open the validation and try again."}
+                          for f in missing]
+                return jsonify({"is_valid": False, "validation_checks": checks,
+                                "critical_issues": [f"Missing variable: {f}" for f in missing],
+                                "warnings": [], "suggestions": ["Re-open the validation dialog."],
+                                "proceed_recommendation": "stop"}), 200
+        elif method == 'rd':
+            missing = [f for f in ('running_var', 'outcome_var') if not parameters.get(f)]
+            if parameters.get('cutoff') is None:
+                missing.append('cutoff')
+            if missing:
+                checks = [{"check": f"Missing {f}", "passed": False,
+                           "details": f"No {f} was received by the server. Please re-open the validation and try again."}
+                          for f in missing]
+                return jsonify({"is_valid": False, "validation_checks": checks,
+                                "critical_issues": [f"Missing parameter: {f}" for f in missing],
+                                "warnings": [], "suggestions": ["Re-open the validation dialog."],
+                                "proceed_recommendation": "stop"}), 200
+        else:
+            missing = [f for f in ('outcome', 'treatment', 'time', 'unit') if not parameters.get(f)]
+            if missing:
+                checks = [{"check": f"Missing {f}", "passed": False,
+                           "details": f"No {f} variable was received by the server. Please re-open the validation and try again."}
+                          for f in missing]
+                return jsonify({"is_valid": False, "validation_checks": checks,
+                                "critical_issues": [f"Missing variable: {f}" for f in missing],
+                                "warnings": [], "suggestions": ["Re-open the validation dialog."],
+                                "proceed_recommendation": "stop"}), 200
+
+        if method == 'iv':
+            validation = assistant.validate_iv_setup(parameters, data_summary or {})
+        elif method == 'rd':
+            validation = assistant.validate_rd_setup(parameters, data_summary or {})
+        else:
+            validation = assistant.validate_did_setup(parameters, data_summary or {})
+
         return jsonify(validation), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
