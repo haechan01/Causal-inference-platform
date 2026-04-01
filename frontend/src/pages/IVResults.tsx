@@ -180,6 +180,16 @@ treatment_var = '${p.treatment}'
 instruments   = ${instrumentsList}   # instruments (must satisfy exclusion restriction)
 controls      = ${controlsList}      # exogenous controls
 ${addEndogSection}${interactionsSection}
+# ── Input validation ─────────────────────────────────────────────────────────
+required_cols = [outcome_var, treatment_var] + instruments + controls${hasAdditionalEndog ? ' + additional_endog + additional_instrs' : ''}
+missing_cols  = [c for c in required_cols if c not in df.columns]
+if missing_cols:
+    raise ValueError(f"Missing columns in dataset: {missing_cols}")
+df = df.dropna(subset=[outcome_var, treatment_var] + instruments).copy()
+if df.empty:
+    raise ValueError("No valid rows after dropping NaN — check your data.")
+print(f"Dataset: {len(df)} rows after dropping NaN in key variables.")
+
 # ── Prepare data matrices ─────────────────────────────────────────────────────
 y      = df[outcome_var]
 X_exog = sm.add_constant(df[controls]) if controls else pd.DataFrame(
@@ -346,6 +356,14 @@ for (pair in interactions) {
   if (!col %in% controls) controls <- c(controls, col)
 }
 ` : ''}
+# ── Input validation ─────────────────────────────────────────────────────────
+required_cols <- c(outcome_var, treatment_var, instruments, controls${hasAdditionalEndog ? ', additional_endog, additional_instrs' : ''})
+missing_cols  <- setdiff(required_cols, names(df))
+if (length(missing_cols) > 0) stop(paste("Missing columns:", paste(missing_cols, collapse = ", ")))
+df <- df %>% drop_na(all_of(c(outcome_var, treatment_var, instruments)))
+if (nrow(df) == 0) stop("No valid rows after dropping NaN — check your data.")
+cat(sprintf("Dataset: %d rows after dropping NaN in key variables.\\n", nrow(df)))
+
 # ── Build IV formula ─────────────────────────────────────────────────────────
 # ivreg / iv_robust formula: outcome ~ controls + endog | controls + instruments
 exog_part  <- paste(c(${allEndogR}, if (length(controls) > 0) controls), collapse = " + ")
@@ -488,6 +506,20 @@ local add_instrs  "${addEndogInstrs}"
 ` : ''}${hasInteractions ? `* Interaction terms
 ${(p.interactions || []).map((pair: any) => `gen ${pair[0]}_x_${pair[1]} = ${pair[0]} * ${pair[1]}`).join('\n')}
 ` : ''}
+* ── Input validation ────────────────────────────────────────────────────────
+foreach v in ${p.outcome} ${p.treatment} ${instrumentsStata} ${controlsStata}${hasAdditionalEndog ? ` ${addEndogVars} ${addEndogInstrs}` : ''} {
+    if "\`v'" != "" {
+        capture confirm variable \`v'
+        if _rc != 0 {
+            display as error "Missing column: \`v'"
+            exit 111
+        }
+    }
+}
+drop if missing(${p.outcome}) | missing(${p.treatment})
+count
+display "Rows after dropping missing: " r(N)
+
 * ── Step 1: First Stage ─────────────────────────────────────────────────────
 regress ${p.treatment} ${allInstrs}${hasControls ? ` ${controlsStata}` : ''}
 display "First-Stage F: " %9.4f e(F)
